@@ -3,6 +3,7 @@ import { Plus } from 'lucide-react';
 import type { QuotationWithRelations } from '../types';
 import { formatAmount, formatDate } from '../lib/format';
 import { StatusTag } from '../components/StatusTag';
+import { UpdateBadge } from '../components/UpdateBadge';
 import { Badge, StateBox } from '../components/ui';
 
 export function QuotationsList({
@@ -74,7 +75,7 @@ export function QuotationsList({
               <tbody>
                 {filtered.map((q) => (
                   <tr key={q.id} className="clickable" onClick={() => onOpen(q)}>
-                    <td className="mono" style={{ fontWeight: 700 }}>{q.quotation_number}</td>
+                    <td className="mono" style={{ fontWeight: 700 }}>{q.quotation_number}<UpdateBadge update={q.catalog_update} /></td>
                     <td>{q.customer_name}</td>
                     <td>{q.countries?.name ?? '-'}</td>
                     <td className="text-muted">{q.quotation_items?.length ?? 0}</td>

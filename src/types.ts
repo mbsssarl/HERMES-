@@ -16,7 +16,7 @@ export interface Country {
   id: string;
   code: string;
   name: string;
-  currency: string;
+  city: string | null; // ville/port principal, informatif
   active: boolean;
 }
 
@@ -45,6 +45,9 @@ export interface QuotationItem {
   original_description: string;
   quantity: number;
   base_price: number | null;
+  // Devise dans laquelle base_price a été enregistré (productPrices.currency au moment du matching) - sert
+  // de base au taux de change lors d'une conversion du fichier exporté, indépendamment par ligne.
+  price_currency: string | null;
   margin_percentage: number;
   final_unit_price: number | null;
   total_price: number | null;
@@ -74,8 +77,15 @@ export interface QuotationWithRelations {
   source_file_name: string | null;
   status: QuotationStatus;
   margin_percentage: number;
-  total: number;
+  total: number; // net : somme des lignes moins le discount global
+  subtotal: number; // somme des lignes, avant discount global
   created_at: string;
+  created_by: string | null;
+  export_currency: string | null;
+  // Un taux par devise d'origine réellement présente parmi les lignes (voir QuotationItem.price_currency) -
+  // plusieurs lignes d'une même quotation peuvent avoir été tarifées dans des devises différentes.
+  export_rates: { currency: string; rate: number; asOf: string; source: string }[];
+  catalog_update: { at: number; lines: number; by: string | null } | null; // mise à jour auto après un ajout au catalogue, non vue
   document_info: DocumentInfo;
   vessel: string | null;
   eta: string | null;
@@ -85,7 +95,7 @@ export interface QuotationWithRelations {
   global_discount_percent: number | null;
   item_count: number;
   unresolved_count: number; // lignes cochées encore inconnues ou à confirmer
-  countries: Pick<Country, 'id' | 'code' | 'name' | 'currency'> | null;
+  countries: Pick<Country, 'id' | 'code' | 'name' | 'city'> | null;
   quotation_items: QuotationItem[];
 }
 
@@ -109,9 +119,23 @@ export interface DocumentInfo {
   currency?: string;
 }
 
+export interface ProductCategory {
+  id: string;
+  name: string;
+  active: boolean;
+}
+
+export interface Currency {
+  id: string;
+  code: string;
+  name: string;
+  active: boolean;
+}
+
 export interface AppUser {
   id: string;
   email: string;
   role: 'admin' | 'user';
   mustChangePassword: boolean;
+  theme: 'light' | 'dark';
 }

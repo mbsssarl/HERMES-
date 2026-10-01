@@ -1,6 +1,24 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 
+// Devise de repli quand aucune ligne de la commande n'a encore de devise propre enregistrée (import
+// catalogue ou prix manuel - voir orderItems.priceCurrency) : les pays n'ont plus de devise attachée,
+// chaque prix porte désormais la sienne. XAF est la devise de l'entreprise (M.B.S.S Sarl, Douala).
+export const DEFAULT_CURRENCY = "XAF";
+
+/**
+ * Devise à utiliser pour une ligne sans prix propre (prix saisi à la main, ou ligne fournisseur validée
+ * sans devise indiquée) : celle déjà en usage sur les autres lignes chiffrées de la même commande, sinon
+ * la devise par défaut de l'entreprise.
+ */
+export async function resolveOrderCurrency(ctx: QueryCtx | MutationCtx, orderId: Id<"orders">): Promise<string> {
+  const items = await ctx.db.query("orderItems").withIndex("by_order", (q) => q.eq("orderId", orderId)).collect();
+  for (const item of items) {
+    if (item.priceCurrency) return item.priceCurrency;
+  }
+  return DEFAULT_CURRENCY;
+}
+
 /** Returns the currently active price (validTo undefined) for a product in a given country, or null. */
 export async function getCurrentPrice(
   ctx: QueryCtx | MutationCtx,

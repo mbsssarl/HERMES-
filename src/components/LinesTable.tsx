@@ -1,5 +1,6 @@
-import { Check, CircleHelp, TriangleAlert } from 'lucide-react';
-import type { Product, QuotationItem } from '../types';
+import React from 'react';
+import { Check, ChevronDown, ChevronUp, CircleHelp, TriangleAlert, X } from 'lucide-react';
+import type { ProductWithPrices, QuotationItem } from '../types';
 import { MATCH_LABELS, formatAmount } from '../lib/format';
 import { Badge } from './ui';
 import { NumberCell, TextCell } from './EditableCells';
@@ -11,7 +12,6 @@ export type LineEdit = Partial<{
   rawUnit: string;
   rawOrigin: string;
   quotedQuantity: number;
-  lineDiscountPercent: number;
   quotationPercent: number;
   unitPrice: number | null;
   reqNotes: string;
@@ -31,8 +31,8 @@ function MatchTag({ item }: { item: QuotationItem }) {
 }
 
 /**
- * Lignes de la quotation : No., Code, Description, Quantity, Unit, Unit Price, Cotation (%), Discount (%),
- * Final Price, Correspondance. Tout ce que l'utilisateur a saisi est modifiable ; Final Price (total de la
+ * Lignes de la quotation : No., Code, Description, Quantity, Unit, Unit Price, Cotation (%), Final Price,
+ * Correspondance (le discount est global, il s'applique au total de la commande). Tout ce que l'utilisateur a saisi est modifiable ; Final Price (total de la
  * ligne après remise) est calculé, ainsi que le Unit Price tant qu'aucun prix n'est saisi.
  */
 export function LinesTable({
@@ -40,17 +40,32 @@ export function LinesTable({
   products,
   currency,
   onEdit,
+  countryId,
   onConfirm,
+  onDismiss,
   onToggle,
 }: {
   items: QuotationItem[];
-  products: Product[];
+  products: ProductWithPrices[];
   currency: string;
+  /** Pays de cotation : les prix des propositions sont ceux de ce pays. */
+  countryId: string | null;
   onEdit: (item: QuotationItem, edit: LineEdit) => void;
   onConfirm: (item: QuotationItem, productId: string) => void;
+  /** Ignore une proposition de correspondance. */
+  onDismiss: (item: QuotationItem, productId: string) => void;
   /** Inclut / exclut des lignes du devis (totaux, statistiques, PDF, fichier exporté). */
   onToggle: (items: QuotationItem[], included: boolean) => void;
 }) {
+  // Lignes dont les propositions sont dépliées
+  const [open, setOpen] = React.useState<Set<string>>(new Set());
+  const toggleOpen = (id: string) =>
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   const allIncluded = items.length > 0 && items.every((it) => !it.excluded);
   const someIncluded = items.some((it) => !it.excluded);
   return (
@@ -75,16 +90,18 @@ export function LinesTable({
             <th>Unit</th>
             <th className="text-right">Unit Price</th>
             <th className="text-right">Cotation (%)</th>
-            <th className="text-right">Discount (%)</th>
             <th className="text-right">Final Price</th>
             <th>Correspondance</th>
           </tr>
         </thead>
         <tbody>
           {items.map((it) => {
+            const proposals = it.match_status === 'REVIEW' ? it.candidate_products : [];
+            const expanded = proposals.length > 0 && open.has(it.id);
             const priceMissing = it.product_id !== null && it.unit_price === null;
             return (
-              <tr key={it.id} style={it.excluded ? { opacity: 0.45 } : undefined}>
+              <React.Fragment key={it.id}>
+              <tr className={expanded ? 'has-proposals' : undefined} style={it.excluded ? { opacity: 0.45 } : undefined}>
                 <td>
                   <input type="checkbox" checked={!it.excluded} onChange={() => onToggle([it], it.excluded)} aria-label={`Inclure la ligne ${it.line_no}`} />
                 </td>
@@ -105,17 +122,53 @@ export function LinesTable({
                   />
                 </td>
                 <td className="text-right"><NumberCell width={64} value={it.margin_percentage} onCommit={(v) => onEdit(it, { quotationPercent: v })} /></td>
-                <td className="text-right"><NumberCell width={64} value={it.line_discount_percent} onCommit={(v) => onEdit(it, { lineDiscountPercent: v })} /></td>
                 <td className="text-right mono nowrap" style={{ fontWeight: 700 }}>{formatAmount(it.total_price)}</td>
                 <td style={{ minWidth: 150 }}>
-                  <MatchTag item={it} />
-                  {it.match_status === 'REVIEW' && it.candidate_products.map((c) => (
-                    <button key={c.id} className="btn btn-sm" style={{ display: 'flex', marginTop: 4 }} onClick={() => onConfirm(it, c.id)}>
-                      <Check size={13} /> {c.reference ? `${c.reference} - ` : ''}{c.name}
-                    </button>
-                  ))}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <MatchTag item={it} />
+                    {proposals.length > 0 && (
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        style={{ padding: '2px 6px' }}
+                        onClick={() => toggleOpen(it.id)}
+                        title={expanded ? 'Masquer les propositions' : 'Voir les propositions'}
+                        aria-expanded={expanded}
+                      >
+                        {proposals.length} {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
+              {expanded && (
+                <>
+                  {proposals.map((c, ci) => {
+                    const price = countryId ? products.find((p) => p.id === c.id)?.product_prices.find((pr) => pr.country_id === countryId)?.base_price ?? null : null;
+                    return (
+                      <tr key={`${it.id}-${c.id}`} className={`proposal-row ${ci === proposals.length - 1 ? 'proposal-last' : ''}`}>
+                        <td></td>
+                        <td></td>
+                        <td><TextCell mono readOnly width={96} value={c.reference} onCommit={() => {}} /></td>
+                        <td style={{ minWidth: 170 }}><TextCell readOnly width="100%" value={c.name} onCommit={() => {}} /></td>
+                        <td></td>
+                        <td><TextCell readOnly width={64} value={c.unit} onCommit={() => {}} /></td>
+                        <td className="text-right"><NumberCell readOnly width={92} decimals={2} value={price} placeholder="Prix manquant" onCommit={() => {}} /></td>
+                        <td></td>
+                        <td></td>
+                        <td>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button className="btn btn-sm" onClick={() => onConfirm(it, c.id)}><Check size={13} /> Choisir</button>
+                            <button className="btn btn-ghost btn-sm" onClick={() => onDismiss(it, c.id)} title="Ignorer cette proposition" aria-label={`Ignorer la proposition ${c.name}`}>
+                              <X size={14} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </>
+              )}
+              </React.Fragment>
             );
           })}
         </tbody>

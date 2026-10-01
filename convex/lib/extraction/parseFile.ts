@@ -1,6 +1,6 @@
 "use node";
 
-import { parseExcelToTable, type RawTable } from "./excel";
+import { parseExcelToTable, parseExcelToTables, type RawTable } from "./excel";
 import { extractPdfTable } from "./pdf";
 import { extractWordTable } from "./word";
 
@@ -19,4 +19,15 @@ export async function parseFileToTable(mimeType: string, buffer: ArrayBuffer): P
     return await extractWordTable(Buffer.from(buffer));
   }
   throw new Error(`Type de fichier non pris en charge pour l'extraction : ${mimeType}`);
+}
+
+/** Same as parseFileToTable, but an Excel workbook yields one table per sheet (used for catalogue imports). */
+export async function parseFileToTables(mimeType: string, buffer: ArrayBuffer): Promise<RawTable[]> {
+  if (
+    mimeType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+    mimeType === "application/vnd.ms-excel"
+  ) {
+    return await parseExcelToTables(buffer);
+  }
+  return [await parseFileToTable(mimeType, buffer)];
 }

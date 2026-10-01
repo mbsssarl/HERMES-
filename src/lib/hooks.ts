@@ -3,14 +3,15 @@
 import { useQuery } from 'convex/react';
 import React from 'react';
 import { api, type Id } from './convex';
+import { storedTheme } from './theme';
 import { mapCountry, mapOrder, mapOrderItem, mapProductWithPrices, type OrderItemRow, type OrderRow } from './mappers';
-import type { AppUser, Country, ProductWithPrices, QuotationWithRelations } from '../types';
+import type { AppUser, Country, Currency, ProductCategory, ProductWithPrices, QuotationWithRelations } from '../types';
 
 export function useMe(): AppUser | null | undefined {
   const me = useQuery(api.users.getCurrentUser);
   return React.useMemo(() => {
     if (me === undefined || me === null) return me;
-    return { id: me._id, email: me.email ?? '', role: me.role, mustChangePassword: !!me.mustChangePassword };
+    return { id: me._id, email: me.email ?? '', role: me.role, mustChangePassword: !!me.mustChangePassword, theme: me.theme ?? storedTheme() };
   }, [me]);
 }
 
@@ -18,6 +19,18 @@ export function useCountries(): { countries: Country[]; loading: boolean } {
   const rows = useQuery(api.countries.list, {});
   const countries = React.useMemo(() => (rows ?? []).map(mapCountry), [rows]);
   return { countries, loading: rows === undefined };
+}
+
+export function useCurrencies(): { currencies: Currency[]; loading: boolean } {
+  const rows = useQuery(api.currencies.list);
+  const currencies = React.useMemo(() => (rows ?? []).map((c) => ({ id: c._id, code: c.code, name: c.name, active: c.active })), [rows]);
+  return { currencies, loading: rows === undefined };
+}
+
+export function useProductCategories(): { categories: ProductCategory[]; loading: boolean } {
+  const rows = useQuery(api.productCategories.list);
+  const categories = React.useMemo(() => (rows ?? []).map((c) => ({ id: c._id, name: c.name, active: c.active })), [rows]);
+  return { categories, loading: rows === undefined };
 }
 
 export function useProducts(): { products: ProductWithPrices[]; loading: boolean } {

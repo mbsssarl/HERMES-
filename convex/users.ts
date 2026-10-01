@@ -1,12 +1,11 @@
-import { createAccount, getAuthUserId, modifyAccountCredentials } from "@convex-dev/auth/server";
+import { createAccount, getAuthUserId, invalidateSessions, modifyAccountCredentials, retrieveAccount } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { mutation, type MutationCtx, query } from "./_generated/server";
 import { logActivity } from "./lib/audit";
 import { requireAdmin, requireUser } from "./lib/permissions";
-import { generateResetToken, generateTempPassword, hashToken } from "./lib/tokens";
+import { generateTempPassword } from "./lib/tokens";
 
-const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1h
 
 /**
  * @convex-dev/auth types `createAccount`/`modifyAccountCredentials` as
@@ -122,7 +121,8 @@ export const createUser = mutation({
       tempPassword,
     });
 
-    return { userId: user._id };
+    // Returned once so the admin can hand it over when the welcome email cannot be sent (Brevo not configured).
+    return { userId: user._id, tempPassword };
   },
 });
 
@@ -173,6 +173,14 @@ export const setNewPassword = mutation({
     }
     if (!user.email) throw new Error("Compte sans email associé.");
 
+    // Distingue, pour le journal, le cas où ce compte n'avait encore aucun mot de passe (connexion par
+    // email seul puis première définition) du changement ordinaire d'un mot de passe existant.
+    const account = await ctx.db
+      .query("authAccounts")
+      .withIndex("providerAndAccountId", (q) => q.eq("provider", "password").eq("providerAccountId", user.email!))
+      .unique();
+    const hadNoPassword = account !== null && !account.secret;
+
     await modifyAccountCredentials(asAuthCtx(ctx), {
       provider: "password",
       account: { id: user.email, secret: newPassword },
@@ -181,7 +189,7 @@ export const setNewPassword = mutation({
 
     await logActivity(ctx, {
       userId: user._id,
-      action: "user.password_changed",
+      action: hadNoPassword ? "user.password_first_set" : "user.password_changed",
       entityType: "user",
       entityId: user._id,
     });
@@ -189,63 +197,81 @@ export const setNewPassword = mutation({
 });
 
 /** Public: requests a password-reset email. Always succeeds silently (no user enumeration). */
-export const requestPasswordReset = mutation({
-  args: { email: v.string() },
-  handler: async (ctx, { email }) => {
-    const normalizedEmail = email.trim().toLowerCase();
-    const user = await ctx.db
-      .query("users")
-      .withIndex("email", (q) => q.eq("email", normalizedEmail))
-      .unique();
-
-    if (user && user.status === "active") {
-      const token = generateResetToken();
-      const tokenHash = await hashToken(token);
-      await ctx.db.insert("passwordResetTokens", {
-        userId: user._id,
-        tokenHash,
-        expiresAt: Date.now() + RESET_TOKEN_TTL_MS,
-        createdAt: Date.now(),
-      });
-      await ctx.scheduler.runAfter(0, internal.emails.sendPasswordResetEmail, {
-        email: normalizedEmail,
-        token,
-      });
+/**
+ * Admin resets a user's password: a one-time temporary password is generated, returned to the admin (to copy
+ * or hand over) and emailed to the user when email sending is configured. The user's current sessions are
+ * closed, and the account is flagged so the next sign-in forces a new personal password.
+ */
+export const adminResetPassword = mutation({
+  args: { userId: v.id("users") },
+  handler: async (ctx, { userId }) => {
+    const admin = await requireAdmin(ctx);
+    if (userId === admin._id) {
+      throw new Error("Pour votre propre compte, utilisez la page Réglages.");
     }
+    const user = await ctx.db.get(userId);
+    if (!user || !user.email) throw new Error("Utilisateur introuvable.");
+
+    const tempPassword = generateTempPassword();
+    await modifyAccountCredentials(asAuthCtx(ctx), {
+      provider: "password",
+      account: { id: user.email, secret: tempPassword },
+    });
+    await ctx.db.patch(userId, { mustChangePassword: true });
+    await invalidateSessions(asAuthCtx(ctx), { userId });
+
+    await logActivity(ctx, {
+      userId: admin._id,
+      action: "user.password_reset_by_admin",
+      entityType: "user",
+      entityId: userId,
+      metadata: { email: user.email },
+    });
+
+    const emailConfigured = Boolean(process.env.BREVO_API_KEY && process.env.BREVO_SENDER_EMAIL);
+    if (emailConfigured) {
+      await ctx.scheduler.runAfter(0, internal.emails.sendTempPasswordEmail, { email: user.email, tempPassword });
+    }
+    return { email: user.email, tempPassword, emailSent: emailConfigured };
   },
 });
 
-export const resetPasswordWithToken = mutation({
-  args: { token: v.string(), newPassword: v.string() },
-  handler: async (ctx, { token, newPassword }) => {
+/** Settings page: changes the signed-in user's password after checking the current one. */
+export const changeMyPassword = mutation({
+  args: { currentPassword: v.string(), newPassword: v.string() },
+  handler: async (ctx, { currentPassword, newPassword }) => {
+    const user = await requireUser(ctx);
+    if (!user.email) throw new Error("Compte sans email associé.");
     if (newPassword.length < 8) {
       throw new Error("Le mot de passe doit contenir au moins 8 caractères.");
     }
-    const tokenHash = await hashToken(token);
-    const record = await ctx.db
-      .query("passwordResetTokens")
-      .withIndex("by_tokenHash", (q) => q.eq("tokenHash", tokenHash))
-      .unique();
-
-    if (!record || record.usedAt || record.expiresAt < Date.now()) {
-      throw new Error("Lien de réinitialisation invalide ou expiré.");
+    if (newPassword === currentPassword) {
+      throw new Error("Le nouveau mot de passe doit être différent de l'actuel.");
     }
 
-    const user = await ctx.db.get(record.userId);
-    if (!user || !user.email) throw new Error("Utilisateur introuvable.");
+    try {
+      await retrieveAccount(asAuthCtx(ctx), {
+        provider: "password",
+        account: { id: user.email, secret: currentPassword },
+      });
+    } catch {
+      throw new Error("Mot de passe actuel incorrect.");
+    }
 
     await modifyAccountCredentials(asAuthCtx(ctx), {
       provider: "password",
       account: { id: user.email, secret: newPassword },
     });
     await ctx.db.patch(user._id, { mustChangePassword: false });
-    await ctx.db.patch(record._id, { usedAt: Date.now() });
+    await logActivity(ctx, { userId: user._id, action: "user.password_changed", entityType: "user", entityId: user._id });
+  },
+});
 
-    await logActivity(ctx, {
-      userId: user._id,
-      action: "user.password_reset",
-      entityType: "user",
-      entityId: user._id,
-    });
+/** Stores the interface theme on the account so it follows the user across devices. */
+export const setTheme = mutation({
+  args: { theme: v.union(v.literal("light"), v.literal("dark")) },
+  handler: async (ctx, { theme }) => {
+    const user = await requireUser(ctx);
+    await ctx.db.patch(user._id, { theme });
   },
 });

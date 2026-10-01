@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalQuery } from "./_generated/server";
+import { DEFAULT_CURRENCY } from "./lib/productPricing";
 
 /** Everything the Excel export of a quotation needs, in display order. */
 export const getForExport = internalQuery({
@@ -15,6 +16,9 @@ export const getForExport = internalQuery({
       .order("asc")
       .collect();
     items.sort((a, b) => a.lineNo - b.lineNo);
-    return { order, client, country, items };
+    // Currency label of the exported file: the one chosen on the quotation (conversion active - every
+    // amount is then in that currency), else the first line's own recorded currency, else the default.
+    const currency = order.exportCurrency ?? items.find((i) => i.priceCurrency)?.priceCurrency ?? DEFAULT_CURRENCY;
+    return { order, client, country, currency, items };
   },
 });

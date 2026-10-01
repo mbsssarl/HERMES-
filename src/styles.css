@@ -677,18 +677,6 @@ table.data tbody tr.clickable { cursor: pointer; }
   .main { padding: 20px; }
 }
 
-/* Écrans d'authentification */
-.auth-page {
-  min-height: 100vh;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background: var(--color-bg);
-}
-.auth-card {
-  width: 100%;
-  max-width: 400px;
-}
 
 /* Tableau à défilement vertical : l'en-tête reste visible comme repère */
 .table-scroll {
@@ -789,10 +777,87 @@ table.data.lines th { font-size: 11px; letter-spacing: 0.02em; white-space: nowr
 .table-scroll table.data tr.head-sub th { top: 36px; }
 .table-scroll table.data th.group-head { border-bottom: 1px solid var(--color-border); text-align: center; }
 
-/* Marque sur l'écran de connexion (fond clair) */
-.auth-card .brand { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-bottom: 20px; text-align: center; }
-.auth-card .brand-logo { width: 76px; height: 76px; padding: 4px; margin-bottom: 8px; }
-.auth-card .brand-logo img { max-width: 100%; max-height: 100%; object-fit: contain; }
-.auth-card .brand-name { font-weight: 800; font-size: 18px; color: var(--color-text); }
-.auth-card .brand-sub { font-size: 12px; color: var(--color-text-subtle); }
-.auth-card .brand-logo { border-radius: 16px; background: #fff; border: 1px solid var(--color-border); display: grid; place-items: center; }
+
+/* Propositions de correspondance : sous-lignes rattachées à la ligne principale (même bloc) */
+table.data tr.has-proposals td { border-bottom: none; }
+table.data tr.proposal-row td {
+  background: #fffbeb;
+  border-bottom: 1px dashed #fde68a;
+  font-size: 13px;
+  color: var(--color-text);
+}
+table.data tr.proposal-row td:first-child { border-left: 3px solid #f59e0b; }
+table.data tr.proposal-row.proposal-last td { border-bottom: 1px solid var(--color-border); }
+table.data tr.proposal-row:hover td { background: #fffbeb; }
+
+/* Champ affiché comme les autres mais en lecture seule (propositions du catalogue) */
+.cell-input.cell-readonly {
+  background: rgba(255, 255, 255, 0.55);
+  border-color: #fde68a;
+  color: var(--color-text);
+  cursor: default;
+  box-shadow: none;
+}
+.cell-input.cell-readonly:focus { outline: none; border-color: #fde68a; box-shadow: none; }
+
+/* Pas de cadre blanc autour de l'élément de menu qui vient d'être cliqué */
+.nav-item:focus, .nav-item:focus-visible { outline: none; }
+
+/* ------------------------------------------------------------------ Thème sombre ---- */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --color-bg: #0f1626;
+  --color-surface: #172235;
+  --color-surface-2: #1d2a3d;
+  --color-border: #2d3b50;
+  --color-border-strong: #40516a;
+  --color-text: #e5edf8;
+  --color-text-muted: #a9b8cf;
+  --color-text-subtle: #7f92ad;
+  --color-primary: #4f7be0;
+  --color-primary-hover: #6b93ee;
+  --color-primary-soft: rgba(79, 123, 224, 0.18);
+  --badge-neutral: #2d3b50;
+  --badge-info: rgba(79, 123, 224, 0.25);
+  --badge-warning: rgba(245, 158, 11, 0.22);
+  --badge-success: rgba(34, 197, 94, 0.2);
+  --badge-accent: rgba(13, 148, 136, 0.25);
+  --badge-error: rgba(239, 68, 68, 0.22);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
+}
+[data-theme="dark"] .tag-new { color: #86efac; background: rgba(34, 197, 94, 0.12); border-color: rgba(34, 197, 94, 0.35); }
+[data-theme="dark"] .tag-update { color: #93c5fd; background: rgba(59, 130, 246, 0.14); border-color: rgba(59, 130, 246, 0.35); }
+[data-theme="dark"] .tag-warn { color: #fcd34d; background: rgba(245, 158, 11, 0.13); border-color: rgba(245, 158, 11, 0.35); }
+[data-theme="dark"] .tag-error { color: #fca5a5; background: rgba(239, 68, 68, 0.13); border-color: rgba(239, 68, 68, 0.35); }
+[data-theme="dark"] table.data tr.proposal-row td { background: rgba(245, 158, 11, 0.09); border-bottom-color: rgba(245, 158, 11, 0.25); }
+[data-theme="dark"] table.data tr.proposal-row:hover td { background: rgba(245, 158, 11, 0.09); }
+[data-theme="dark"] .cell-input.cell-readonly { background: rgba(255, 255, 255, 0.04); border-color: rgba(245, 158, 11, 0.3); }
+[data-theme="dark"] .input, [data-theme="dark"] .select, [data-theme="dark"] textarea.input { background: var(--color-surface-2); color: var(--color-text); }
+[data-theme="dark"] .btn { background: var(--color-surface-2); color: var(--color-text); border-color: var(--color-border-strong); }
+[data-theme="dark"] .btn-primary { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
+[data-theme="dark"] .btn-ghost { background: transparent; }
+
+/* Notification : message + bouton d'action + fermeture */
+.toast { display: flex; align-items: center; gap: 12px; max-width: min(460px, calc(100vw - 32px)); }
+.toast.info { background: #1d4ed8; }
+.toast-action { border: 1px solid rgba(255,255,255,.55); background: transparent; color: #fff; border-radius: 8px; padding: 4px 10px; font-weight: 600; font-size: 13px; cursor: pointer; white-space: nowrap; }
+.toast-action:hover { background: rgba(255,255,255,.15); }
+.toast-close { border: 0; background: transparent; color: rgba(255,255,255,.75); cursor: pointer; font-size: 14px; padding: 0 2px; }
+
+/* Pastille de notification dans le menu */
+.nav-item .nav-dot {
+  margin-left: 6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #f59e0b;
+  color: #1a1206;
+  font-size: 11px;
+  font-weight: 800;
+  display: inline-grid;
+  place-items: center;
+  box-shadow: 0 0 0 2px var(--side-bg);
+}

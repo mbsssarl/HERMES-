@@ -1,8 +1,8 @@
 import React from 'react';
 import { useAction, useMutation } from 'convex/react';
-import { ArrowLeft } from 'lucide-react';
-import type { Product, QuotationWithRelations } from '../types';
-import { MATCH_LABELS, formatPrice, formatAmount, formatDate } from '../lib/format';
+import { ArrowLeft, Mail } from 'lucide-react';
+import type { Currency, ProductWithPrices, QuotationWithRelations } from '../types';
+import { DEFAULT_CURRENCY, MATCH_LABELS, formatPrice, formatAmount, formatDate } from '../lib/format';
 import { StatusTag } from '../components/StatusTag';
 import { Modal, StateBox } from '../components/ui';
 import { LinesTable } from '../components/LinesTable';
@@ -16,12 +16,14 @@ const errMsg = (err: unknown) => (err instanceof Error ? err.message : String(er
 export function QuotationDetail({
   quotation,
   products,
+  currencies,
   loading,
   isAdmin,
   onBack,
 }: {
   quotation: QuotationWithRelations | null;
-  products: Product[];
+  products: ProductWithPrices[];
+  currencies: Currency[];
   loading: boolean;
   isAdmin: boolean;
   onBack: () => void;
@@ -32,10 +34,24 @@ export function QuotationDetail({
   const updateStatus = useMutation(api.orders.updateStatus);
   const applyGlobalPricing = useMutation(api.orders.applyGlobalPricing);
   const exportXlsx = useAction(api.exportQuotation.exportQuotationXlsx);
-  const setExcluded = useMutation(api.orderItems.setExcluded);
+  const applyExportCurrency = useAction(api.orders.applyExportCurrency);
+  const markSeen = useMutation(api.orders.markSeen);
+  const setExcluded = useMutation(api.orderItems.setExcluded).withOptimisticUpdate((store, { orderItemIds, excluded }) => {
+    const ids = new Set<string>(orderItemIds);
+    for (const { args, value } of store.getAllQueries(api.orderItems.listByOrder)) {
+      if (!value) continue;
+      store.setQuery(
+        api.orderItems.listByOrder,
+        args,
+        value.map((it) => (ids.has(it._id) ? { ...it, excluded: excluded ? true : undefined } : it)),
+      );
+    }
+  });
+  const dismissProposal = useMutation(api.orderItems.dismissProposal);
   const removeOrder = useMutation(api.orders.remove);
   const restoreOrder = useMutation(api.orders.restore);
   const [applying, setApplying] = React.useState(false);
+  const [convertingCurrency, setConvertingCurrency] = React.useState(false);
   const [confirmDelete, setConfirmDelete] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
   const [confirmPo, setConfirmPo] = React.useState(false);
@@ -43,11 +59,20 @@ export function QuotationDetail({
   const [exporting, setExporting] = React.useState<string | null>(null);
 
 
+  // Ouvrir la quotation fait disparaître son badge « mise à jour » pour cet utilisateur.
+  const seenId = quotation?.id;
+  const hasUpdate = Boolean(quotation?.catalog_update);
+  React.useEffect(() => {
+    if (seenId && hasUpdate) markSeen({ orderId: seenId as Id<'orders'> }).catch(() => {});
+  }, [seenId, hasUpdate, markSeen]);
+
   if (loading) return <StateBox loading title="Chargement…" />;
   if (!quotation) return <StateBox title="Quotation introuvable" />;
 
   const orderId = quotation.id as Id<'orders'>;
-  const currency = quotation.countries?.currency ?? 'EUR';
+  // Devise à afficher pour la commande dans son ensemble (PO, messages) : celle déjà en usage sur ses
+  // lignes chiffrées, sinon la devise par défaut de l'entreprise - les pays n'ont plus de devise attachée.
+  const currency = quotation.quotation_items.find((it) => it.price_currency)?.price_currency ?? DEFAULT_CURRENCY;
   const items = quotation.quotation_items;
   // Les lignes décochées sont écartées des statistiques.
   const includedItems = items.filter((it) => !it.excluded);
@@ -70,6 +95,19 @@ export function QuotationDetail({
       toast('Erreur: ' + errMsg(err), 'error');
     } finally {
       setApplying(false);
+    }
+  };
+
+  const applyExportCurrencyChange = async (targetCurrency: string | undefined) => {
+    setConvertingCurrency(true);
+    try {
+      const rates = await applyExportCurrency({ orderId, targetCurrency });
+      const summary = rates?.map((r) => `1 ${r.currency} = ${r.rate.toFixed(4)} ${targetCurrency}`).join(', ');
+      toast(summary ? `Taux appliqué : ${summary}.` : 'Conversion annulée : chaque ligne du fichier ressortira dans sa devise d\'origine.', 'success');
+    } catch (err) {
+      toast('Erreur: ' + errMsg(err), 'error');
+    } finally {
+      setConvertingCurrency(false);
     }
   };
 
@@ -107,9 +145,8 @@ export function QuotationDetail({
     }
   };
 
-  // Export Excel : le serveur remplit le gabarit MBSS (mêmes mise en page, totaux, contacts).
-  const exportQuotation = async (scope: 'selected' | 'known' | 'unknown' | 'all') => {
-    setExporting(scope);
+  // Télécharge le fichier Excel du gabarit MBSS pour ce périmètre ; renvoie son nom si ça a marché.
+  const downloadExport = async (scope: 'selected' | 'known' | 'unknown' | 'all'): Promise<string | null> => {
     try {
       const { fileName, base64 } = await exportXlsx({ orderId, scope });
       const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
@@ -120,12 +157,47 @@ export function QuotationDetail({
       a.download = fileName;
       a.click();
       URL.revokeObjectURL(url);
-      toast('Export Excel téléchargé.', 'success');
+      return fileName;
     } catch (err) {
       toast('Erreur: ' + errMsg(err), 'error');
-    } finally {
-      setExporting(null);
+      return null;
     }
+  };
+
+  const exportQuotation = async (scope: 'selected' | 'known' | 'unknown' | 'all') => {
+    setExporting(scope);
+    const fileName = await downloadExport(scope);
+    if (fileName) toast('Export Excel téléchargé.', 'success');
+    setExporting(null);
+  };
+
+  // "Envoyer un email" : télécharge le document (tout ce qui est coché), puis ouvre un brouillon Gmail pré-rempli
+  // dans un nouvel onglet. AUCUN site ne peut joindre un fichier à un brouillon Gmail par un lien - c'est bloqué
+  // par Gmail lui-même, pas une limite de l'appli : il faut le glisser depuis les téléchargements dans la fenêtre
+  // Gmail qui s'ouvre (ou utiliser son trombone), d'où le rappel ci-dessous.
+  const emailQuotation = async () => {
+    setExporting('email');
+    const fileName = await downloadExport('selected');
+    setExporting(null);
+    if (!fileName) return;
+
+    const subject = `Quotation ${quotation.quotation_number} - MBSS Sarl`;
+    const body = [
+      'Bonjour,',
+      '',
+      `Veuillez trouver ci-joint notre quotation ${quotation.quotation_number}${quotation.vessel ? ` pour le navire ${quotation.vessel}` : ''}.`,
+      '',
+      'Cordialement,',
+    ].join('\n');
+    const params = new URLSearchParams({
+      view: 'cm',
+      fs: '1',
+      to: quotation.customer_email ?? '',
+      su: subject,
+      body,
+    });
+    window.open(`https://mail.google.com/mail/?${params.toString()}`, '_blank');
+    toast(`"${fileName}" téléchargé - glissez-le dans le brouillon Gmail qui vient de s'ouvrir pour le joindre.`, 'info', { duration: 8000 });
   };
 
   return (
@@ -152,7 +224,7 @@ export function QuotationDetail({
         <div className="summary-item">
           <label>Pays de cotation</label>
           <div className="value">{quotation.countries?.name ?? '-'}</div>
-          <div className="sub">{quotation.countries?.currency ?? ''}</div>
+          <div className="sub">{quotation.countries?.city ?? ''}</div>
         </div>
         <div className="summary-item summary-wide">
           <label>Fichier source</label>
@@ -167,7 +239,13 @@ export function QuotationDetail({
       </div>
 
       {isAdmin && (
-        <RequestInfoCard quotation={quotation} applying={applying} onApply={(cot, dis) => void applyGlobal(cot, dis)} />
+        <RequestInfoCard
+          quotation={quotation}
+          currencies={currencies}
+          pricingCurrency={DEFAULT_CURRENCY}
+          convertingCurrency={convertingCurrency}
+          onApplyExportCurrency={(target) => void applyExportCurrencyChange(target)}
+          applying={applying} onApply={(cot, dis) => void applyGlobal(cot, dis)} />
       )}
 
       <div className="card">
@@ -184,6 +262,11 @@ export function QuotationDetail({
             items={items}
             products={products}
             currency={currency}
+            countryId={quotation.country_id}
+            onDismiss={(it, productId) =>
+              dismissProposal({ orderItemId: it.id as Id<'orderItems'>, productId: productId as Id<'products'> })
+                .catch((err) => toast('Erreur: ' + errMsg(err), 'error'))
+            }
             onEdit={(it, edit) =>
               updateItem({ orderItemId: it.id as Id<'orderItems'>, ...edit }).catch((err) => toast('Erreur: ' + errMsg(err), 'error'))
             }
@@ -197,13 +280,35 @@ export function QuotationDetail({
             }
           />
         )}
-        <div className="total-bar">
-          <span className="label">Total quotation</span>
-          <span className="amount mono">{formatAmount(quotation.total)}</span>
+        <div className="total-bar" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
+          {(quotation.global_discount_percent ?? 0) > 0 && (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span className="label">Sous-total</span>
+                <span className="mono">{formatAmount(quotation.subtotal)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span className="label">Discount global {quotation.global_discount_percent}%</span>
+                <span className="mono">-{formatAmount(quotation.subtotal - quotation.total)}</span>
+              </div>
+            </>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span className="label">Total quotation</span>
+            <span className="amount mono">{formatAmount(quotation.total)}</span>
+          </div>
         </div>
       </div>
 
       <div className="actions-bar">
+        <button
+          className="btn btn-primary"
+          onClick={() => void emailQuotation()}
+          disabled={exporting !== null || counts.selected === 0}
+          title="Télécharge le document sélectionné puis ouvre un brouillon Gmail - le fichier doit ensuite être joint à la main."
+        >
+          <Mail size={16} /> {exporting === 'email' ? 'Préparation…' : 'Envoyer un email'}
+        </button>
         {([
           ['selected', 'Exporter les sélectionnés'],
           ['known', 'Exporter les répertoriés'],

@@ -1,5 +1,9 @@
 import type { QuotationStatus, MatchStatus } from '../types';
 
+// Devise de repli quand aucune ligne n'a encore de devise propre enregistrée (voir orderItems.priceCurrency
+// côté backend, convex/lib/productPricing.ts:DEFAULT_CURRENCY) - les pays n'ont plus de devise attachée.
+export const DEFAULT_CURRENCY = 'XAF';
+
 export const STATUS_LABELS: Record<QuotationStatus, string> = {
   DRAFT: 'Brouillon',
   PROCESSING: 'En traitement',

@@ -33,6 +33,9 @@ const schema = defineSchema({
     // reste de l'app jusqu'au changement (cf. SetPasswordGate côté front).
     mustChangePassword: v.boolean(),
 
+    // Thème de l'interface choisi par l'utilisateur (suit son compte d'un poste à l'autre).
+    theme: v.optional(v.union(v.literal("light"), v.literal("dark"))),
+
     lastLoginAt: v.optional(v.number()), // horodatage de la dernière connexion, pour le dashboard admin
     createdAt: v.number(),
     createdBy: v.optional(v.id("users")), // admin ayant créé le compte (absent pour le tout premier admin, créé par bootstrap)
@@ -44,15 +47,50 @@ const schema = defineSchema({
     .index("email", ["email"]),
 
   // ------------------------------------------------------------------
+  // QUOTATIONS VUES
+  // Dernière ouverture d'une quotation par chaque utilisateur : sert au badge « mise à jour » (il disparaît une
+  // fois la quotation ouverte par cet utilisateur).
+  // ------------------------------------------------------------------
+  orderSeen: defineTable({
+    orderId: v.id("orders"),
+    userId: v.id("users"),
+    seenAt: v.number(),
+  }).index("by_user_order", ["userId", "orderId"]),
+
+  // ------------------------------------------------------------------
+  // CATÉGORIES DE PRODUITS
+  // Liste fixe (5 maximum, imposé à la création) gérée par l'admin, pour classer les articles du
+  // catalogue (ex: Pièces techniques, Denrées alimentaires...). Un produit stocke le nom de sa
+  // catégorie tel quel (comme productPrices.currency référence currencies.code) - pas d'id, pour rester
+  // simple ; renommer une catégorie ici ne met pas à jour rétroactivement les produits déjà classés.
+  // ------------------------------------------------------------------
+  productCategories: defineTable({
+    name: v.string(),
+    active: v.boolean(),
+  }).index("by_name", ["name"]),
+
+  // ------------------------------------------------------------------
+  // DEVISES
+  // Liste des devises gérée par l'admin. Sert à choisir la devise d'un pays et la devise affichée dans les
+  // fichiers exportés. Aucun taux de change : la devise n'est qu'une étiquette.
+  // ------------------------------------------------------------------
+  currencies: defineTable({
+    code: v.string(), // code à 3 lettres en majuscules (XAF, EUR, USD...)
+    name: v.string(),
+    active: v.boolean(),
+  }).index("by_code", ["code"]),
+
+  // ------------------------------------------------------------------
   // PAYS
   // Référentiel des pays de cotation. Le prix d'un produit dépend
-  // toujours du pays (cf. `productPrices`) - cette table porte aussi la
-  // devise associée, utilisée pour l'affichage et la génération du PDF.
+  // toujours du pays (cf. `productPrices`), mais plus de sa devise : chaque
+  // prix porte désormais la sienne, choisie indépendamment à l'import ou à
+  // la saisie (voir productPrices.currency, orderItems.priceCurrency).
   // ------------------------------------------------------------------
   countries: defineTable({
     code: v.string(), // ex: "CM", "CI" - libre, pas forcément ISO strict
     name: v.string(),
-    currency: v.string(),
+    city: v.optional(v.string()), // ville/port principal, informatif
     active: v.boolean(),
   }).index("by_code", ["code"]),
 
@@ -87,6 +125,11 @@ const schema = defineSchema({
   products: defineTable({
     impaId: v.optional(v.string()), // identifiant IMPA - clé principale du matching automatique
     code: v.optional(v.string()), // identifiant secondaire (code interne/fournisseur), utilisé si pas d'IMPA
+    // Versions normalisées (lettres/chiffres uniquement, majuscules - voir lib/normalize.ts) d'impaId/code,
+    // calculées une fois à l'écriture pour comparer les codes indépendamment de leur ponctuation
+    // ("23.30-34" = "23/30/34" = "233034"). Ce sont elles qui servent au matching, pas les champs bruts.
+    normalizedImpaId: v.optional(v.string()),
+    normalizedCode: v.optional(v.string()),
     name: v.string(),
     // Version normalisée du nom (minuscules, sans accents/ponctuation),
     // calculée une fois à l'écriture pour ne pas refaire ce travail à
@@ -108,8 +151,10 @@ const schema = defineSchema({
     source: v.union(v.literal("manual"), v.literal("supplier_import")),
     sourceOrderId: v.optional(v.id("orders")), // si issu d'un import fournisseur, la commande d'origine
   })
-    .index("by_impaId", ["impaId"]) // matching prioritaire (priorité 1 de l'algorithme)
-    .index("by_code", ["code"]) // matching secondaire (priorité 2)
+    .index("by_impaId", ["impaId"]) // hérité, conservé pour compat - le matching utilise l'index normalisé ci-dessous
+    .index("by_code", ["code"]) // idem
+    .index("by_normalizedImpaId", ["normalizedImpaId"]) // matching prioritaire (priorité 1 de l'algorithme)
+    .index("by_normalizedCode", ["normalizedCode"]) // matching secondaire (priorité 2)
     .index("by_normalizedName", ["normalizedName"])
     .index("by_active", ["active"])
     // Index de recherche plein-texte utilisé pour le matching par nom
@@ -134,6 +179,21 @@ const schema = defineSchema({
   })
     .index("by_product", ["productId"])
     .index("by_normalizedAlias", ["normalizedAlias"]),
+
+  // ------------------------------------------------------------------
+  // SAUVEGARDE DES PRODUITS SUPPRIMÉS
+  // Un produit supprimé l'est définitivement de `products` (avec ses prix et alias). Avant cela, une copie
+  // complète est conservée ici, sans aucun lien avec les autres tables (ni v.id, ni index sur elles) : elle
+  // ne sert qu'à pouvoir récupérer un produit supprimé par erreur (fonction interne `restoreProductBackup`).
+  // ------------------------------------------------------------------
+  productBackups: defineTable({
+    originalId: v.string(), // ancien _id du produit
+    product: v.any(), // document produit tel qu'il était
+    prices: v.array(v.any()), // toutes ses lignes de prix (historique compris)
+    aliases: v.array(v.any()),
+    deletedAt: v.number(),
+    deletedBy: v.string(), // email de l'admin
+  }).index("by_deletedAt", ["deletedAt"]),
 
   // ------------------------------------------------------------------
   // PRIX PRODUITS (par pays)
@@ -175,6 +235,29 @@ const schema = defineSchema({
     eta: v.optional(v.string()), // date d'arrivée estimée, format ISO "YYYY-MM-DD"
     // Informations du bloc d'en-tête du document client (hors tableau), conservées pour pouvoir
     // reconstituer le fichier : tout est modifiable depuis la fiche de la quotation.
+    // Pays dont la devise est utilisée dans le fichier exporté (par défaut : le pays de cotation de la commande).
+    exportCountryId: v.optional(v.id("countries")), // hérité, plus utilisé (remplacé par exportCurrency)
+    // Devise cible du fichier exporté. Vide = pas de conversion (chaque ligne ressort dans la devise
+    // enregistrée sur son prix, voir orderItems.priceCurrency). Sinon, chaque ligne est convertie avec le
+    // taux de exportRates correspondant à SA PROPRE devise d'origine (des lignes d'une même commande
+    // peuvent avoir été importées/tarifées dans des devises différentes) - taux figés au moment où l'admin
+    // a cliqué « Appliquer », récupérés en ligne sauf parité fixe EUR/CFA - voir convex/exchangeRates.ts.
+    exportCurrency: v.optional(v.string()),
+    exportRates: v.optional(
+      v.array(
+        v.object({
+          currency: v.string(), // devise d'origine d'une ou plusieurs lignes (orderItems.priceCurrency)
+          rate: v.number(), // 1 unité de `currency` = `rate` unité de exportCurrency
+          asOf: v.string(), // date de la source ("2026-09-29"), "parité fixe" ou "identique"
+          source: v.string(),
+        }),
+      ),
+    ),
+    // Dernière mise à jour automatique de la quotation suite à un ajout au catalogue (import, nouveau produit, prix) :
+    // affichée comme un badge tant que l'utilisateur n'a pas rouvert la quotation.
+    catalogUpdatedAt: v.optional(v.number()),
+    catalogUpdatedLines: v.optional(v.number()), // lignes reconnues / chiffrées lors de cette mise à jour
+    catalogUpdatedBy: v.optional(v.string()), // email de la personne à l'origine de l'ajout
     documentInfo: v.optional(
       v.object({
         issuer: v.optional(v.string()), // bloc d'adresse / papier à en-tête de l'expéditeur
@@ -257,6 +340,10 @@ const schema = defineSchema({
     // qu'un admin ajoute le prix - la ligne se complète alors
     // automatiquement (temps réel), sans repasser par le matching.
     unitPriceOriginal: v.optional(v.number()), // prix catalogue (pour le pays de la commande) au moment du matching
+    // Devise dans laquelle ce prix a été enregistré (productPrices.currency au moment du matching, ou la
+    // devise du pays de cotation pour un prix saisi à la main) - c'est CETTE devise, propre à la ligne, qui
+    // sert de base au taux de change lors d'une conversion du fichier exporté (voir orders.exportRates).
+    priceCurrency: v.optional(v.string()),
     quotationPercentApplied: v.optional(v.number()), // % de cotation effectivement appliqué à cette ligne
     priceAfterQuotation: v.optional(v.number()), // prix après cotation, avant remise ligne
     lineDiscountPercent: v.optional(v.number()), // remise propre à cette ligne
@@ -267,6 +354,8 @@ const schema = defineSchema({
     unitPriceManual: v.optional(v.number()),
     // Ligne décochée par l'utilisateur : elle n'entre ni dans les totaux/statistiques, ni dans le devis ou le fichier exporté.
     excluded: v.optional(v.boolean()),
+    // L'utilisateur a écarté toutes les propositions de correspondance : la ligne reste inconnue et n'est plus re-proposée automatiquement.
+    proposalsDismissed: v.optional(v.boolean()),
     // Cotation propre à la ligne (colonne "Cotation") : prime sur celle de la commande. Vide = cotation de la commande.
     quotationPercentLine: v.optional(v.number()),
     total: v.optional(v.number()), // finalUnitPrice × quotedQuantity
@@ -414,16 +503,16 @@ const schema = defineSchema({
     .index("by_action", ["action", "createdAt"]),
 
   // ------------------------------------------------------------------
-  // TOKENS DE RÉINITIALISATION DE MOT DE PASSE
-  // Flux "mot de passe oublié" maison (indépendant de
-  // @convex-dev/auth) : un token à usage unique, à durée de vie limitée,
-  // dont seul le hash est stocké (jamais le token en clair).
+  // TOKENS DE RÉINITIALISATION DE MOT DE PASSE (hérité, plus utilisé)
+  // La réinitialisation passe désormais par un administrateur (users.adminResetPassword) : mot de passe à
+  // usage unique, changement obligatoire à la connexion. Table conservée vide pour ne pas casser le schéma.
   // ------------------------------------------------------------------
   passwordResetTokens: defineTable({
     userId: v.id("users"),
     tokenHash: v.string(),
     expiresAt: v.number(),
-    usedAt: v.optional(v.number()), // empêche la réutilisation du même lien
+    usedAt: v.optional(v.number()), // empêche la réutilisation du même code
+    attempts: v.optional(v.number()), // essais de saisie ratés : le code est invalidé après 5
     createdAt: v.number(),
   })
     .index("by_tokenHash", ["tokenHash"])

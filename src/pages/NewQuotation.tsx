@@ -30,6 +30,13 @@ export function NewQuotation({
   const [countryId, setCountryId] = React.useState('');
   const [customerName, setCustomerName] = React.useState('');
   const [customerEmail, setCustomerEmail] = React.useState('');
+  // ETA par défaut : aujourd'hui + 4 jours, pour laisser au fournisseur le temps de répondre avant
+  // l'arrivée du navire. Modifiable librement - c'est le seul but de ce champ par défaut.
+  const [eta, setEta] = React.useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 4);
+    return d.toISOString().slice(0, 10);
+  });
   const [file, setFile] = React.useState<File | null>(null);
   const [dragging, setDragging] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
@@ -39,7 +46,6 @@ export function NewQuotation({
     if (!countryId && activeCountries[0]) setCountryId(activeCountries[0].id);
   }, [countryId, activeCountries]);
 
-  const country = countries.find((c) => c.id === countryId);
 
   const submit = async () => {
     if (!customerName.trim()) { toast('Indiquez le nom du client.', 'error'); return; }
@@ -54,7 +60,7 @@ export function NewQuotation({
         existing?._id ??
         (await createClient({ name, contactEmail: customerEmail.trim() || undefined, countryId: countryId as Id<'countries'> }));
 
-      const orderId = await createOrder({ clientId, countryId: countryId as Id<'countries'> });
+      const orderId = await createOrder({ clientId, countryId: countryId as Id<'countries'>, eta: eta || undefined });
 
       const uploadUrl = await generateUploadUrl();
       const response = await fetch(uploadUrl, { method: 'POST', headers: { 'Content-Type': file.type }, body: file });
@@ -128,7 +134,14 @@ export function NewQuotation({
             </div>
           )}
           <div className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>
-            Les prix appliqués sont ceux de ce pays{country ? ` (${country.currency})` : ''} ; il ne pourra plus être modifié.
+            Les prix appliqués sont ceux de ce pays ; il ne pourra plus être modifié.
+          </div>
+        </div>
+        <div className="form-field">
+          <label>ETA (arrivée du navire)</label>
+          <input className="input" type="date" value={eta} onChange={(e) => setEta(e.target.value)} />
+          <div className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>
+            Pré-remplie à aujourd'hui + 4 jours pour laisser le temps de répondre au fournisseur ; modifiable.
           </div>
         </div>
 

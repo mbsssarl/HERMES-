@@ -6,6 +6,7 @@ export function TextCell({
   mono,
   placeholder,
   disabled,
+  readOnly,
 }: {
   value: string;
   width: number | string;
@@ -13,11 +14,15 @@ export function TextCell({
   mono?: boolean;
   placeholder?: string;
   disabled?: boolean;
+  /** Affiché comme un champ mais non modifiable (informations issues du catalogue). */
+  readOnly?: boolean;
 }) {
   return (
     <input
       key={value}
-      className={`input cell-input ${mono ? 'mono' : ''}`}
+      readOnly={readOnly}
+      tabIndex={readOnly ? -1 : undefined}
+      className={`input cell-input ${mono ? 'mono' : ''} ${readOnly ? 'cell-readonly' : ''}`}
       style={{ width }}
       defaultValue={value}
       placeholder={placeholder}
@@ -36,6 +41,7 @@ export function NumberCell({
   onClear,
   decimals,
   disabled,
+  readOnly,
 }: {
   value: number | null;
   width: number;
@@ -45,13 +51,16 @@ export function NumberCell({
   onClear?: () => void;
   decimals?: number;
   disabled?: boolean;
+  readOnly?: boolean;
 }) {
   const format = (n: number) => (decimals !== undefined ? n.toFixed(decimals) : String(n));
   const text = value === null ? '' : format(value);
   return (
     <input
       key={text}
-      className="input cell-input mono"
+      readOnly={readOnly}
+      tabIndex={readOnly ? -1 : undefined}
+      className={`input cell-input mono ${readOnly ? 'cell-readonly' : ''}`}
       style={{ width, textAlign: 'right' }}
       inputMode="decimal"
       defaultValue={text}

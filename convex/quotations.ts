@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { logActivity } from "./lib/audit";
+import { DEFAULT_CURRENCY } from "./lib/productPricing";
 import { requireAdmin, requireUser } from "./lib/permissions";
 import { COMPANY_INFO_KEY } from "./settings";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
@@ -22,7 +23,6 @@ export const getQuotationBuildDataInternal = internalQuery({
     const order = await ctx.db.get(orderId);
     if (!order) return null;
     const client = await ctx.db.get(order.clientId);
-    const country = await ctx.db.get(order.countryId);
 
     // Only lines with an actual price are included: a matched-but-no-price
     // line ("prix manquant") can't sensibly appear on a priced quotation.
@@ -53,7 +53,9 @@ export const getQuotationBuildDataInternal = internalQuery({
       companyInfo: companyInfoSetting?.value as
         | { name?: string; address?: string; email?: string }
         | undefined,
-      currency: country?.currency ?? "XAF",
+      // La devise du PDF suit celle déjà enregistrée sur les lignes chiffrées (voir orderItems.priceCurrency),
+      // sinon la devise par défaut de l'entreprise.
+      currency: matchedItems.find((i) => i.priceCurrency)?.priceCurrency ?? DEFAULT_CURRENCY,
     };
   },
 });

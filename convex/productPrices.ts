@@ -1,6 +1,8 @@
+import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { logActivity } from "./lib/audit";
 import { requireAdmin, requireUser } from "./lib/permissions";
+import { noteCatalogUpdate } from "./lib/catalogUpdates";
 import { repriceOrderItem } from "./lib/matching";
 import { getCurrentPrice, setCurrentPrice } from "./lib/productPricing";
 import { mutation, query } from "./_generated/server";
@@ -67,13 +69,17 @@ export const setPrice = mutation({
       .withIndex("by_product", (q) => q.eq("productId", args.productId))
       .collect();
 
+    const wave = Date.now();
+    const repriced = new Map<Id<"orders">, number>();
     for (const item of affectedItems) {
       if (item.unitPriceOriginal !== undefined) continue;
       const order = await ctx.db.get(item.orderId);
       if (order?.countryId === args.countryId) {
         await repriceOrderItem(ctx, item);
+        repriced.set(item.orderId, (repriced.get(item.orderId) ?? 0) + 1);
       }
     }
+    for (const [orderId, lines] of repriced) await noteCatalogUpdate(ctx, orderId, lines, admin.email ?? undefined, wave);
   },
 });
 

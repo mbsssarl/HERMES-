@@ -102,7 +102,8 @@ function normalizeHeader(header: string): string {
 }
 
 function findColumnIndex(headers: string[], aliases: string[]): number {
-  const normalizedHeaders = headers.map(normalizeHeader);
+  // Array.from: tolerate sparse header rows (missing cells are treated as empty headers).
+  const normalizedHeaders = Array.from(headers, (h) => normalizeHeader(h ?? ""));
   for (const alias of aliases) {
     const idx = normalizedHeaders.findIndex((h) => h === alias);
     if (idx !== -1) return idx;
@@ -147,9 +148,43 @@ function looksLikeMergedArtifactRow(description: string, otherFields: (string | 
   return duplicates >= 2;
 }
 
+/**
+ * Reads the number out of a cell, whatever surrounds it: "340 000,00 XAF", "XAF 25000", "1 500 FCFA",
+ * "1.234,56", "1,234.56", "12,5", or a plain numeric cell. Currency codes, symbols and units are ignored,
+ * spaces (including non-breaking ones) are thousands separators, and the LAST "," or "." is the decimal
+ * mark when both appear; a single separator followed by exactly 3 digits is a thousands separator ("1,300").
+ */
 function toNumberOrUndefined(value: CellValue): number | undefined {
   if (value === null || value === undefined || value === "") return undefined;
-  const num = typeof value === "number" ? value : Number(String(value).replace(",", "."));
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+
+  const match = /-?\d[\d\s  .,]*/.exec(String(value));
+  if (!match) return undefined;
+  const text = match[0].replace(/[\s  ]/g, "");
+  if (!text) return undefined;
+
+  const lastComma = text.lastIndexOf(",");
+  const lastDot = text.lastIndexOf(".");
+  let decimal: "," | "." | null = null;
+  if (lastComma !== -1 && lastDot !== -1) {
+    decimal = lastComma > lastDot ? "," : ".";
+  } else if (lastComma !== -1 || lastDot !== -1) {
+    const sep = lastComma !== -1 ? "," : ".";
+    const occurrences = text.split(sep).length - 1;
+    const digitsAfter = text.length - text.lastIndexOf(sep) - 1;
+    decimal = occurrences === 1 && digitsAfter !== 3 ? sep : null;
+  }
+
+  let normalized = "";
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "," || ch === ".") {
+      if (decimal && ch === decimal && i === text.lastIndexOf(decimal)) normalized += ".";
+    } else {
+      normalized += ch;
+    }
+  }
+  const num = Number(normalized);
   return Number.isFinite(num) ? num : undefined;
 }
 
@@ -214,10 +249,16 @@ export function mapRowsToSupplierItems(
   headerRow: string[],
   dataRows: CellValue[][],
 ): NormalizedSupplierItem[] {
-  const columns: Record<keyof NormalizedSupplierItem, number> = {
+  // Catalogues often have BOTH a "DESIGNATION" (what the article is) and a "DESCRIPTION" (its size / spec):
+  // the product name is the designation followed by the description ("DRILL ELECTRIC PORTABLE 32MM, AC220V").
+  // With a single one of the two columns, that column is the name.
+  const designationColumn = findColumnIndex(headerRow, ["designation", "name", "nom", "article", "libelle"]);
+  const descriptionColumn = findColumnIndex(headerRow, SUPPLIER_FIELD_ALIASES.rawDescription);
+  const hasBoth = designationColumn !== -1 && descriptionColumn !== -1 && designationColumn !== descriptionColumn;
+  const nameColumn = designationColumn !== -1 ? designationColumn : descriptionColumn;
+
+  const columns = {
     rawCode: findColumnIndex(headerRow, SUPPLIER_FIELD_ALIASES.rawCode),
-    rawName: findColumnIndex(headerRow, SUPPLIER_FIELD_ALIASES.rawName),
-    rawDescription: findColumnIndex(headerRow, SUPPLIER_FIELD_ALIASES.rawDescription),
     rawUnit: findColumnIndex(headerRow, SUPPLIER_FIELD_ALIASES.rawUnit),
     rawPrice: findColumnIndex(headerRow, SUPPLIER_FIELD_ALIASES.rawPrice),
   };
@@ -226,22 +267,24 @@ export function mapRowsToSupplierItems(
   for (const row of dataRows) {
     if (isRowEmpty(row)) continue;
 
-    const name = columns.rawName !== -1 ? toStringOrUndefined(row[columns.rawName]) : undefined;
+    const designation = nameColumn !== -1 ? toStringOrUndefined(row[nameColumn]) : undefined;
+    let details = hasBoth ? toStringOrUndefined(row[descriptionColumn]) : undefined;
+    // A merged title cell repeats the same text in every column: designation === description.
+    if (details && designation && details.toLowerCase() === designation.toLowerCase()) details = undefined;
+    const name = designation && details ? `${designation} ${details}` : (designation ?? details);
     if (!name) continue;
 
     const rawCode = columns.rawCode !== -1 ? toCodeOrUndefined(row[columns.rawCode]) : undefined;
     const rawUnit = columns.rawUnit !== -1 ? toStringOrUndefined(row[columns.rawUnit]) : undefined;
 
-    // Same merged-cell footer risk as the client-side extraction - a row
-    // whose code and unit are both literally the same text as the name is
-    // almost certainly a duplicated merged cell, not a real product line.
+    // Merged banner / footer cells: the same text sits in the code (and/or unit) column as in the name.
+    if (rawCode && designation && rawCode.toLowerCase() === designation.toLowerCase()) continue;
     if (looksLikeMergedArtifactRow(name, [rawCode, rawUnit])) continue;
 
     items.push({
       rawCode,
       rawName: name,
-      rawDescription:
-        columns.rawDescription !== -1 ? toStringOrUndefined(row[columns.rawDescription]) : undefined,
+      rawDescription: details,
       rawUnit,
       rawPrice: columns.rawPrice !== -1 ? toNumberOrUndefined(row[columns.rawPrice]) : undefined,
     });
