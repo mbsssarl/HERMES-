@@ -326,6 +326,7 @@ async function findProductByCode(ctx: QueryCtx, code: string): Promise<Doc<"prod
     .withIndex("by_normalizedCode", (q) => q.eq("normalizedCode", normalized))
     .filter((q) => q.eq(q.field("deletedAt"), undefined))
     .first();
+  return { product: byName, matchedBy: byName ? "name" : null };
 }
 
 const SUGGESTION_FLOOR = 0.7; // même seuil plancher que le rapprochement des quotations (lib/matching.ts)
@@ -399,6 +400,10 @@ export const previewCatalogRows = query({
 export const importCatalog = mutation({
   args: {
     countryId: v.optional(v.id("countries")),
+    // Devise des prix de ce fichier, choisie librement par l'utilisateur (indépendante du pays - un même
+    // pays peut recevoir des imports dans des devises différentes selon la source du fichier). Requise dès
+    // qu'un pays est choisi, pour que les prix du fichier soient effectivement enregistrés.
+    currency: v.optional(v.string()),
     rows: v.array(
       v.object({
         code: v.optional(v.string()),
@@ -410,7 +415,7 @@ export const importCatalog = mutation({
       }),
     ),
   },
-  handler: async (ctx, { countryId, rows }) => {
+  handler: async (ctx, { countryId, currency, rows }) => {
     const admin = await requireAdmin(ctx);
     const country = countryId ? await ctx.db.get(countryId) : null;
     if (countryId && !country) throw new Error("Région introuvable.");

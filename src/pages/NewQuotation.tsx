@@ -39,7 +39,6 @@ export function NewQuotation({
     if (!countryId && activeCountries[0]) setCountryId(activeCountries[0].id);
   }, [countryId, activeCountries]);
 
-  const country = countries.find((c) => c.id === countryId);
 
 
   const submit = async () => {
@@ -55,7 +54,7 @@ export function NewQuotation({
         existing?._id ??
         (await createClient({ name, countryId: countryId as Id<'countries'> }));
 
-      const orderId = await createOrder({ clientId, countryId: countryId as Id<'countries'> });
+      const orderId = await createOrder({ clientId, countryId: countryId as Id<'countries'>, eta: eta || undefined });
 
       const uploadUrl = await generateUploadUrl();
       const response = await fetch(uploadUrl, { method: 'POST', headers: { 'Content-Type': file.type }, body: file });

@@ -62,7 +62,11 @@ export function Products({
   const [newCategory, setNewCategory] = React.useState('');
   const [newCountryId, setNewCountryId] = React.useState('');
   const [newPrice, setNewPrice] = React.useState('');
+  const [newPriceCurrency, setNewPriceCurrency] = React.useState('');
   const [saving, setSaving] = React.useState(false);
+  // Devise choisie pour une nouvelle ligne de prix dans la grille (produit, pays) qui n'en a pas encore -
+  // indépendante du pays, comme à l'import (voir CatalogImportModal). Clé : `${productId}:${countryId}`.
+  const [gridPriceCurrency, setGridPriceCurrency] = React.useState<Record<string, string>>({});
 
   const activeCountries = countries.filter((c) => c.active); // pour l'import
   const priceCountries = countries; // colonnes de prix : tous les pays, actifs ou non
@@ -78,7 +82,7 @@ export function Products({
 
       const productId = await createProduct({ impaId: ref.trim() || undefined, name: name.trim(), unit: unit.trim() || 'PCS', category: newCategory || undefined });
       if (price !== undefined && country) {
-        await setPrice({ productId, countryId: country.id as Id<'countries'>, price, currency: country.currency });
+        await setPrice({ productId, countryId: country.id as Id<'countries'>, price, currency: newPriceCurrency });
       }
       toast('Produit ajouté.', 'success');
       setShowAdd(false);
@@ -107,14 +111,14 @@ export function Products({
     }
   };
 
-  const savePrice = (p: ProductWithPrices, c: Country, price: number) =>
+  const savePrice = (p: ProductWithPrices, c: Country, price: number, currency: string) =>
     setPrice({
       productId: p.id as Id<'products'>,
       countryId: c.id as Id<'countries'>,
       price,
-      currency: c.currency,
+      currency,
     })
-      .then(() => toast(`Prix ${c.code} enregistré : ${formatPrice(price, c.currency)}.`, 'success'))
+      .then(() => toast(`Prix ${c.code} enregistré : ${formatPrice(price, currency)}.`, 'success'))
       .catch((err) => toast('Erreur: ' + errMsg(err), 'error'));
 
   const exitSelection = () => { setSelectMode(false); setSelected(new Set()); };
@@ -282,6 +286,10 @@ export function Products({
               <option value={NO_CATEGORY}>Sans catégorie</option>
               {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
             </select>
+            <select className="select" style={{ width: 200 }} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} aria-label="Catégorie">
+              <option value="">Toutes les catégories</option>
+              {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+            </select>
             <input className="input" style={{ width: 260 }} placeholder="Rechercher (nom, code)…" value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
         </div>
@@ -370,8 +378,21 @@ export function Products({
                         disabled={!isAdmin}
                         value={price ? price.base_price : null}
                         placeholder="-"
-                        onCommit={(v) => void savePrice(p, c, v)}
+                        onCommit={(v) => void savePrice(p, c, v, gridPriceCurrency[`${p.id}:${c.id}`] ?? price?.currency ?? currencies.find((cur) => cur.active)?.code ?? '')}
                       />
+                    </td>
+                    <td>
+                      <select
+                        className="select cell-input"
+                        style={{ width: 72 }}
+                        disabled={!isAdmin}
+                        value={gridPriceCurrency[`${p.id}:${c.id}`] ?? price?.currency ?? currencies.find((cur) => cur.active)?.code ?? ''}
+                        onChange={(e) => setGridPriceCurrency((prev) => ({ ...prev, [`${p.id}:${c.id}`]: e.target.value }))}
+                        title="Devise de ce prix, indépendante du pays"
+                      >
+                        {price && !currencies.some((cur) => cur.code === price.currency) && <option value={price.currency}>{price.currency}</option>}
+                        {currencies.filter((cur) => cur.active || cur.code === price?.currency).map((cur) => <option key={cur.id} value={cur.code}>{cur.code}</option>)}
+                      </select>
                     </td>
                     <td className="mono nowrap" title={c.name} style={{ fontWeight: 600 }}>
                       {c.code}
@@ -435,7 +456,7 @@ export function Products({
         </Modal>
       )}
 
-      {showImport && <CatalogImportModal countries={activeCountries} onClose={() => setShowImport(false)} />}
+      {showImport && <CatalogImportModal countries={activeCountries} currencies={currencies} onClose={() => setShowImport(false)} />}
 
       {showAdd && (
         <Modal
@@ -467,6 +488,13 @@ export function Products({
             <div className="form-field">
               <label>Unit Price</label>
               <input className="input" inputMode="decimal" value={newPrice} onChange={(e) => setNewPrice(e.target.value)} placeholder="0.00" disabled={!newCountryId} />
+            </div>
+            <div className="form-field">
+              <label>Devise</label>
+              <select className="select" value={newPriceCurrency} onChange={(e) => setNewPriceCurrency(e.target.value)} disabled={!newCountryId}>
+                <option value="" disabled>-</option>
+                {currencies.filter((cur) => cur.active).map((cur) => <option key={cur.id} value={cur.code}>{cur.code}</option>)}
+              </select>
             </div>
           </div>
         </Modal>

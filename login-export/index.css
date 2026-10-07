@@ -1,0 +1,60 @@
+/*
+ * index.css — Styles globaux MBSS Hermes
+ * À placer dans src/index.css
+ * Requiert Tailwind CSS v4
+ */
+
+@import "tailwindcss";
+
+:root {
+  font-family: 'Trebuchet MS', 'Segoe UI', sans-serif;
+  color: #27344b;
+  background: #fff;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; }
+button, input { font-family: inherit; }
+
+/* ── Thème sombre (optionnel, utilisé dans le dashboard) ── */
+.theme-dark {
+  color: #dbe5f5;
+  background-color: #101827;
+}
+.theme-dark header,
+.theme-dark .bg-white {
+  background-color: #172235;
+  border-color: #2d3b50;
+}
+.theme-dark [class*="bg-[#f4f7fb]"],
+.theme-dark .bg-slate-50,
+.theme-dark .bg-slate-100 {
+  background-color: #101827;
+}
+.theme-dark .border-slate-200,
+.theme-dark .border-slate-300 {
+  border-color: #2d3b50;
+}
+.theme-dark .text-slate-700,
+.theme-dark .text-slate-600,
+.theme-dark .text-slate-500 {
+  color: #dbe5f5;
+}
+.theme-dark .text-slate-400 {
+  color: #9aabc2;
+}
+.theme-dark input {
+  color: #e5edf8;
+  background-color: #1d2a3d;
+}
+.theme-dark th {
+  color: #b9c9df;
+  background-color: #1d2a3d;
+  border-color: #40516a;
+}
+.theme-dark td {
+  border-color: #2d3b50;
+}

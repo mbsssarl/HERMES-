@@ -3,7 +3,7 @@ import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { normalizeCode, normalizeName } from "./normalize";
 import { computeLinePricing } from "./pricing";
 import { findProductByAlias } from "./productAliases";
-import { getCurrentPrice } from "./productPricing";
+import { getCurrentPrice, resolveOrderCurrency } from "./productPricing";
 import { jaroWinkler } from "./stringSimilarity";
 
 const AUTO_ACCEPT_THRESHOLD = 0.92;

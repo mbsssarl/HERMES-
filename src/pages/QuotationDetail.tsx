@@ -71,7 +71,9 @@ export function QuotationDetail({
   if (!quotation) return <StateBox title="Quotation introuvable" />;
 
   const orderId = quotation.id as Id<'orders'>;
-  const currency = quotation.countries?.currency ?? 'EUR';
+  // Devise à afficher pour la commande dans son ensemble (PO, messages) : celle déjà en usage sur ses
+  // lignes chiffrées, sinon la devise par défaut de l'entreprise - les pays n'ont plus de devise attachée.
+  const currency = quotation.quotation_items.find((it) => it.price_currency)?.price_currency ?? DEFAULT_CURRENCY;
   const items = quotation.quotation_items;
   // Les lignes décochées sont écartées des statistiques.
   const includedItems = items.filter((it) => !it.excluded);
@@ -152,6 +154,42 @@ export function QuotationDetail({
       toast('Erreur: ' + errMsg(err), 'error');
       return null;
     }
+  };
+
+  const exportQuotation = async (scope: 'selected' | 'known' | 'unknown' | 'all') => {
+    setExporting(scope);
+    const fileName = await downloadExport(scope);
+    if (fileName) toast('Export Excel téléchargé.', 'success');
+    setExporting(null);
+  };
+
+  // "Envoyer un email" : télécharge le document (tout ce qui est coché), puis ouvre un brouillon Gmail pré-rempli
+  // dans un nouvel onglet. AUCUN site ne peut joindre un fichier à un brouillon Gmail par un lien - c'est bloqué
+  // par Gmail lui-même, pas une limite de l'appli : il faut le glisser depuis les téléchargements dans la fenêtre
+  // Gmail qui s'ouvre (ou utiliser son trombone), d'où le rappel ci-dessous.
+  const emailQuotation = async () => {
+    setExporting('email');
+    const fileName = await downloadExport('selected');
+    setExporting(null);
+    if (!fileName) return;
+
+    const subject = `Quotation ${quotation.quotation_number} - MBSS Sarl`;
+    const body = [
+      'Bonjour,',
+      '',
+      `Veuillez trouver ci-joint notre quotation ${quotation.quotation_number}${quotation.vessel ? ` pour le navire ${quotation.vessel}` : ''}.`,
+      '',
+      'Cordialement,',
+    ].join('\n');
+    const params = new URLSearchParams({
+      view: 'cm',
+      fs: '1',
+      to: quotation.customer_email ?? '',
+      su: subject,
+      body,
+    });
+    window.open(`https://mail.google.com/mail/?${params.toString()}`, '_blank');
+    toast(`"${fileName}" téléchargé - glissez-le dans le brouillon Gmail qui vient de s'ouvrir pour le joindre.`, 'info', { duration: 8000 });
   };
 
   return (

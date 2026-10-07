@@ -3,7 +3,7 @@ import type { Id } from "./_generated/dataModel";
 import { insertProduct } from "./products";
 import { normalizeCode, normalizeName } from "./lib/normalize";
 import { rematchOrderItem } from "./lib/matching";
-import { getCurrentPrice, setCurrentPrice } from "./lib/productPricing";
+import { getCurrentPrice, resolveOrderCurrency, setCurrentPrice } from "./lib/productPricing";
 import { requireUser } from "./lib/permissions";
 import { logActivity } from "./lib/audit";
 import { internalMutation, mutation, query } from "./_generated/server";
@@ -63,8 +63,6 @@ export const saveToCatalog = mutation({
 
       const order = await ctx.db.get(item.orderId);
       if (!order) continue;
-      const country = await ctx.db.get(order.countryId);
-      if (!country) continue;
 
       const productId =
         item.duplicateOfProductId ??
@@ -86,7 +84,7 @@ export const saveToCatalog = mutation({
         productId,
         countryId: order.countryId,
         price: item.rawPrice,
-        currency: country.currency,
+        currency: await resolveOrderCurrency(ctx, order._id),
         actorId: user._id,
       });
 
