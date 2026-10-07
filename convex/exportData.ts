@@ -1,6 +1,5 @@
 import { v } from "convex/values";
 import { internalQuery } from "./_generated/server";
-import { DEFAULT_CURRENCY } from "./lib/productPricing";
 
 /** Everything the Excel export of a quotation needs, in display order. */
 export const getForExport = internalQuery({

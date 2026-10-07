@@ -6,7 +6,6 @@ import { action, internalMutation, internalQuery, mutation, query } from "./_gen
 import { logActivity } from "./lib/audit";
 import { computeItemPricing } from "./lib/matching";
 import { requireAdmin, requireUser } from "./lib/permissions";
-import { DEFAULT_CURRENCY } from "./lib/productPricing";
 
 const ORDER_COUNTER_KEY = "orderReferenceCounter";
 

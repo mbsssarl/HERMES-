@@ -52,11 +52,9 @@ const sameRow = (a: Row, b: Row) =>
  */
 export function CatalogImportModal({
   countries,
-  currencies,
   onClose,
 }: {
   countries: Country[];
-  currencies: Currency[];
   onClose: () => void;
 }) {
   const toast = useToast();
@@ -66,9 +64,6 @@ export function CatalogImportModal({
   const importCatalog = useMutation(api.products.importCatalog);
 
   const [countryId, setCountryId] = React.useState(countries[0]?.id ?? '');
-  // Devise des prix du fichier, entièrement indépendante du pays choisi (ex. fichier fournisseur reçu en
-  // USD pour un pays habituellement tarifé en XAF) - aucune valeur par défaut déduite du pays.
-  const [currency, setCurrency] = React.useState(currencies.find((c) => c.active)?.code ?? '');
   const [fileName, setFileName] = React.useState('');
   const [rows, setRows] = React.useState<Row[] | null>(null);
   const [stats, setStats] = React.useState<{ sheets: number; read: number; ignored: number; duplicates: number } | null>(null);
@@ -281,22 +276,6 @@ export function CatalogImportModal({
           Les colonnes reconnues : code/IMPA, nom, unité, prix (les intitulés peuvent varier). Les prix importés prennent
           automatiquement la devise de cette région.
         </div>
-        <div className="form-field" style={{ width: 200 }}>
-          <label>Devise des prix du fichier</label>
-          <select
-            className="select"
-            value={currency}
-            disabled={!!rows || busy}
-            onChange={(e) => setCurrency(e.target.value)}
-          >
-            <option value="" disabled>Choisir une devise…</option>
-            {currencies.filter((c) => c.active || c.code === currency).map((c) => <option key={c.id} value={c.code}>{c.code} - {c.name}</option>)}
-          </select>
-        </div>
-      </div>
-      <div className="text-muted" style={{ fontSize: 12, margin: '4px 0 16px' }}>
-        Les colonnes reconnues : code/IMPA, nom, unité, prix (les intitulés peuvent varier). La devise est indépendante du pays :
-        changez-la si les prix du fichier ne sont pas dans la devise habituelle de ce pays.
       </div>
 
       {!rows && (

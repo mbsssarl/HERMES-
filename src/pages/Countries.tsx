@@ -21,7 +21,7 @@ export function Countries({ countries, currencies, loading, isAdmin }: { countri
   if (loading) return <StateBox loading title="Chargement…" />;
 
   const submit = async () => {
-    if (!code.trim() || !name.trim()) { toast('Code et nom sont requis.', 'error'); return; }
+    if (!code.trim() || !name.trim() || !currency.trim()) { toast('Code, nom et devise sont requis.', 'error'); return; }
     setSaving(true);
     try {
       await createCountry({ code: code.trim().toUpperCase(), name: name.trim(), city: city.trim() || undefined, currency: currency.trim().toUpperCase() });
