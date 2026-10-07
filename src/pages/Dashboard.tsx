@@ -1,8 +1,9 @@
 import React from 'react';
 import { CheckCircle2, Clock, FileText, TrendingUp } from 'lucide-react';
 import type { QuotationWithRelations } from '../types';
-import { formatAmount, formatDate } from '../lib/format';
+import { formatAmount, formatDate, regionLabel } from '../lib/format';
 import { StatusTag } from '../components/StatusTag';
+import { UpdateBadge } from '../components/UpdateBadge';
 
 export function Dashboard({
   quotations,
@@ -70,7 +71,7 @@ export function Dashboard({
                 <tr>
                   <th>Référence</th>
                   <th>Client</th>
-                  <th>Pays</th>
+                  <th>Région</th>
                   <th>Statut</th>
                   <th className="text-right">Total</th>
                   <th>Date</th>
@@ -79,9 +80,9 @@ export function Dashboard({
               <tbody>
                 {recent.map((q) => (
                   <tr key={q.id} className="clickable" onClick={() => onOpen(q)}>
-                    <td className="mono" style={{ fontWeight: 700 }}>{q.quotation_number}</td>
+                    <td className="mono" style={{ fontWeight: 700 }}>{q.quotation_number}<UpdateBadge update={q.catalog_update} /></td>
                     <td>{q.customer_name}</td>
-                    <td>{q.countries?.name ?? '-'}</td>
+                    <td>{q.countries ? regionLabel(q.countries) : '-'}</td>
                     <td><StatusTag status={q.status} /></td>
                     <td className="text-right mono">{formatAmount(q.total)}</td>
                     <td className="text-muted nowrap">{formatDate(q.created_at)}</td>

@@ -1,5 +1,10 @@
 import type { QuotationStatus, MatchStatus } from '../types';
 
+/** Une région de cotation = un pays + une ville (un même pays peut en avoir plusieurs) : « Cote d'Ivoire - Abidjan ». */
+export function regionLabel(c: { name: string; city?: string | null }): string {
+  return c.city ? `${c.name} - ${c.city}` : c.name;
+}
+
 export const STATUS_LABELS: Record<QuotationStatus, string> = {
   DRAFT: 'Brouillon',
   PROCESSING: 'En traitement',

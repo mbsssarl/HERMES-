@@ -4,11 +4,12 @@ import { UploadCloud } from 'lucide-react';
 import type { Country } from '../types';
 import { api, type Id } from '../lib/convex';
 import { useToast } from '../components/Toast';
+import { regionLabel } from '../lib/format';
 
 const ACCEPTED = '.pdf,.docx,.xlsx,.xls';
 
 /**
- * Création d'une quotation = petit formulaire (client + pays) puis import du
+ * Création d'une quotation = petit formulaire (client + région de cotation) puis import du
  * fichier de demande. Le fichier est analysé côté serveur (extraction, matching
  * catalogue) ; on ouvre directement la fiche où les lignes apparaissent en temps réel.
  */
@@ -29,7 +30,6 @@ export function NewQuotation({
   const activeCountries = countries.filter((c) => c.active);
   const [countryId, setCountryId] = React.useState('');
   const [customerName, setCustomerName] = React.useState('');
-  const [customerEmail, setCustomerEmail] = React.useState('');
   const [file, setFile] = React.useState<File | null>(null);
   const [dragging, setDragging] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
@@ -41,9 +41,10 @@ export function NewQuotation({
 
   const country = countries.find((c) => c.id === countryId);
 
+
   const submit = async () => {
     if (!customerName.trim()) { toast('Indiquez le nom du client.', 'error'); return; }
-    if (!countryId) { toast('Sélectionnez un pays de cotation.', 'error'); return; }
+    if (!countryId) { toast('Sélectionnez une région de cotation.', 'error'); return; }
     if (!file) { toast('Importez le fichier de demande du client.', 'error'); return; }
 
     setSubmitting(true);
@@ -52,7 +53,7 @@ export function NewQuotation({
       const existing = clients?.find((c) => c.name.toLowerCase() === name.toLowerCase());
       const clientId =
         existing?._id ??
-        (await createClient({ name, contactEmail: customerEmail.trim() || undefined, countryId: countryId as Id<'countries'> }));
+        (await createClient({ name, countryId: countryId as Id<'countries'> }));
 
       const orderId = await createOrder({ clientId, countryId: countryId as Id<'countries'> });
 
@@ -84,7 +85,7 @@ export function NewQuotation({
       <div className="page-header">
         <div>
           <h1 className="page-title">Nouvelle quotation</h1>
-          <p className="page-subtitle">Indiquez le client et le pays, puis importez sa demande : les articles connus et inconnus sont détectés automatiquement.</p>
+          <p className="page-subtitle">Indiquez le client et la région de cotation, puis importez sa demande : les articles connus et inconnus sont détectés automatiquement.</p>
         </div>
       </div>
 
@@ -113,22 +114,18 @@ export function NewQuotation({
           </datalist>
         </div>
         <div className="form-field">
-          <label>Email (optionnel, pour un nouveau client)</label>
-          <input className="input" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="purchasing@client.com" />
-        </div>
-        <div className="form-field">
-          <label>Pays de cotation</label>
+          <label>Région de cotation</label>
           <select className="select" value={countryId} onChange={(e) => setCountryId(e.target.value)} disabled={activeCountries.length === 0}>
-            <option value="" disabled>{activeCountries.length === 0 ? 'Aucun pays actif' : 'Choisir un pays…'}</option>
-            {activeCountries.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.code})</option>)}
+            <option value="" disabled>{activeCountries.length === 0 ? 'Aucune région active' : 'Choisir une région…'}</option>
+            {activeCountries.map((c) => <option key={c.id} value={c.id}>{regionLabel(c)} ({c.code})</option>)}
           </select>
           {activeCountries.length === 0 && (
             <div style={{ fontSize: 12, marginTop: 4, color: 'var(--color-error)' }}>
-              Tous les pays sont inactifs : réactivez-en un dans la page « Pays ».
+              Toutes les régions sont inactives : réactivez-en une dans Admin, onglet « Régions ».
             </div>
           )}
           <div className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>
-            Les prix appliqués sont ceux de ce pays{country ? ` (${country.currency})` : ''} ; il ne pourra plus être modifié.
+            Les prix appliqués sont ceux de cette région{country ? ` (${country.currency})` : ''} ; elle ne pourra plus être modifiée.
           </div>
         </div>
 

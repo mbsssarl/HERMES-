@@ -1,12 +1,13 @@
 import React from 'react';
 import { useAction, useMutation } from 'convex/react';
 import { ArrowLeft } from 'lucide-react';
-import type { Product, QuotationWithRelations } from '../types';
-import { MATCH_LABELS, formatPrice, formatAmount, formatDate } from '../lib/format';
+import type { Currency, ProductWithPrices, QuotationWithRelations } from '../types';
+import { MATCH_LABELS, formatPrice, formatAmount, formatDate, regionLabel } from '../lib/format';
 import { StatusTag } from '../components/StatusTag';
 import { Modal, StateBox } from '../components/ui';
 import { LinesTable } from '../components/LinesTable';
 import { RequestInfoCard } from '../components/RequestInfoCard';
+import { ExportModal } from '../components/ExportModal';
 import { api, type Id } from '../lib/convex';
 import { UI_TO_ORDER_STATUS } from '../lib/mappers';
 import { useToast } from '../components/Toast';
@@ -16,12 +17,14 @@ const errMsg = (err: unknown) => (err instanceof Error ? err.message : String(er
 export function QuotationDetail({
   quotation,
   products,
+  currencies,
   loading,
   isAdmin,
   onBack,
 }: {
   quotation: QuotationWithRelations | null;
-  products: Product[];
+  products: ProductWithPrices[];
+  currencies: Currency[];
   loading: boolean;
   isAdmin: boolean;
   onBack: () => void;
@@ -32,16 +35,37 @@ export function QuotationDetail({
   const updateStatus = useMutation(api.orders.updateStatus);
   const applyGlobalPricing = useMutation(api.orders.applyGlobalPricing);
   const exportXlsx = useAction(api.exportQuotation.exportQuotationXlsx);
-  const setExcluded = useMutation(api.orderItems.setExcluded);
+  const applyExportCurrency = useAction(api.orders.applyExportCurrency);
+  const markSeen = useMutation(api.orders.markSeen);
+  const setExcluded = useMutation(api.orderItems.setExcluded).withOptimisticUpdate((store, { orderItemIds, excluded }) => {
+    const ids = new Set<string>(orderItemIds);
+    for (const { args, value } of store.getAllQueries(api.orderItems.listByOrder)) {
+      if (!value) continue;
+      store.setQuery(
+        api.orderItems.listByOrder,
+        args,
+        value.map((it) => (ids.has(it._id) ? { ...it, excluded: excluded ? true : undefined } : it)),
+      );
+    }
+  });
+  const dismissProposal = useMutation(api.orderItems.dismissProposal);
   const removeOrder = useMutation(api.orders.remove);
   const restoreOrder = useMutation(api.orders.restore);
   const [applying, setApplying] = React.useState(false);
+  const [convertingCurrency, setConvertingCurrency] = React.useState(false);
   const [confirmDelete, setConfirmDelete] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
   const [confirmPo, setConfirmPo] = React.useState(false);
   const [savingPo, setSavingPo] = React.useState(false);
-  const [exporting, setExporting] = React.useState<string | null>(null);
+  const [exportDialog, setExportDialog] = React.useState<'selected' | 'unknown' | null>(null);
 
+
+  // Ouvrir la quotation fait disparaître son badge « mise à jour » pour cet utilisateur.
+  const seenId = quotation?.id;
+  const hasUpdate = Boolean(quotation?.catalog_update);
+  React.useEffect(() => {
+    if (seenId && hasUpdate) markSeen({ orderId: seenId as Id<'orders'> }).catch(() => {});
+  }, [seenId, hasUpdate, markSeen]);
 
   if (loading) return <StateBox loading title="Chargement…" />;
   if (!quotation) return <StateBox title="Quotation introuvable" />;
@@ -70,6 +94,19 @@ export function QuotationDetail({
       toast('Erreur: ' + errMsg(err), 'error');
     } finally {
       setApplying(false);
+    }
+  };
+
+  const applyExportCurrencyChange = async (targetCurrency: string | undefined) => {
+    setConvertingCurrency(true);
+    try {
+      const rates = await applyExportCurrency({ orderId, targetCurrency });
+      const summary = rates?.map((r) => `1 ${r.currency} = ${r.rate.toFixed(4)} ${targetCurrency}`).join(', ');
+      toast(summary ? `Taux appliqué : ${summary}.` : 'Conversion annulée : chaque ligne du fichier ressortira dans sa devise d\'origine.', 'success');
+    } catch (err) {
+      toast('Erreur: ' + errMsg(err), 'error');
+    } finally {
+      setConvertingCurrency(false);
     }
   };
 
@@ -107,24 +144,13 @@ export function QuotationDetail({
     }
   };
 
-  // Export Excel : le serveur remplit le gabarit MBSS (mêmes mise en page, totaux, contacts).
-  const exportQuotation = async (scope: 'selected' | 'known' | 'unknown' | 'all') => {
-    setExporting(scope);
+  // Génère le fichier Excel du gabarit MBSS pour ce périmètre (le modal décide ensuite : téléchargement ou email).
+  const fetchExport = async (scope: 'selected' | 'unknown', opts: { eta?: string; clientFormat?: boolean }): Promise<{ fileName: string; base64: string; notice?: string } | null> => {
     try {
-      const { fileName, base64 } = await exportXlsx({ orderId, scope });
-      const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-      const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = fileName;
-      a.click();
-      URL.revokeObjectURL(url);
-      toast('Export Excel téléchargé.', 'success');
+      return await exportXlsx({ orderId, scope, eta: opts.eta, clientFormat: opts.clientFormat });
     } catch (err) {
       toast('Erreur: ' + errMsg(err), 'error');
-    } finally {
-      setExporting(null);
+      return null;
     }
   };
 
@@ -136,7 +162,7 @@ export function QuotationDetail({
             <ArrowLeft size={16} /> Retour
           </button>
           <h1 className="page-title">{quotation.quotation_number}</h1>
-          <p className="page-subtitle">{quotation.customer_name} - {quotation.countries?.name ?? 'Pays non renseigné'}</p>
+          <p className="page-subtitle">{quotation.customer_name} - {quotation.countries ? regionLabel(quotation.countries) : 'Région non renseignée'}</p>
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <StatusTag status={quotation.status} />
@@ -150,9 +176,9 @@ export function QuotationDetail({
           <div className="sub" title={quotation.customer_email ?? ''}>{quotation.customer_email ?? '-'}</div>
         </div>
         <div className="summary-item">
-          <label>Pays de cotation</label>
+          <label>Région de cotation</label>
           <div className="value">{quotation.countries?.name ?? '-'}</div>
-          <div className="sub">{quotation.countries?.currency ?? ''}</div>
+          <div className="sub">{quotation.countries?.city ?? ''}</div>
         </div>
         <div className="summary-item summary-wide">
           <label>Fichier source</label>
@@ -167,7 +193,13 @@ export function QuotationDetail({
       </div>
 
       {isAdmin && (
-        <RequestInfoCard quotation={quotation} applying={applying} onApply={(cot, dis) => void applyGlobal(cot, dis)} />
+        <RequestInfoCard
+          quotation={quotation}
+          currencies={currencies}
+          pricingCurrency={quotation.countries?.currency ?? ''}
+          convertingCurrency={convertingCurrency}
+          onApplyExportCurrency={(target) => void applyExportCurrencyChange(target)}
+          applying={applying} onApply={(cot, dis) => void applyGlobal(cot, dis)} />
       )}
 
       <div className="card">
@@ -184,6 +216,11 @@ export function QuotationDetail({
             items={items}
             products={products}
             currency={currency}
+            countryId={quotation.country_id}
+            onDismiss={(it, productId) =>
+              dismissProposal({ orderItemId: it.id as Id<'orderItems'>, productId: productId as Id<'products'> })
+                .catch((err) => toast('Erreur: ' + errMsg(err), 'error'))
+            }
             onEdit={(it, edit) =>
               updateItem({ orderItemId: it.id as Id<'orderItems'>, ...edit }).catch((err) => toast('Erreur: ' + errMsg(err), 'error'))
             }
@@ -197,23 +234,33 @@ export function QuotationDetail({
             }
           />
         )}
-        <div className="total-bar">
-          <span className="label">Total quotation</span>
-          <span className="amount mono">{formatAmount(quotation.total)}</span>
+        <div className="total-bar" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
+          {(quotation.global_discount_percent ?? 0) > 0 && (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span className="label">Sous-total</span>
+                <span className="mono">{formatAmount(quotation.subtotal)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span className="label">Discount global {quotation.global_discount_percent}%</span>
+                <span className="mono">-{formatAmount(quotation.subtotal - quotation.total)}</span>
+              </div>
+            </>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span className="label">Total quotation</span>
+            <span className="amount mono">{formatAmount(quotation.total)}</span>
+          </div>
         </div>
       </div>
 
       <div className="actions-bar">
-        {([
-          ['selected', 'Exporter les sélectionnés'],
-          ['known', 'Exporter les répertoriés'],
-          ['unknown', 'Exporter les non répertoriés'],
-          ['all', 'Tout exporter'],
-        ] as const).map(([scope, label]) => (
-          <button key={scope} className="btn" onClick={() => void exportQuotation(scope)} disabled={exporting !== null || counts[scope] === 0}>
-            {exporting === scope ? 'Export…' : `${label} (${counts[scope]})`}
-          </button>
-        ))}
+        <button className="btn" onClick={() => setExportDialog('selected')} disabled={counts.selected === 0}>
+          Extraire les éléments sélectionnés ({counts.selected})
+        </button>
+        <button className="btn" onClick={() => setExportDialog('unknown')} disabled={counts.unknown === 0}>
+          Extraire les éléments sans prix ({counts.unknown})
+        </button>
         {quotation.status === 'DELETED' ? (
           isAdmin && <button className="btn" onClick={() => void restoreQuotation()}>Restaurer</button>
         ) : (
@@ -228,6 +275,19 @@ export function QuotationDetail({
           PO
         </button>
       </div>
+
+      {exportDialog && (
+        <ExportModal
+          title={exportDialog === 'selected' ? 'Extraire les éléments sélectionnés' : 'Extraire les éléments sans prix'}
+          count={counts[exportDialog]}
+          quotationNumber={quotation.quotation_number}
+          vessel={quotation.vessel}
+          defaultTo={quotation.customer_email ?? ''}
+          defaultType={exportDialog === 'unknown' ? 'supplier' : 'client'}
+          fetchExport={(opts) => fetchExport(exportDialog, opts)}
+          onClose={() => setExportDialog(null)}
+        />
+      )}
 
       {confirmDelete && (
         <Modal

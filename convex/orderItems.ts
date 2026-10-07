@@ -1,5 +1,6 @@
 import { v } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
+import { noteCatalogUpdate } from "./lib/catalogUpdates";
 import { applyMatchedProduct, computeItemPricing, matchOrderItem, rematchOrderItem } from "./lib/matching";
 import { learnAlias } from "./lib/productAliases";
 import { requireUser } from "./lib/permissions";
@@ -101,6 +102,7 @@ const normalizedClientItemValidator = v.object({
   discountPercent: v.optional(v.number()),
   reqNotes: v.optional(v.string()),
   enqNotes: v.optional(v.string()),
+  sourceRow: v.optional(v.number()),
 });
 
 const documentMetadataValidator = v.object({
@@ -169,9 +171,9 @@ export const saveExtractedItemsInternal = internalMutation({
         rawOrigin: raw.rawOrigin,
         quotedQuantity: raw.quotedQuantity,
         unitPriceManual: raw.unitPrice,
-        lineDiscountPercent: raw.discountPercent,
         reqNotes: raw.reqNotes,
         enqNotes: raw.enqNotes,
+        sourceRow: raw.sourceRow,
         matchStatus: "unmatched",
         createdAt: now,
         updatedAt: now,
@@ -210,7 +212,6 @@ export const update = mutation({
     rawUnit: v.optional(v.string()),
     rawOrigin: v.optional(v.string()),
     quotedQuantity: v.optional(v.number()),
-    lineDiscountPercent: v.optional(v.number()),
     quotationPercent: v.optional(v.number()),
     // null = retirer le prix manuel (retour au prix du catalogue)
     unitPrice: v.optional(v.union(v.number(), v.null())),
@@ -231,9 +232,6 @@ export const update = mutation({
     if (edits.quotationPercent !== undefined && (edits.quotationPercent < 0 || edits.quotationPercent > 1000)) {
       throw new Error("Cotation invalide.");
     }
-    if (edits.lineDiscountPercent !== undefined && (edits.lineDiscountPercent < 0 || edits.lineDiscountPercent > 100)) {
-      throw new Error("Remise invalide (0 à 100 %).");
-    }
 
     const patch: Partial<Doc<"orderItems">> = { updatedAt: Date.now(), updatedBy: user._id };
     if (edits.rawCode !== undefined) patch.rawCode = edits.rawCode.trim() || undefined;
@@ -242,7 +240,6 @@ export const update = mutation({
     if (edits.rawOrigin !== undefined) patch.rawOrigin = edits.rawOrigin.trim() || undefined;
     if (edits.reqNotes !== undefined) patch.reqNotes = edits.reqNotes;
     if (edits.enqNotes !== undefined) patch.enqNotes = edits.enqNotes;
-    if (edits.lineDiscountPercent !== undefined) patch.lineDiscountPercent = edits.lineDiscountPercent;
     if (edits.quotationPercent !== undefined) patch.quotationPercentLine = edits.quotationPercent;
 
     // The table shows a single "Quantity": editing it sets the quantity used for the amounts too.
@@ -265,6 +262,7 @@ export const update = mutation({
         matchStatus: "unmatched" as const,
         matchConfidence: undefined,
         ambiguousCandidates: undefined,
+        proposalsDismissed: undefined,
       });
       await ctx.db.patch(orderItemId, patch);
       const reset = await ctx.db.get(orderItemId);
@@ -291,19 +289,37 @@ const REMATCH_PAGE_SIZE = 100;
  * re-schedules itself until the whole table has been scanned.
  */
 export const rematchPendingInternal = internalMutation({
-  args: { cursor: v.optional(v.string()) },
-  handler: async (ctx, { cursor }): Promise<void> => {
+  args: {
+    cursor: v.optional(v.string()),
+    // Start of this wave and who caused it (for the "quotation updated" badge).
+    startedAt: v.optional(v.number()),
+    actorEmail: v.optional(v.string()),
+  },
+  handler: async (ctx, { cursor, startedAt, actorEmail }): Promise<void> => {
+    const wave = startedAt ?? Date.now();
     const page = await ctx.db.query("orderItems").paginate({ numItems: REMATCH_PAGE_SIZE, cursor: cursor ?? null });
+    const improved = new Map<Id<"orders">, number>();
 
     for (const item of page.page) {
       if (item.unitPriceManual !== undefined && item.matchStatus !== "unmatched" && item.matchStatus !== "ambiguous") continue;
       const waitingForMatch = item.matchStatus === "unmatched" || item.matchStatus === "ambiguous";
       const waitingForPrice = item.productId !== undefined && item.unitPriceOriginal === undefined;
-      if (waitingForMatch || waitingForPrice) await rematchOrderItem(ctx, item);
+      if (!waitingForMatch && !waitingForPrice) continue;
+
+      await rematchOrderItem(ctx, item);
+      const after = await ctx.db.get(item._id);
+      const nowMatched = waitingForMatch && after !== null && after.productId !== undefined;
+      const nowPriced = after !== null && item.unitPriceOriginal === undefined && after.unitPriceOriginal !== undefined;
+      if (nowMatched || nowPriced) improved.set(item.orderId, (improved.get(item.orderId) ?? 0) + 1);
     }
+    for (const [orderId, lines] of improved) await noteCatalogUpdate(ctx, orderId, lines, actorEmail, wave);
 
     if (!page.isDone) {
-      await ctx.scheduler.runAfter(0, internal.orderItems.rematchPendingInternal, { cursor: page.continueCursor });
+      await ctx.scheduler.runAfter(0, internal.orderItems.rematchPendingInternal, {
+        cursor: page.continueCursor,
+        startedAt: wave,
+        actorEmail,
+      });
     }
   },
 });
@@ -314,8 +330,11 @@ export const repriceAllInternal = internalMutation({
   handler: async (ctx, { cursor }): Promise<void> => {
     const page = await ctx.db.query("orderItems").paginate({ numItems: 100, cursor: cursor ?? null });
     for (const item of page.page) {
-      if (item.unitPriceOriginal === undefined) continue;
-      await ctx.db.patch(item._id, await computeItemPricing(ctx, item));
+      const cleaned = { ...item, lineDiscountPercent: undefined };
+      await ctx.db.patch(item._id, {
+        lineDiscountPercent: undefined,
+        ...(item.unitPriceOriginal === undefined ? {} : await computeItemPricing(ctx, cleaned)),
+      });
     }
     if (!page.isDone) {
       await ctx.scheduler.runAfter(0, internal.orderItems.repriceAllInternal, { cursor: page.continueCursor });
@@ -331,5 +350,33 @@ export const setExcluded = mutation({
     for (const id of orderItemIds) {
       await ctx.db.patch(id, { excluded: excluded ? true : undefined, updatedAt: Date.now(), updatedBy: user._id });
     }
+  },
+});
+
+/**
+ * Ignores one proposed match of a line. When no proposal remains, the line becomes "unknown"
+ * and is not proposed again automatically.
+ */
+export const dismissProposal = mutation({
+  args: { orderItemId: v.id("orderItems"), productId: v.id("products") },
+  handler: async (ctx, { orderItemId, productId }) => {
+    const user = await requireUser(ctx);
+    const item = await ctx.db.get(orderItemId);
+    if (!item) throw new Error("Ligne introuvable.");
+
+    const remaining = (item.ambiguousCandidates ?? []).filter((id) => id !== productId);
+    if (remaining.length > 0) {
+      await ctx.db.patch(orderItemId, { ambiguousCandidates: remaining, updatedAt: Date.now(), updatedBy: user._id });
+      return;
+    }
+    await ctx.db.patch(orderItemId, {
+      matchStatus: "unmatched",
+      productId: undefined,
+      matchConfidence: undefined,
+      ambiguousCandidates: undefined,
+      proposalsDismissed: true,
+      updatedAt: Date.now(),
+      updatedBy: user._id,
+    });
   },
 });

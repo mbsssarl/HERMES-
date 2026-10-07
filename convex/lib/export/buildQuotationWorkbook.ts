@@ -4,15 +4,12 @@ import ExcelJS from "exceljs";
 import { QUOTATION_TEMPLATE_BASE64 } from "./templateData";
 
 export interface ExportItem {
+  code?: string;
   description: string;
   unit?: string;
   quantity: number;
   /** Unit price after cotation, before discount (the "PRICE UNIT" column). Undefined = not priced. */
   unitPrice?: number;
-  /** Line discount in percent. */
-  discountPercent: number;
-  /** Final line amount after discount (what the application shows as "Final Price"). */
-  finalTotal?: number;
   remarks?: string;
 }
 
@@ -22,17 +19,22 @@ export interface ExportData {
   vessel?: string;
   eta?: string;
   port?: string;
+  /** Ville du pays de cotation (voir countries.city) : prioritaire sur `port` pour le titre d'en-tête. */
+  city?: string;
   category?: string;
   paymentDays?: string;
+  /** Global discount in percent, applied on the total of the whole order. */
+  discountPercent: number;
   items: ExportItem[];
 }
 
 // Layout of the embedded template (see templateData.ts): header rows 1-16, one model item row (17),
-// then the footer block (totals + contacts) on rows 18-29.
+// then the footer block (totals + contacts) on rows 18-29. Columns: A N°, B CODE, C DESCRIPTION, D UNIT,
+// E QUANTITY, F PRICE UNIT, G TOTAL AMOUNT, H REMARKS.
 const FIRST_ITEM_ROW = 17;
 const FOOTER_FIRST = 18;
 const FOOTER_LAST = 29;
-const COLS = 7;
+const COLS = 8;
 
 // Footer rows, relative to FOOTER_FIRST.
 const F_GROSS = 0;
@@ -111,7 +113,10 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
   }
 
   // --- header lines
-  const supplies = ["SUPPLIES AT", data.port ? `${data.port.toUpperCase()} PORT` : undefined, formatDate(data.eta) ? `ETA ${formatDate(data.eta)}` : undefined, data.vessel ? `${data.vessel.toUpperCase()} VESSEL` : undefined]
+  // La ville du pays de cotation prime sur le lieu de livraison en texte libre (souvent un placeholder non
+  // renseigné, ex. "DELIVERY PORT") : "SUPPLY AT ABIDJAN" plutôt que "SUPPLY AT DELIVERY PORT PORT".
+  const place = data.city ? data.city.toUpperCase() : (data.port ? `${data.port.toUpperCase()} PORT` : undefined);
+  const supplies = ["SUPPLY AT", place, formatDate(data.eta) ? `ETA ${formatDate(data.eta)}` : undefined, data.vessel ? `${data.vessel.toUpperCase()} VESSEL` : undefined]
     .filter(Boolean)
     .join(" ");
   ws.getCell("B13").value = supplies;
@@ -125,23 +130,22 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
   const currency = data.currency;
   let row = FIRST_ITEM_ROW;
   let gross = 0;
-  let net = 0;
 
   data.items.forEach((item, index) => {
     const r = ws.getRow(row);
     const lineGross = item.unitPrice !== undefined ? round2(item.unitPrice * item.quantity) : 0;
     if (item.unitPrice !== undefined) {
       gross += lineGross;
-      net += item.finalTotal ?? lineGross;
     }
 
     const values: ExcelJS.CellValue[] = [
       index + 1,
+      item.code ?? "",
       item.description,
       item.unit ?? "",
       item.quantity,
       item.unitPrice !== undefined ? round2(item.unitPrice) : null,
-      { formula: `E${row}*D${row}`, result: lineGross },
+      { formula: `F${row}*E${row}`, result: lineGross },
       item.remarks ?? "",
     ];
     for (let c = 0; c < COLS; c++) {
@@ -158,10 +162,7 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
   const lastItemRow = row - 1;
   const footerStart = row;
   gross = round2(gross);
-  net = round2(net);
-  const discountAmount = round2(gross - net);
-  // Overall discount rate = discount amount / gross total (e.g. 10 or 7.35), shown in the label cell.
-  const overallRate = gross > 0 ? round2((discountAmount / gross) * 100) : 0;
+  const discountAmount = round2((gross * data.discountPercent) / 100);
 
   // --- footer block, copied below the last article
   footer.forEach((f, i) => {
@@ -179,15 +180,15 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
   });
 
   const at = (i: number) => footerStart + i;
-  ws.getCell(`F${at(F_GROSS)}`).value = {
-    formula: data.items.length > 0 ? `SUM(F${FIRST_ITEM_ROW}:F${lastItemRow})` : "0",
+  ws.getCell(`G${at(F_GROSS)}`).value = {
+    formula: data.items.length > 0 ? `SUM(G${FIRST_ITEM_ROW}:G${lastItemRow})` : "0",
     result: gross,
   };
-  ws.getCell(`D${at(F_DISCOUNT)}`).value = `DISCOUNT ${overallRate}%`;
-  ws.getCell(`F${at(F_DISCOUNT)}`).value = discountAmount;
-  ws.getCell(`F${at(F_NET)}`).value = {
-    formula: `F${at(F_GROSS)}-F${at(F_DISCOUNT)}+F${at(F_TRANSPORT)}`,
-    result: round2(gross - discountAmount + 0),
+  ws.getCell(`E${at(F_DISCOUNT)}`).value = `DISCOUNT ${data.discountPercent}%`;
+  ws.getCell(`G${at(F_DISCOUNT)}`).value = discountAmount;
+  ws.getCell(`G${at(F_NET)}`).value = {
+    formula: `G${at(F_GROSS)}-G${at(F_DISCOUNT)}+G${at(F_TRANSPORT)}`,
+    result: round2(gross - discountAmount),
   };
   if (data.paymentDays) ws.getCell(`B${at(F_PAYMENT)}`).value = `Payment Time: ${data.paymentDays}`;
 

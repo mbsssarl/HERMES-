@@ -23,17 +23,17 @@ export const sendWelcomeEmail = internalAction({
   },
 });
 
-export const sendPasswordResetEmail = internalAction({
-  args: { email: v.string(), token: v.string() },
-  handler: async (_ctx, { email, token }) => {
-    const resetUrl = `${APP_URL}/reset-password?token=${token}`;
+export const sendTempPasswordEmail = internalAction({
+  args: { email: v.string(), tempPassword: v.string() },
+  handler: async (_ctx, { email, tempPassword }) => {
     await sendTransactionalEmail({
       to: email,
-      subject: "Réinitialisation de votre mot de passe",
+      subject: "Votre mot de passe a été réinitialisé",
       htmlContent: `
-        <p>Une demande de réinitialisation de mot de passe a été effectuée pour ce compte.</p>
-        <p><a href="${resetUrl}">Cliquez ici pour définir un nouveau mot de passe</a> (valable 1 heure).</p>
-        <p>Si vous n'êtes pas à l'origine de cette demande, ignorez cet email.</p>
+        <p>Bonjour,</p>
+        <p>Un administrateur a réinitialisé votre mot de passe.</p>
+        <p><strong>Mot de passe à usage unique :</strong> ${tempPassword}</p>
+        <p>Connectez-vous sur <a href="${APP_URL}">${APP_URL}</a> : un nouveau mot de passe personnel vous sera demandé aussitôt.</p>
       `,
     });
   },

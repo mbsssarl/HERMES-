@@ -4,6 +4,9 @@ import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { action } from "./_generated/server";
 import { buildQuotationWorkbook } from "./lib/export/buildQuotationWorkbook";
+import { fillClientWorkbook } from "./lib/export/fillClientWorkbook";
+
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 /**
  * Exports the quotation (after cotation and discounts) as an Excel file that reproduces the MBSS
@@ -15,14 +18,27 @@ export const exportQuotationXlsx = action({
     // selected: checked lines · known: checked lines matched to the catalogue · unknown: checked lines not
     // matched (or still to confirm) · all: every line, checked or not.
     scope: v.union(v.literal("selected"), v.literal("known"), v.literal("unknown"), v.literal("all")),
+    // ETA du navire pour CE fichier (saisie à l'envoi à un fournisseur) ; sinon celle de la commande, s'il y en a une.
+    eta: v.optional(v.string()),
+    // true = envoi au CLIENT : on renvoie son fichier Excel d'origine complété des prix, au lieu du gabarit MBSS
+    // (réservé aux fournisseurs et aux téléchargements simples).
+    clientFormat: v.optional(v.boolean()),
   },
-  handler: async (ctx, { orderId, scope }): Promise<{ fileName: string; base64: string }> => {
+  handler: async (ctx, { orderId, scope, eta, clientFormat }): Promise<{ fileName: string; base64: string; notice?: string }> => {
     const user = await ctx.runQuery(api.users.getCurrentUser, {});
     if (!user) throw new Error("Authentification requise.");
 
     const data = await ctx.runQuery(internal.exportData.getForExport, { orderId });
     if (!data) throw new Error("Commande introuvable.");
-    const { order, client, country } = data;
+    const { order, client, country, currency } = data;
+    // Taux figés au moment où l'admin a choisi la devise d'export (convex/orders.ts:applyExportCurrency) -
+    // pas de conversion si aucune devise cible n'a été appliquée. Une ligne sans priceCurrency propre (prix
+    // manuel ancien) retombe sur la devise du pays de cotation.
+    const rateFor = (itemCurrency: string | undefined): number => {
+      if (!order.exportRates) return 1;
+      const match = order.exportRates.find((r) => r.currency === (itemCurrency ?? country?.currency));
+      return match?.rate ?? 1;
+    };
 
     const isKnown = (status: string) => status === "matched_impa" || status === "matched_name" || status === "manual";
     const items = data.items.filter((item) => {
@@ -35,21 +51,63 @@ export const exportQuotationXlsx = action({
     if (items.length === 0) throw new Error("Aucune ligne à exporter pour ce choix.");
     const suffix = { selected: "", known: " - repertories", unknown: " - non repertories", all: " - tout" }[scope];
 
+    // Envoi au client : le fichier d'origine sert de gabarit. Si c'est impossible (PDF/Word, fichier absent...),
+    // on retombe sur le gabarit MBSS en le signalant plutôt que d'échouer.
+    let notice: string | undefined;
+    if (clientFormat) {
+      const original = data.clientFile;
+      if (!original) {
+        notice = "Aucun fichier d'origine pour cette quotation : le format MBSS a été utilisé.";
+      } else if (original.mimeType !== XLSX_MIME) {
+        notice = "Le fichier d'origine n'est pas un classeur Excel (.xlsx) et ne peut pas être complété : le format MBSS a été utilisé.";
+      } else {
+        try {
+          const blob = await ctx.storage.get(original.storageId);
+          if (!blob) throw new Error("Fichier d'origine introuvable dans le stockage.");
+          const discount = (order.globalDiscountPercent ?? 0) / 100;
+          const { buffer, filled, unplaced } = await fillClientWorkbook(
+            await blob.arrayBuffer(),
+            items.map((item) => ({
+              sourceRow: item.sourceRow,
+              lineNo: item.lineNo,
+              rawDescription: item.rawDescription,
+              quantity: item.quotedQuantity ?? item.rawQuantity ?? 1,
+              // Le discount global n'a pas de ligne dans le fichier du client : il est appliqué aux prix écrits.
+              unitPrice: item.priceAfterQuotation !== undefined ? item.priceAfterQuotation * rateFor(item.priceCurrency) * (1 - discount) : undefined,
+            })),
+            { currencyLabel: order.exportCurrency },
+          );
+          const base = original.fileName.replace(/\.[^.]+$/, "").replace(/[\\/:*?"<>|]/g, " ").trim() || order.reference;
+          return {
+            fileName: `${base} - cotation MBSS.xlsx`,
+            base64: buffer.toString("base64"),
+            notice:
+              unplaced > 0
+                ? `${unplaced} ligne(s) n'ont pas pu être retrouvées dans le fichier d'origine et sont restées sans prix (${filled} ligne(s) chiffrée(s)).`
+                : undefined,
+          };
+        } catch (err) {
+          notice = `Impossible de compléter le fichier d'origine (${err instanceof Error ? err.message : String(err)}) : le format MBSS a été utilisé.`;
+        }
+      }
+    }
+
     const buffer = await buildQuotationWorkbook({
       reference: order.reference,
-      currency: country?.currency ?? "",
+      currency,
       vessel: order.vessel,
-      eta: order.eta,
+      eta: eta ?? order.eta,
       port: order.supplyPlace,
+      city: country?.city,
       category: order.documentInfo?.category,
       paymentDays: order.documentInfo?.paymentDays,
+      discountPercent: order.globalDiscountPercent ?? 0,
       items: items.map((item) => ({
+        code: item.rawCode,
         description: item.rawDescription,
         unit: item.rawUnit,
         quantity: item.quotedQuantity ?? item.rawQuantity ?? 1,
-        unitPrice: item.priceAfterQuotation,
-        discountPercent: item.lineDiscountPercent ?? 0,
-        finalTotal: item.total,
+        unitPrice: item.priceAfterQuotation !== undefined ? item.priceAfterQuotation * rateFor(item.priceCurrency) : item.priceAfterQuotation,
         remarks: [item.reqNotes, item.enqNotes].filter(Boolean).join(" ") || undefined,
       })),
     });
@@ -58,6 +116,7 @@ export const exportQuotationXlsx = action({
     return {
       fileName: `MBSS RFQ ${order.reference}${safeClient ? ` ${safeClient}` : ""}${suffix}.xlsx`,
       base64: buffer.toString("base64"),
+      notice,
     };
   },
 });

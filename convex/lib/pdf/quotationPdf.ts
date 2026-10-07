@@ -26,6 +26,11 @@ export interface QuotationPdfData {
   eta?: string;
   supplyPlace?: string;
   lines: QuotationPdfLine[];
+  /** Sum of the lines, before the global discount. */
+  subtotal: number;
+  /** Global discount rate (percent) and amount, applied on the whole total. */
+  discountPercent: number;
+  discountAmount: number;
   grandTotal: number;
   currency: string;
 }
@@ -113,7 +118,6 @@ function buildDocument(data: QuotationPdfData) {
           h(Text, { style: styles.colUnit }, "Unit"),
           h(Text, { style: styles.colQty }, "Qty"),
           h(Text, { style: styles.colPrice }, "Unit price"),
-          h(Text, { style: styles.colDiscount }, "Disc. %"),
           h(Text, { style: styles.colTotal }, "Total"),
         ),
         ...data.lines.map((line, index) =>
@@ -125,11 +129,26 @@ function buildDocument(data: QuotationPdfData) {
             h(Text, { style: styles.colUnit }, line.unit),
             h(Text, { style: styles.colQty }, String(line.quantity)),
             h(Text, { style: styles.colPrice }, formatMoney(line.unitPrice, data.currency)),
-            h(Text, { style: styles.colDiscount }, line.discountPercent ? `${line.discountPercent}%` : "-"),
             h(Text, { style: styles.colTotal }, formatMoney(line.total, data.currency)),
           ),
         ),
       ),
+      data.discountPercent > 0
+        ? h(
+            View,
+            { style: styles.totalRow },
+            h(Text, { style: styles.totalLabel }, "Subtotal"),
+            h(Text, { style: styles.totalValue }, formatMoney(data.subtotal, data.currency)),
+          )
+        : null,
+      data.discountPercent > 0
+        ? h(
+            View,
+            { style: styles.totalRow },
+            h(Text, { style: styles.totalLabel }, `Discount ${data.discountPercent}%`),
+            h(Text, { style: styles.totalValue }, `-${formatMoney(data.discountAmount, data.currency)}`),
+          )
+        : null,
       h(
         View,
         { style: styles.totalRow },

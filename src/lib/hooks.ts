@@ -3,14 +3,15 @@
 import { useQuery } from 'convex/react';
 import React from 'react';
 import { api, type Id } from './convex';
+import { storedTheme } from './theme';
 import { mapCountry, mapOrder, mapOrderItem, mapProductWithPrices, type OrderItemRow, type OrderRow } from './mappers';
-import type { AppUser, Country, ProductWithPrices, QuotationWithRelations } from '../types';
+import type { AppUser, Country, Currency, ProductCategory, ProductWithPrices, QuotationWithRelations } from '../types';
 
 export function useMe(): AppUser | null | undefined {
   const me = useQuery(api.users.getCurrentUser);
   return React.useMemo(() => {
     if (me === undefined || me === null) return me;
-    return { id: me._id, email: me.email ?? '', role: me.role, mustChangePassword: !!me.mustChangePassword };
+    return { id: me._id, email: me.email ?? '', role: me.role, mustChangePassword: !!me.mustChangePassword, theme: me.theme ?? storedTheme() };
   }, [me]);
 }
 
@@ -20,14 +21,38 @@ export function useCountries(): { countries: Country[]; loading: boolean } {
   return { countries, loading: rows === undefined };
 }
 
-export function useProducts(): { products: ProductWithPrices[]; loading: boolean } {
-  const products = useQuery(api.products.list, {});
-  const prices = useQuery(api.productPrices.listAllCurrent, {});
-  const mapped = React.useMemo(
-    () => (products ?? []).map((p) => mapProductWithPrices(p, prices ?? [])),
-    [products, prices],
-  );
-  return { products: mapped, loading: products === undefined || prices === undefined };
+export function useCurrencies(): { currencies: Currency[]; loading: boolean } {
+  const rows = useQuery(api.currencies.list);
+  const currencies = React.useMemo(() => (rows ?? []).map((c) => ({ id: c._id, code: c.code, name: c.name, active: c.active })), [rows]);
+  return { currencies, loading: rows === undefined };
+}
+
+export function useProductCategories(): { categories: ProductCategory[]; loading: boolean } {
+  const rows = useQuery(api.productCategories.list);
+  const categories = React.useMemo(() => (rows ?? []).map((c) => ({ id: c._id, name: c.name, active: c.active })), [rows]);
+  return { categories, loading: rows === undefined };
+}
+
+/**
+ * Catalogue complet (produits + prix courants). `enabled=false` ne s'abonne à rien : le catalogue est
+ * lourd (milliers de produits), inutile de le charger et de le tenir à jour sur les écrans qui n'en
+ * ont pas besoin (tableau de bord, liste des quotations...).
+ */
+export function useProducts(enabled = true): { products: ProductWithPrices[]; loading: boolean } {
+  const products = useQuery(api.products.list, enabled ? {} : 'skip');
+  const prices = useQuery(api.productPrices.listAllCurrent, enabled ? {} : 'skip');
+  const mapped = React.useMemo(() => {
+    if (!products || !prices) return [];
+    // Prix regroupés par produit en un seul passage (avant : un filter() complet par produit, quadratique).
+    const byProduct = new Map<string, typeof prices>();
+    for (const pr of prices) {
+      const list = byProduct.get(pr.productId);
+      if (list) list.push(pr);
+      else byProduct.set(pr.productId, [pr]);
+    }
+    return products.map((p) => mapProductWithPrices(p, byProduct.get(p._id) ?? []));
+  }, [products, prices]);
+  return { products: mapped, loading: enabled && (products === undefined || prices === undefined) };
 }
 
 export function useQuotations(): { quotations: QuotationWithRelations[]; deleted: QuotationWithRelations[]; loading: boolean } {

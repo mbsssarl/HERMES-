@@ -25,7 +25,7 @@ export const extractClientDocument = internalAction({
       const buffer = await blob.arrayBuffer();
 
       const table = await parseFileToTable(file.mimeType, buffer);
-      const items = mapRowsToClientItems(table.headerRow, table.dataRows);
+      const items = mapRowsToClientItems(table.headerRow, table.dataRows, table.dataRowNumbers);
       if (items.length === 0) {
         throw new Error("Aucune ligne d'article n'a pu être extraite de ce document.");
       }

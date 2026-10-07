@@ -1,6 +1,8 @@
+import type { Id } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { logActivity } from "./lib/audit";
 import { requireAdmin, requireUser } from "./lib/permissions";
+import { noteCatalogUpdate } from "./lib/catalogUpdates";
 import { repriceOrderItem } from "./lib/matching";
 import { getCurrentPrice, setCurrentPrice } from "./lib/productPricing";
 import { mutation, query } from "./_generated/server";
@@ -67,13 +69,17 @@ export const setPrice = mutation({
       .withIndex("by_product", (q) => q.eq("productId", args.productId))
       .collect();
 
+    const wave = Date.now();
+    const repriced = new Map<Id<"orders">, number>();
     for (const item of affectedItems) {
       if (item.unitPriceOriginal !== undefined) continue;
       const order = await ctx.db.get(item.orderId);
       if (order?.countryId === args.countryId) {
         await repriceOrderItem(ctx, item);
+        repriced.set(item.orderId, (repriced.get(item.orderId) ?? 0) + 1);
       }
     }
+    for (const [orderId, lines] of repriced) await noteCatalogUpdate(ctx, orderId, lines, admin.email ?? undefined, wave);
   },
 });
 
@@ -82,7 +88,7 @@ export const listAllCurrent = query({
   args: {},
   handler: async (ctx) => {
     await requireUser(ctx);
-    const rows = await ctx.db.query("productPrices").collect();
-    return rows.filter((r) => r.validTo === undefined);
+    // Index sur validTo : ne lit que les prix en vigueur, pas l'historique des prix remplacés.
+    return await ctx.db.query("productPrices").withIndex("by_validTo", (q) => q.eq("validTo", undefined)).collect();
   },
 });

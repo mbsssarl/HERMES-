@@ -1,6 +1,6 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import { normalizeName } from "./normalize";
+import { normalizeCode, normalizeName } from "./normalize";
 import { computeLinePricing } from "./pricing";
 import { findProductByAlias } from "./productAliases";
 import { getCurrentPrice } from "./productPricing";
@@ -37,9 +37,11 @@ export async function matchOrderItem(
   const rawCode = input.rawCode?.trim();
 
   if (rawCode) {
+    // Comparaison indépendante de la ponctuation ("23.30-34" = "23/30/34" = "233034") - voir lib/normalize.ts.
+    const normalizedCode = normalizeCode(rawCode);
     const byImpa = await ctx.db
       .query("products")
-      .withIndex("by_impaId", (q) => q.eq("impaId", rawCode))
+      .withIndex("by_normalizedImpaId", (q) => q.eq("normalizedImpaId", normalizedCode))
       .filter((q) => q.eq(q.field("deletedAt"), undefined))
       .unique();
     if (byImpa) {
@@ -48,7 +50,7 @@ export async function matchOrderItem(
 
     const byCode = await ctx.db
       .query("products")
-      .withIndex("by_code", (q) => q.eq("code", rawCode))
+      .withIndex("by_normalizedCode", (q) => q.eq("normalizedCode", normalizedCode))
       .filter((q) => q.eq(q.field("deletedAt"), undefined))
       .unique();
     if (byCode) {
@@ -136,6 +138,8 @@ export async function rematchOrderItem(ctx: MutationCtx, item: Doc<"orderItems">
   }
 
   if (result.status === "ambiguous") {
+    // Proposals the user already ignored are not offered again.
+    if (item.proposalsDismissed) return;
     await ctx.db.patch(item._id, {
       matchStatus: "ambiguous",
       productId: undefined,
@@ -165,18 +169,27 @@ export async function computeItemPricing(
 ): Promise<Partial<Doc<"orderItems">>> {
   const order = await ctx.db.get(item.orderId);
   let base: number | undefined;
+  let priceCurrency: string | undefined;
   const percent = item.quotationPercentLine ?? order?.quotationPercentOverride ?? 0;
 
   if (item.unitPriceManual !== undefined) {
     base = item.unitPriceManual;
+    // Un prix saisi à la main ne référence aucune ligne de productPrices : on retient la devise du pays
+    // de cotation de la commande.
+    const country = order ? await ctx.db.get(order.countryId) : null;
+    priceCurrency = country?.currency;
   } else if (item.productId && order) {
     const current = await getCurrentPrice(ctx, item.productId, order.countryId);
-    if (current) base = current.price;
+    if (current) {
+      base = current.price;
+      priceCurrency = current.currency;
+    }
   }
 
   if (base === undefined) {
     return {
       unitPriceOriginal: undefined,
+      priceCurrency: undefined,
       quotationPercentApplied: undefined,
       priceAfterQuotation: undefined,
       finalUnitPrice: undefined,
@@ -187,11 +200,11 @@ export async function computeItemPricing(
   const pricing = computeLinePricing({
     unitPriceOriginal: base,
     quotationPercent: percent,
-    lineDiscountPercent: item.lineDiscountPercent ?? 0,
     quantity: item.quotedQuantity ?? item.rawQuantity ?? 1,
   });
   return {
     unitPriceOriginal: base,
+    priceCurrency,
     quotationPercentApplied: percent,
     priceAfterQuotation: pricing.priceAfterQuotation,
     finalUnitPrice: pricing.finalUnitPrice,

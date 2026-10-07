@@ -15,6 +15,11 @@ export const getForExport = internalQuery({
       .order("asc")
       .collect();
     items.sort((a, b) => a.lineNo - b.lineNo);
-    return { order, client, country, items };
+    // Currency label of the exported file: the one chosen on the quotation, else the pricing country's.
+    const currency = order.exportCurrency ?? country?.currency ?? "";
+    // Fichier d'origine du client (le premier importé) : sert de gabarit à l'envoi au client.
+    const files = await ctx.db.query("uploadedFiles").withIndex("by_order", (q) => q.eq("orderId", orderId)).order("asc").collect();
+    const clientFile = files.find((f) => f.kind === "client_request") ?? null;
+    return { order, client, country, currency, items, clientFile };
   },
 });

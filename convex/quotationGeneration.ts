@@ -25,13 +25,10 @@ export const generateQuotation = action({
 
     const lines = data.matchedItems.map((item) => {
       const quantity = item.quotedQuantity ?? item.rawQuantity ?? 1;
-      // Line total already computed without intermediate rounding (lib/pricing.ts); the global
-      // discount is written on each line, so nothing more is applied here.
+      // Line total already computed without intermediate rounding (lib/pricing.ts). The global discount
+      // applies to the whole total below, not to lines.
       const total = round2(item.total ?? 0);
       const finalPrice = round2(item.finalUnitPrice ?? 0);
-      const effectiveDiscount = item.priceAfterQuotation
-        ? round2(100 - (finalPrice / item.priceAfterQuotation) * 100)
-        : (item.lineDiscountPercent ?? 0);
 
       return {
         code: item.rawCode ?? item.product?.impaId,
@@ -39,12 +36,15 @@ export const generateQuotation = action({
         unit: item.rawUnit ?? item.product?.unit ?? "",
         quantity,
         unitPrice: item.finalUnitPrice ?? 0,
-        discountPercent: effectiveDiscount,
+        discountPercent: 0,
         finalPrice,
         total,
       };
     });
-    const grandTotal = round2(lines.reduce((sum, l) => sum + l.total, 0));
+    const subtotal = round2(lines.reduce((sum, l) => sum + l.total, 0));
+    const discountPercent = data.order.globalDiscountPercent ?? 0;
+    const discountAmount = round2((subtotal * discountPercent) / 100);
+    const grandTotal = round2(subtotal - discountAmount);
 
     const pdfBuffer = await renderQuotationPdf({
       reference: data.order.reference,
@@ -58,6 +58,9 @@ export const generateQuotation = action({
       eta: data.order.eta,
       supplyPlace: data.order.supplyPlace,
       lines,
+      subtotal,
+      discountPercent,
+      discountAmount,
       grandTotal,
       currency: data.currency,
     });

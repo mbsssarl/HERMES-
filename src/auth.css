@@ -1,0 +1,213 @@
+/* Pages d'authentification (connexion, mot de passe oublié, définition du mot de passe).
+   Repris du front fourni par l'équipe (login-export), en CSS simple. */
+
+.login-page {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(420px, 43%) 1fr;
+  background: #fff;
+}
+
+/* ── Panneau gauche (image + texte) ── */
+.welcome-panel {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  background-position: center;
+  background-size: cover;
+}
+.welcome-overlay {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 65% 35%, rgba(34, 67, 156, .24), transparent 34%),
+    linear-gradient(180deg, rgba(8, 31, 79, .82), rgba(6, 24, 65, .96));
+}
+.welcome-content {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: clamp(38px, 6vw, 64px) clamp(32px, 5vw, 64px) 58px;
+  display: flex;
+  flex-direction: column;
+}
+.company-logo {
+  width: min(188px, 44vw);
+  border-radius: 14px;
+  box-shadow: 0 18px 40px rgba(2, 14, 43, .3);
+}
+.welcome-copy { margin: auto 0; max-width: 470px; }
+.kicker, .eyebrow { color: #69d875; font-size: 12px; letter-spacing: .19em; font-weight: 600; }
+.kicker { margin: 0 0 42px; }
+.welcome-copy h1 {
+  margin: 0;
+  color: #fff;
+  font-size: clamp(36px, 4vw, 54px);
+  line-height: 1.08;
+  letter-spacing: -.035em;
+}
+.welcome-copy h1 span { display: block; color: #6be477; }
+.welcome-description {
+  max-width: 410px;
+  margin: 28px 0 0;
+  color: rgba(237, 245, 255, .72);
+  font-size: 14px;
+  line-height: 1.75;
+}
+.location { margin: auto 0 0; color: rgba(229, 239, 255, .65); font-size: 11px; }
+
+/* ── Panneau droit (formulaire) ── */
+.login-panel {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-sizing: border-box;
+  padding: 42px clamp(28px, 8vw, 105px) 38px;
+}
+.panel-inner { width: min(100%, 410px); margin: 0 auto; }
+
+/* Sélecteur de langue */
+.language-switch {
+  display: flex;
+  width: 116px;
+  margin-left: auto;
+  padding: 3px;
+  border-radius: 30px;
+  background: #f1f2f4;
+}
+.language-switch button {
+  flex: 1;
+  border: 0;
+  border-radius: 20px;
+  padding: 8px 12px;
+  color: #858992;
+  background: transparent;
+  font: 600 11px inherit;
+  cursor: pointer;
+}
+.language-switch button.active {
+  color: #fff;
+  background: #22439c;
+  box-shadow: 0 3px 7px rgba(34, 67, 156, .25);
+}
+
+/* Contenu du formulaire */
+.login-content { margin-top: 58px; }
+.eyebrow { margin: 0 0 15px; color: #999da4; font-size: 10px; letter-spacing: .18em; }
+.login-content h2 { margin: 0; color: #22439c; font-size: 31px; letter-spacing: -.035em; }
+.login-subtitle { margin: 9px 0 28px; color: #8e929a; font-size: 13px; }
+.login-form { display: flex; flex-direction: column; }
+.login-form > label { margin: 0 0 8px; color: #47505c; font-size: 12px; font-weight: 650; }
+
+/* Champ de saisie */
+.input-wrap {
+  display: flex;
+  align-items: center;
+  height: 49px;
+  box-sizing: border-box;
+  margin-bottom: 17px;
+  border: 1px solid #dfe4ec;
+  border-radius: 11px;
+  background: #f7f8fb;
+  transition: border-color .2s, box-shadow .2s;
+}
+.input-wrap:focus-within {
+  border-color: #36a445;
+  box-shadow: 0 0 0 3px rgba(54, 164, 69, .12);
+}
+.input-icon { width: 40px; color: #98a0aa; text-align: center; font-size: 16px; }
+.lock-icon { color: #36a445; font-size: 19px; }
+.input-wrap input {
+  min-width: 0;
+  flex: 1;
+  height: 100%;
+  border: 0;
+  outline: 0;
+  color: #38404b;
+  background: transparent;
+  font: 13px inherit;
+}
+.input-wrap input::placeholder { color: #9da1a9; }
+.visibility-button {
+  width: 42px;
+  height: 100%;
+  border: 0;
+  color: #a7abb2;
+  background: transparent;
+  cursor: pointer;
+  font-size: 17px;
+}
+
+/* Options du formulaire */
+.form-options {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: -2px 0 17px;
+  font-size: 11px;
+}
+.remember-option { display: flex; align-items: center; gap: 7px; color: #8b9098; }
+.remember-option input { width: 15px; height: 15px; margin: 0; accent-color: #36a445; }
+.form-options a { color: #22439c; font-weight: 650; text-decoration: none; }
+
+/* Bouton principal */
+.submit-button {
+  height: 48px;
+  border: 0;
+  border-radius: 10px;
+  color: #fff;
+  background: #36a445;
+  box-shadow: 0 9px 17px rgba(54, 164, 69, .26);
+  font: 700 13px inherit;
+  cursor: pointer;
+  transition: transform .2s, background .2s;
+}
+.submit-button:hover { background: #2c903b; transform: translateY(-1px); }
+.submit-button:disabled { opacity: .6; cursor: not-allowed; transform: none; }
+.form-message { margin: 12px 0 0; color: #2c903b; font-size: 12px; }
+.form-message.error { color: #e53e3e; }
+
+/* Footer */
+.login-panel footer { color: #b2b5ba; text-align: center; font-size: 10px; }
+
+/* ── Responsive ── */
+@media (min-width: 761px) and (max-width: 1100px) {
+  .login-page { grid-template-columns: minmax(360px, 45%) 1fr; }
+  .welcome-content { padding: 42px 36px 44px; }
+  .company-logo { width: 155px; }
+  .welcome-copy h1 { font-size: clamp(34px, 4vw, 44px); }
+  .welcome-description { font-size: 13px; }
+  .login-panel { padding: 34px 42px 30px; }
+  .login-content { margin-top: 45px; }
+}
+
+@media (max-width: 760px) {
+  .login-page { display: block; }
+  .welcome-panel, .welcome-content { min-height: 450px; }
+  .welcome-content { padding: 30px 25px; }
+  .company-logo { width: 145px; }
+  .welcome-copy { margin: auto 0 30px; }
+  .kicker { margin-bottom: 22px; }
+  .welcome-copy h1 { font-size: 37px; }
+  .login-panel { min-height: 620px; padding: 28px 25px; }
+  .login-content { margin-top: 45px; }
+}
+
+/* ---- Compléments : éléments qui étaient en Tailwind dans le composant d'origine ---- */
+.login-page { font-family: 'Trebuchet MS', 'Segoe UI', sans-serif; color: #27344b; }
+.login-page * { box-sizing: border-box; }
+.welcome-panel { background-color: #0a1a4a; }
+.company-logo-tile { display: inline-grid; place-items: center; width: 132px; height: 132px; padding: 10px; border-radius: 22px; background: #fff; box-shadow: 0 18px 40px rgba(2, 14, 43, .3); }
+.company-logo-tile img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.login-form > .field-label { margin: 0 0 8px; color: #47505c; font-size: 12px; font-weight: 650; display: block; }
+.link-button { border: 0; background: transparent; padding: 0; color: #22439c; font-weight: 650; font-size: 11px; cursor: pointer; }
+.steps { display: flex; gap: 8px; margin: 26px 0 4px; }
+.steps span { height: 4px; flex: 1; border-radius: 4px; background: #e2e5ea; }
+.steps span.done { background: #36a445; }
+.back-button { margin-top: 12px; height: 44px; width: 100%; border: 1px solid #dfe4ec; border-radius: 11px; background: #fff; color: #22439c; font-weight: 650; font-size: 12px; cursor: pointer; }
+.back-button:hover { background: #f7f8fb; }
+.code-hint { margin: 14px 0 0; text-align: center; color: #8e929a; font-size: 12px; }
+.code-hint strong { color: #47505c; }
+.input-wrap input.code-input { letter-spacing: .45em; font-size: 18px; text-align: center; }

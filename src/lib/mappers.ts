@@ -43,7 +43,7 @@ const MATCH_TO_UI: Record<Doc<'orderItems'>['matchStatus'], MatchStatus> = {
 };
 
 export function mapCountry(c: Doc<'countries'>): Country {
-  return { id: c._id, code: c.code, name: c.name, currency: c.currency, active: c.active };
+  return { id: c._id, code: c.code, name: c.name, city: c.city ?? null, currency: c.currency, active: c.active };
 }
 
 export function mapProduct(p: Doc<'products'>): Product {
@@ -53,21 +53,20 @@ export function mapProduct(p: Doc<'products'>): Product {
     name: p.name,
     description: p.description ?? null,
     unit: p.unit,
-    category: p.category ?? 'General',
+    category: p.category ?? '',
     active: p.active,
   };
 }
 
-export function mapProductWithPrices(p: Doc<'products'>, prices: Doc<'productPrices'>[]): ProductWithPrices {
-  const product_prices: ProductPrice[] = prices
-    .filter((pr) => pr.productId === p._id)
-    .map((pr) => ({
-      id: pr._id,
-      product_id: pr.productId,
-      country_id: pr.countryId,
-      base_price: pr.price,
-      currency: pr.currency,
-    }));
+/** `pricesOfProduct` = uniquement les prix de ce produit (regroupés une fois en amont, voir useProducts). */
+export function mapProductWithPrices(p: Doc<'products'>, pricesOfProduct: Doc<'productPrices'>[]): ProductWithPrices {
+  const product_prices: ProductPrice[] = pricesOfProduct.map((pr) => ({
+    id: pr._id,
+    product_id: pr.productId,
+    country_id: pr.countryId,
+    base_price: pr.price,
+    currency: pr.currency,
+  }));
   return { ...mapProduct(p), product_prices };
 }
 
@@ -77,6 +76,7 @@ export type OrderRow = Doc<'orders'> & {
   itemCount?: number;
   total?: number;
   unresolvedCount?: number;
+  catalogUpdate?: { at: number; lines: number; by: string | null } | null;
 };
 
 export function mapOrder(
@@ -86,7 +86,10 @@ export function mapOrder(
 ): QuotationWithRelations {
   // Les lignes décochées n'entrent pas dans les totaux ni dans les compteurs.
   const included = items.filter((it) => !it.excluded);
-  const total = items.length > 0 ? included.reduce((s, it) => s + (it.total_price ?? 0), 0) : (o.total ?? 0);
+  // Discount global : appliqué une seule fois, sur le total de toute la commande.
+  const discount = o.globalDiscountPercent ?? 0;
+  const subtotal = items.length > 0 ? included.reduce((s, it) => s + (it.total_price ?? 0), 0) : (o.total ?? 0) / (1 - discount / 100 || 1);
+  const total = Math.round(subtotal * (1 - discount / 100) * 100) / 100;
   const applied = included.find((it) => it.margin_percentage > 0)?.margin_percentage;
   return {
     id: o._id,
@@ -98,7 +101,12 @@ export function mapOrder(
     status: o.deletedAt !== undefined ? 'DELETED' : ORDER_TO_UI_STATUS[o.status],
     margin_percentage: o.quotationPercentOverride ?? applied ?? 0,
     total,
+    subtotal: Math.round(subtotal * 100) / 100,
     created_at: new Date(o.createdAt).toISOString(),
+    created_by: o.createdBy ?? null,
+    export_currency: o.exportCurrency ?? null,
+    export_rates: o.exportRates ?? [],
+    catalog_update: o.catalogUpdate ?? null,
     document_info: o.documentInfo ?? {},
     vessel: o.vessel ?? null,
     eta: o.eta ?? null,
@@ -109,7 +117,7 @@ export function mapOrder(
     item_count: items.length > 0 ? included.length : (o.itemCount ?? 0),
     unresolved_count: items.length > 0 ? included.filter((it) => it.match_status !== 'MATCHED').length : (o.unresolvedCount ?? 0),
     countries: o.country
-      ? { id: o.country._id, code: o.country.code, name: o.country.name, currency: o.country.currency }
+      ? { id: o.country._id, code: o.country.code, name: o.country.name, city: o.country.city ?? null, currency: o.country.currency }
       : null,
     quotation_items: items,
   };
@@ -134,6 +142,7 @@ export function mapOrderItem(it: OrderItemRow): QuotationItem {
     original_description: it.rawDescription,
     quantity: it.quotedQuantity ?? it.rawQuantity ?? 1,
     base_price: it.unitPriceOriginal ?? null,
+    price_currency: it.priceCurrency ?? null,
     margin_percentage: it.quotationPercentLine ?? it.quotationPercentApplied ?? 0,
     final_unit_price: it.finalUnitPrice ?? null,
     total_price: it.total ?? null,

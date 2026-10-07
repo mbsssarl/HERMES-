@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { insertProduct } from "./products";
-import { normalizeName } from "./lib/normalize";
+import { normalizeCode, normalizeName } from "./lib/normalize";
 import { rematchOrderItem } from "./lib/matching";
 import { getCurrentPrice, setCurrentPrice } from "./lib/productPricing";
 import { requireUser } from "./lib/permissions";
@@ -144,7 +144,7 @@ export const saveExtractedSupplierItemsInternal = internalMutation({
       if (raw.rawCode) {
         const existing = await ctx.db
           .query("products")
-          .withIndex("by_impaId", (q) => q.eq("impaId", raw.rawCode))
+          .withIndex("by_normalizedImpaId", (q) => q.eq("normalizedImpaId", normalizeCode(raw.rawCode!)))
           .filter((q) => q.eq(q.field("deletedAt"), undefined))
           .unique();
         existingProductId = existing?._id;
