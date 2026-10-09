@@ -5,7 +5,7 @@ import React from 'react';
 import { api, type Id } from './convex';
 import { storedTheme } from './theme';
 import { mapCountry, mapOrder, mapOrderItem, mapProductWithPrices, type OrderItemRow, type OrderRow } from './mappers';
-import type { AppUser, Country, Currency, ProductCategory, ProductWithPrices, QuotationWithRelations } from '../types';
+import type { AppUser, Country, Currency, PendingEdit, ProductCategory, ProductWithPrices, QuotationWithRelations } from '../types';
 
 export function useMe(): AppUser | null | undefined {
   const me = useQuery(api.users.getCurrentUser);
@@ -63,15 +63,28 @@ export function useQuotations(): { quotations: QuotationWithRelations[]; deleted
   return { quotations, deleted, loading: orders === undefined };
 }
 
-export function useQuotation(id: string | null): { quotation: QuotationWithRelations | null; loading: boolean } {
+export function useQuotation(id: string | null): { quotation: QuotationWithRelations | null; edits: PendingEdit[]; loading: boolean } {
   const orderId = id as Id<'orders'> | null;
   const order = useQuery(api.orders.get, orderId ? { orderId } : 'skip');
   const items = useQuery(api.orderItems.listByOrder, orderId ? { orderId } : 'skip');
   const files = useQuery(api.files.listByOrder, orderId ? { orderId } : 'skip');
+  const editRows = useQuery(api.orderItemEdits.listByOrder, orderId ? { orderId } : 'skip');
+  const edits = React.useMemo<PendingEdit[]>(
+    () =>
+      (editRows ?? []).map((r) => ({
+        id: r._id,
+        item_id: r.orderItemId,
+        proposed_by_id: r.proposedBy,
+        proposed_by: r.proposedByEmail ?? 'Utilisateur',
+        proposed_at: new Date(r.proposedAt).toISOString(),
+        changes: r.changes as PendingEdit['changes'],
+      })),
+    [editRows],
+  );
   const quotation = React.useMemo(() => {
     if (!order || !items) return null;
     const source = files?.find((f) => f.kind === 'client_request')?.fileName ?? null;
     return mapOrder(order as OrderRow, (items as OrderItemRow[]).map(mapOrderItem), source);
   }, [order, items, files]);
-  return { quotation, loading: !!orderId && (order === undefined || items === undefined) };
+  return { quotation, edits, loading: !!orderId && (order === undefined || items === undefined) };
 }

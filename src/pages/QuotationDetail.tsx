@@ -1,7 +1,7 @@
 import React from 'react';
 import { useAction, useMutation } from 'convex/react';
 import { ArrowLeft } from 'lucide-react';
-import type { Currency, ProductWithPrices, QuotationWithRelations } from '../types';
+import type { Currency, PendingEdit, ProductWithPrices, QuotationWithRelations } from '../types';
 import { MATCH_LABELS, formatPrice, formatAmount, formatDate, regionLabel } from '../lib/format';
 import { StatusTag } from '../components/StatusTag';
 import { Modal, StateBox } from '../components/ui';
@@ -20,6 +20,8 @@ export function QuotationDetail({
   currencies,
   loading,
   isAdmin,
+  meId,
+  edits,
   onBack,
 }: {
   quotation: QuotationWithRelations | null;
@@ -27,6 +29,10 @@ export function QuotationDetail({
   currencies: Currency[];
   loading: boolean;
   isAdmin: boolean;
+  /** Utilisateur connecté : seul le propriétaire de la quotation valide les modifications des autres. */
+  meId: string;
+  /** Modifications de lignes proposées par d'autres utilisateurs, en attente. */
+  edits: PendingEdit[];
   onBack: () => void;
 }) {
   const toast = useToast();
@@ -49,6 +55,10 @@ export function QuotationDetail({
     }
   });
   const dismissProposal = useMutation(api.orderItems.dismissProposal);
+  const decideEdit = useMutation(api.orderItemEdits.decide);
+  const withdrawEdit = useMutation(api.orderItemEdits.withdraw);
+  // Incrémenté quand une modification est seulement proposée (pas appliquée) : les cellules reprennent la valeur actuelle.
+  const [editNonce, setEditNonce] = React.useState(0);
   const removeOrder = useMutation(api.orders.remove);
   const restoreOrder = useMutation(api.orders.restore);
   const [applying, setApplying] = React.useState(false);
@@ -162,7 +172,7 @@ export function QuotationDetail({
             <ArrowLeft size={16} /> Retour
           </button>
           <h1 className="page-title">{quotation.quotation_number}</h1>
-          <p className="page-subtitle">{quotation.customer_name} - {quotation.countries ? regionLabel(quotation.countries) : 'Région non renseignée'}</p>
+          <p className="page-subtitle">{quotation.customer_name} - {quotation.countries ? regionLabel(quotation.countries) : 'Région non renseignée'}{quotation.owner_email ? ` - Propriétaire : ${quotation.owner_email}` : ''}</p>
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <StatusTag status={quotation.status} />
@@ -221,8 +231,26 @@ export function QuotationDetail({
               dismissProposal({ orderItemId: it.id as Id<'orderItems'>, productId: productId as Id<'products'> })
                 .catch((err) => toast('Erreur: ' + errMsg(err), 'error'))
             }
+            edits={edits}
+            meId={meId}
+            isOwner={quotation.created_by === meId}
+            resetKey={editNonce}
+            onDecide={(edit, approve) =>
+              decideEdit({ editId: edit.id as Id<'orderItemEdits'>, approve })
+                .then(() => toast(approve ? 'Modification validée et appliquée.' : 'Modification invalidée.', 'success'))
+                .catch((err) => toast('Erreur: ' + errMsg(err), 'error'))
+            }
+            onWithdraw={(edit) =>
+              withdrawEdit({ editId: edit.id as Id<'orderItemEdits'> }).catch((err) => toast('Erreur: ' + errMsg(err), 'error'))
+            }
             onEdit={(it, edit) =>
-              updateItem({ orderItemId: it.id as Id<'orderItems'>, ...edit }).catch((err) => toast('Erreur: ' + errMsg(err), 'error'))
+              updateItem({ orderItemId: it.id as Id<'orderItems'>, ...edit })
+                .then((res) => {
+                  if (res.applied) return;
+                  setEditNonce((n) => n + 1);
+                  toast(`Modification proposée : elle sera appliquée quand ${quotation.owner_email ?? 'le propriétaire'} la validera.`, 'info');
+                })
+                .catch((err) => toast('Erreur: ' + errMsg(err), 'error'))
             }
             onToggle={(lines, included) =>
               setExcluded({ orderItemIds: lines.map((l) => l.id as Id<'orderItems'>), excluded: !included }).catch((err) => toast('Erreur: ' + errMsg(err), 'error'))

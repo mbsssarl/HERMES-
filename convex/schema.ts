@@ -157,6 +157,7 @@ const schema = defineSchema({
     .index("by_normalizedCode", ["normalizedCode"]) // matching secondaire (priorité 2)
     .index("by_normalizedName", ["normalizedName"])
     .index("by_active", ["active"])
+    .index("by_category", ["category"]) // parcourir / compter une catégorie du catalogue IMPA (vide = sans catégorie)
     // Index de recherche plein-texte utilisé pour le matching par nom
     // (priorité 4, uniquement quand le client n'a fourni aucun code).
     .searchIndex("search_name", { searchField: "normalizedName" }),
@@ -375,6 +376,41 @@ const schema = defineSchema({
     // ou "ambiguous" d'une commande sans charger toutes les lignes
     // (utilisé pour le re-matching après ajout d'un produit au catalogue).
     .index("by_order_and_status", ["orderId", "matchStatus"]),
+  // ------------------------------------------------------------------
+  // MODIFICATIONS PROPOSÉES SUR LES LIGNES
+  // Tout utilisateur peut modifier une ligne de quotation, mais seul le propriétaire de la quotation
+  // (orders.createdBy) voit ses changements appliqués directement. Ceux des autres arrivent ici, en attente :
+  // affichés comme une sous-ligne sous la ligne concernée, que le propriétaire valide ou invalide.
+  // ------------------------------------------------------------------
+  orderItemEdits: defineTable({
+    orderId: v.id("orders"),
+    orderItemId: v.id("orderItems"),
+    proposedBy: v.id("users"),
+    proposedAt: v.number(),
+    // Champs modifiés (mêmes que ceux du tableau : voir lib/lineEdits.ts).
+    changes: v.object({
+      rawCode: v.optional(v.string()),
+      rawDescription: v.optional(v.string()),
+      rawQuantity: v.optional(v.number()),
+      rawUnit: v.optional(v.string()),
+      rawOrigin: v.optional(v.string()),
+      quotedQuantity: v.optional(v.number()),
+      quotationPercent: v.optional(v.number()),
+      unitPrice: v.optional(v.union(v.number(), v.null())),
+      reqNotes: v.optional(v.string()),
+      enqNotes: v.optional(v.string()),
+    }),
+    status: v.union(
+      v.literal("pending"), // en attente de décision du propriétaire
+      v.literal("approved"), // validée : appliquée à la ligne
+      v.literal("rejected"), // invalidée par le propriétaire
+      v.literal("withdrawn"), // retirée par son auteur
+    ),
+    decidedBy: v.optional(v.id("users")),
+    decidedAt: v.optional(v.number()),
+  })
+    .index("by_order", ["orderId"])
+    .index("by_item", ["orderItemId"]),
 
   // ------------------------------------------------------------------
   // FICHIERS UPLOADÉS

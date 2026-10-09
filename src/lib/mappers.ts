@@ -73,6 +73,7 @@ export function mapProductWithPrices(p: Doc<'products'>, pricesOfProduct: Doc<'p
 export type OrderRow = Doc<'orders'> & {
   client: Doc<'clients'> | null;
   country: Doc<'countries'> | null;
+  ownerEmail?: string | null;
   itemCount?: number;
   total?: number;
   unresolvedCount?: number;
@@ -104,6 +105,7 @@ export function mapOrder(
     subtotal: Math.round(subtotal * 100) / 100,
     created_at: new Date(o.createdAt).toISOString(),
     created_by: o.createdBy ?? null,
+    owner_email: o.ownerEmail ?? null,
     export_currency: o.exportCurrency ?? null,
     export_rates: o.exportRates ?? [],
     catalog_update: o.catalogUpdate ?? null,

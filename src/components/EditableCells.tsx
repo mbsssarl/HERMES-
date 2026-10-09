@@ -7,9 +7,12 @@ export function TextCell({
   placeholder,
   disabled,
   readOnly,
+  resetKey,
 }: {
   value: string;
   width: number | string;
+  /** Change = le champ reprend la valeur du serveur (ex. modification proposée mais pas encore appliquée). */
+  resetKey?: number;
   onCommit: (v: string) => void;
   mono?: boolean;
   placeholder?: string;
@@ -19,7 +22,7 @@ export function TextCell({
 }) {
   return (
     <input
-      key={value}
+      key={`${value}|${resetKey ?? 0}`}
       readOnly={readOnly}
       tabIndex={readOnly ? -1 : undefined}
       className={`input cell-input ${mono ? 'mono' : ''} ${readOnly ? 'cell-readonly' : ''}`}
@@ -42,9 +45,11 @@ export function NumberCell({
   decimals,
   disabled,
   readOnly,
+  resetKey,
 }: {
   value: number | null;
   width: number;
+  resetKey?: number;
   onCommit: (v: number) => void;
   placeholder?: string;
   /** Si fourni, vider le champ appelle onClear (sinon la valeur précédente est restaurée). */
@@ -57,7 +62,7 @@ export function NumberCell({
   const text = value === null ? '' : format(value);
   return (
     <input
-      key={text}
+      key={`${text}|${resetKey ?? 0}`}
       readOnly={readOnly}
       tabIndex={readOnly ? -1 : undefined}
       className={`input cell-input mono ${readOnly ? 'cell-readonly' : ''}`}

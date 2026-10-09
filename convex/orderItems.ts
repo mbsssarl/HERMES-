@@ -3,6 +3,8 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { noteCatalogUpdate } from "./lib/catalogUpdates";
 import { applyMatchedProduct, computeItemPricing, matchOrderItem, rematchOrderItem } from "./lib/matching";
 import { learnAlias } from "./lib/productAliases";
+import { logActivity } from "./lib/audit";
+import { applyLineChanges, lineChangesFields, validateLineChanges } from "./lib/lineEdits";
 import { requireUser } from "./lib/permissions";
 import { internal } from "./_generated/api";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
@@ -203,83 +205,51 @@ export const saveExtractedItemsInternal = internalMutation({
   },
 });
 
+/**
+ * Modification d'une cellule de la quotation. Tout le monde peut modifier, mais seul le PROPRIÉTAIRE de la
+ * quotation (celui qui l'a créée) voit ses modifications appliquées tout de suite : celles des autres sont
+ * enregistrées comme propositions (sous-ligne sous la ligne concernée) que le propriétaire valide ou invalide
+ * (voir orderItemEdits.decide). Plusieurs modifications successives d'un même utilisateur sur une même ligne
+ * sont regroupées dans une seule proposition.
+ */
 export const update = mutation({
-  args: {
-    orderItemId: v.id("orderItems"),
-    rawCode: v.optional(v.string()),
-    rawDescription: v.optional(v.string()),
-    rawQuantity: v.optional(v.number()),
-    rawUnit: v.optional(v.string()),
-    rawOrigin: v.optional(v.string()),
-    quotedQuantity: v.optional(v.number()),
-    quotationPercent: v.optional(v.number()),
-    // null = retirer le prix manuel (retour au prix du catalogue)
-    unitPrice: v.optional(v.union(v.number(), v.null())),
-    reqNotes: v.optional(v.string()),
-    enqNotes: v.optional(v.string()),
-  },
-  handler: async (ctx, { orderItemId, ...edits }) => {
+  args: { orderItemId: v.id("orderItems"), ...lineChangesFields },
+  handler: async (ctx, { orderItemId, ...edits }): Promise<{ applied: boolean }> => {
     const user = await requireUser(ctx);
     const item = await ctx.db.get(orderItemId);
     if (!item) throw new Error("Ligne introuvable.");
+    validateLineChanges(edits);
 
-    if (edits.rawDescription !== undefined && !edits.rawDescription.trim()) {
-      throw new Error("La description ne peut pas être vide.");
-    }
-    if (edits.rawQuantity !== undefined && !(edits.rawQuantity > 0)) throw new Error("Quantité invalide.");
-    if (edits.quotedQuantity !== undefined && !(edits.quotedQuantity > 0)) throw new Error("Quantité invalide.");
-    if (typeof edits.unitPrice === "number" && edits.unitPrice < 0) throw new Error("Prix invalide.");
-    if (edits.quotationPercent !== undefined && (edits.quotationPercent < 0 || edits.quotationPercent > 1000)) {
-      throw new Error("Cotation invalide.");
+    const order = await ctx.db.get(item.orderId);
+    if (!order || order.createdBy === user._id) {
+      await applyLineChanges(ctx, item, edits, user._id);
+      return { applied: true };
     }
 
-    const patch: Partial<Doc<"orderItems">> = { updatedAt: Date.now(), updatedBy: user._id };
-    if (edits.rawCode !== undefined) patch.rawCode = edits.rawCode.trim() || undefined;
-    if (edits.rawDescription !== undefined) patch.rawDescription = edits.rawDescription.trim();
-    if (edits.rawUnit !== undefined) patch.rawUnit = edits.rawUnit.trim() || undefined;
-    if (edits.rawOrigin !== undefined) patch.rawOrigin = edits.rawOrigin.trim() || undefined;
-    if (edits.reqNotes !== undefined) patch.reqNotes = edits.reqNotes;
-    if (edits.enqNotes !== undefined) patch.enqNotes = edits.enqNotes;
-    if (edits.quotationPercent !== undefined) patch.quotationPercentLine = edits.quotationPercent;
-
-    // The table shows a single "Quantity": editing it sets the quantity used for the amounts too.
-    if (edits.rawQuantity !== undefined) {
-      patch.rawQuantity = edits.rawQuantity;
-      if (edits.quotedQuantity === undefined) patch.quotedQuantity = edits.rawQuantity;
-    }
-    if (edits.quotedQuantity !== undefined) patch.quotedQuantity = edits.quotedQuantity;
-    if (edits.unitPrice !== undefined) patch.unitPriceManual = edits.unitPrice === null ? undefined : Math.round(edits.unitPrice * 100) / 100;
-
-    const identityChanged =
-      (edits.rawCode !== undefined && (edits.rawCode.trim() || undefined) !== item.rawCode) ||
-      (patch.rawDescription !== undefined && patch.rawDescription !== item.rawDescription);
-
-    if (identityChanged) {
-      // The requested article changed: the previous match no longer applies. Reset it and
-      // match again from the new code/description (a manual choice is dropped too).
-      Object.assign(patch, {
-        productId: undefined,
-        matchStatus: "unmatched" as const,
-        matchConfidence: undefined,
-        ambiguousCandidates: undefined,
-        proposalsDismissed: undefined,
+    const pending = await ctx.db.query("orderItemEdits").withIndex("by_item", (q) => q.eq("orderItemId", orderItemId)).collect();
+    const mine = pending.find((p) => p.status === "pending" && p.proposedBy === user._id);
+    if (mine) {
+      await ctx.db.patch(mine._id, { changes: { ...mine.changes, ...edits }, proposedAt: Date.now() });
+    } else {
+      await ctx.db.insert("orderItemEdits", {
+        orderId: item.orderId,
+        orderItemId,
+        proposedBy: user._id,
+        proposedAt: Date.now(),
+        changes: edits,
+        status: "pending",
       });
-      await ctx.db.patch(orderItemId, patch);
-      const reset = await ctx.db.get(orderItemId);
-      if (!reset) return;
-      await ctx.db.patch(orderItemId, await computeItemPricing(ctx, reset));
-      const fresh = await ctx.db.get(orderItemId);
-      if (fresh) await rematchOrderItem(ctx, fresh);
-      return;
     }
-
-    // Same article: recompute the line amounts (quantity, discount or unit price may have changed).
-    await ctx.db.patch(orderItemId, patch);
-    const updated = await ctx.db.get(orderItemId);
-    if (updated) await ctx.db.patch(orderItemId, await computeItemPricing(ctx, updated));
+    await logActivity(ctx, {
+      userId: user._id,
+      action: "order_item.edit_proposed",
+      entityType: "order",
+      entityId: item.orderId,
+      metadata: { line: item.lineNo, changes: edits },
+    });
+    return { applied: false };
   },
 });
-
 const REMATCH_PAGE_SIZE = 100;
 
 /**

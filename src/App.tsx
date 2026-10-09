@@ -25,7 +25,7 @@ function AppInner() {
   // Le catalogue n'est chargé que là où il sert (catalogue, détail d'une quotation pour ses propositions).
   const { products, loading: loadingProducts } = useProducts(view === 'products' || view === 'detail');
   const { quotations, deleted: deletedQuotations, loading: loadingQuotations } = useQuotations();
-  const { quotation: selectedQuotation, loading: loadingDetail } = useQuotation(selectedId);
+  const { quotation: selectedQuotation, edits: pendingEdits, loading: loadingDetail } = useQuotation(selectedId);
 
   // Dernière connexion : enregistrée une fois par session, quand le profil est bien chargé.
   const recordLogin = useMutation(api.users.recordLogin);
@@ -124,6 +124,8 @@ function AppInner() {
             currencies={currencies}
             loading={loadingDetail}
             isAdmin={me.role === 'admin'}
+            meId={me.id}
+            edits={pendingEdits}
             onBack={() => { setSelectedId(null); setView('quotations'); }}
           />
         )}

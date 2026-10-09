@@ -1,6 +1,6 @@
 import React from 'react';
-import { Check, ChevronDown, ChevronUp, CircleHelp, TriangleAlert, X } from 'lucide-react';
-import type { ProductWithPrices, QuotationItem } from '../types';
+import { Check, ChevronDown, ChevronUp, CircleHelp, Pencil, TriangleAlert, X } from 'lucide-react';
+import type { PendingEdit, ProductWithPrices, QuotationItem } from '../types';
 import { MATCH_LABELS, formatAmount } from '../lib/format';
 import { Badge } from './ui';
 import { NumberCell, TextCell } from './EditableCells';
@@ -18,6 +18,37 @@ export type LineEdit = Partial<{
   reqNotes: string;
   enqNotes: string;
 }>;
+
+const CHANGE_LABELS: Record<string, string> = {
+  rawCode: 'Code',
+  rawDescription: 'Description',
+  rawQuantity: 'Quantity',
+  quotedQuantity: 'Quantity',
+  rawUnit: 'Unit',
+  rawOrigin: 'Origin',
+  quotationPercent: 'Cotation (%)',
+  unitPrice: 'Unit Price',
+  reqNotes: 'Req notes',
+  enqNotes: 'Enq notes',
+};
+
+/** Valeur actuelle de la ligne pour chaque champ qu'une proposition peut modifier (pour afficher « avant → après »). */
+function currentValue(item: QuotationItem, key: string): string {
+  const raw: Record<string, string | number | null | undefined> = {
+    rawCode: item.raw_code,
+    rawDescription: item.original_description,
+    rawQuantity: item.quantity,
+    quotedQuantity: item.quantity,
+    rawUnit: item.unit,
+    rawOrigin: item.origin,
+    quotationPercent: item.margin_percentage,
+    unitPrice: item.unit_price_manual ?? item.unit_price,
+    reqNotes: item.req_notes,
+    enqNotes: item.enq_notes,
+  };
+  const value = raw[key];
+  return value === null || value === undefined || value === '' ? '-' : String(value);
+}
 
 /** État de la correspondance avec le catalogue, dans le même style discret que l'aperçu d'import. */
 function MatchTag({ item }: { item: QuotationItem }) {
@@ -45,8 +76,23 @@ export function LinesTable({
   onConfirm,
   onDismiss,
   onToggle,
+  edits,
+  meId,
+  isOwner,
+  onDecide,
+  onWithdraw,
+  resetKey,
 }: {
   items: QuotationItem[];
+  /** Modifications proposées par d'autres utilisateurs, en attente de la décision du propriétaire. */
+  edits: PendingEdit[];
+  meId: string;
+  /** L'utilisateur courant est le propriétaire de la quotation : seul à pouvoir valider / invalider. */
+  isOwner: boolean;
+  onDecide: (edit: PendingEdit, approve: boolean) => void;
+  onWithdraw: (edit: PendingEdit) => void;
+  /** Incrémenté après une proposition : les cellules reprennent la valeur actuelle de la ligne. */
+  resetKey: number;
   products: ProductWithPrices[];
   currency: string;
   /** Pays de cotation : les prix des propositions sont ceux de ce pays. */
@@ -67,6 +113,11 @@ export function LinesTable({
       else next.add(id);
       return next;
     });
+  const editsByItem = React.useMemo(() => {
+    const map = new Map<string, PendingEdit[]>();
+    for (const ed of edits) map.set(ed.item_id, [...(map.get(ed.item_id) ?? []), ed]);
+    return map;
+  }, [edits]);
   const allIncluded = items.length > 0 && items.every((it) => !it.excluded);
   const someIncluded = items.some((it) => !it.excluded);
   // Un fichier client peut compter des centaines de lignes : on n'en dessine que 100 à la fois
@@ -111,22 +162,23 @@ export function LinesTable({
                   <input type="checkbox" checked={!it.excluded} onChange={() => onToggle([it], it.excluded)} aria-label={`Inclure la ligne ${it.line_no}`} />
                 </td>
                 <td className="text-muted mono">{it.line_no}</td>
-                <td><TextCell mono width={96} value={it.raw_code ?? ''} onCommit={(v) => onEdit(it, { rawCode: v })} /></td>
+                <td><TextCell mono width={96} resetKey={resetKey} value={it.raw_code ?? ''} onCommit={(v) => onEdit(it, { rawCode: v })} /></td>
                 <td style={{ minWidth: 280, width: '35%' }}>
-                  <TextCell width="100%" value={it.original_description} onCommit={(v) => onEdit(it, { rawDescription: v })} />
+                  <TextCell width="100%" resetKey={resetKey} value={it.original_description} onCommit={(v) => onEdit(it, { rawDescription: v })} />
                 </td>
-                <td className="text-right"><NumberCell width={68} value={it.quantity} onCommit={(v) => onEdit(it, { rawQuantity: v })} /></td>
-                <td><TextCell width={64} value={it.unit ?? ''} onCommit={(v) => onEdit(it, { rawUnit: v })} /></td>
+                <td className="text-right"><NumberCell width={68} resetKey={resetKey} value={it.quantity} onCommit={(v) => onEdit(it, { rawQuantity: v })} /></td>
+                <td><TextCell width={64} resetKey={resetKey} value={it.unit ?? ''} onCommit={(v) => onEdit(it, { rawUnit: v })} /></td>
                 <td className="text-right">
                   <NumberCell
                     width={92}
+                    resetKey={resetKey}
                     value={it.unit_price_manual}
                     placeholder={priceMissing || it.unit_price === null ? 'Prix manquant' : String(it.unit_price)}
                     onCommit={(v) => onEdit(it, { unitPrice: v })}
                     onClear={() => onEdit(it, { unitPrice: null })}
                   />
                 </td>
-                <td className="text-right"><NumberCell width={64} value={it.margin_percentage} onCommit={(v) => onEdit(it, { quotationPercent: v })} /></td>
+                <td className="text-right"><NumberCell width={64} resetKey={resetKey} value={it.margin_percentage} onCommit={(v) => onEdit(it, { quotationPercent: v })} /></td>
                 <td className="text-right mono nowrap" style={{ fontWeight: 700 }}>{formatAmount(it.total_price)}</td>
                 <td style={{ minWidth: 150 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -173,6 +225,42 @@ export function LinesTable({
                   })}
                 </>
               )}
+              {(editsByItem.get(it.id) ?? []).map((ed) => (
+                <tr key={`edit-${ed.id}`} className="proposal-row proposal-last" style={{ background: 'var(--color-primary-soft)' }}>
+                  <td></td>
+                  <td className="text-muted" title="Modification proposée, en attente de validation"><Pencil size={13} /></td>
+                  <td colSpan={7}>
+                    <div style={{ fontSize: 13 }}>
+                      <strong>{ed.proposed_by}</strong> propose :{' '}
+                      {Object.entries(ed.changes).map(([key, value], i) => (
+                        <span key={key}>
+                          {i > 0 && ' · '}
+                          {CHANGE_LABELS[key] ?? key} :{' '}
+                          <span className="text-muted" style={{ textDecoration: 'line-through' }}>{currentValue(it, key)}</span>
+                          {' → '}
+                          <strong>{value === null || value === '' ? (key === 'unitPrice' ? 'prix du catalogue' : '-') : String(value)}</strong>
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                  <td>
+                    {isOwner ? (
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button className="btn btn-sm btn-primary" onClick={() => onDecide(ed, true)} title="Appliquer cette modification à la ligne">
+                          <Check size={13} /> Valider
+                        </button>
+                        <button className="btn btn-sm" onClick={() => onDecide(ed, false)} title="Rejeter cette modification">
+                          <X size={13} /> Invalider
+                        </button>
+                      </div>
+                    ) : ed.proposed_by_id === meId ? (
+                      <button className="btn btn-sm" onClick={() => onWithdraw(ed)} title="Retirer ma proposition">Retirer</button>
+                    ) : (
+                      <span className="text-muted" style={{ fontSize: 12 }}>En attente du propriétaire</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
               </React.Fragment>
             );
           })}

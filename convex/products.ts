@@ -18,27 +18,52 @@ async function assertKnownCategory(ctx: MutationCtx, name: string | undefined) {
 }
 import { getCurrentPrice, setCurrentPrice } from "./lib/productPricing";
 
-// Upper bound of the catalogue loaded by the front (the page filters/searches client-side).
-const MAX_CATALOGUE_ROWS = 5000;
-
+/**
+ * Catalogue chargé par l'écran « Produits & prix » : les produits qui ont au moins un prix en vigueur (les prix
+ * sont lus via l'index sur validTo, jamais l'historique). Le catalogue IMPA compte des dizaines de milliers
+ * d'articles : on ne les charge pas tous d'office, ils s'ouvrent par catégorie (`listByCategory`) ou par
+ * recherche (`search`). Avec `search`, renvoie jusqu'à 100 produits (avec ou sans prix) proches de ce texte.
+ */
 export const list = query({
   args: { search: v.optional(v.string()) },
   handler: async (ctx, { search }) => {
     await requireUser(ctx);
     if (search && search.trim()) {
-      return await ctx.db
+      const found = await ctx.db
         .query("products")
         .withSearchIndex("search_name", (q) => q.search("normalizedName", normalizeName(search)))
         .take(100);
+      return found.filter((p) => p.deletedAt === undefined);
     }
-    return await ctx.db
-      .query("products")
-      .withIndex("by_active", (q) => q.eq("active", true))
-      .order("desc")
-      .take(MAX_CATALOGUE_ROWS);
+    const prices = await ctx.db.query("productPrices").withIndex("by_validTo", (q) => q.eq("validTo", undefined)).collect();
+    const productIds = [...new Set(prices.map((p) => p.productId))];
+    const docs = await Promise.all(productIds.map((id) => ctx.db.get(id)));
+    return docs.filter((p): p is Doc<"products"> => p !== null && p.active && p.deletedAt === undefined);
   },
 });
 
+/** Tous les produits d'une catégorie du catalogue (catégorie vide = produits sans catégorie), prix ou non. */
+export const listByCategory = query({
+  args: { category: v.string() },
+  handler: async (ctx, { category }) => {
+    await requireUser(ctx);
+    const rows = await ctx.db
+      .query("products")
+      .withIndex("by_category", (q) => q.eq("category", category || undefined))
+      .take(8000);
+    return rows.filter((p) => p.deletedAt === undefined);
+  },
+});
+
+/** Nombre de produits d'une catégorie (catégorie vide = sans catégorie) - pour les tuiles de l'écran catalogue. */
+export const countByCategory = query({
+  args: { category: v.string() },
+  handler: async (ctx, { category }) => {
+    await requireUser(ctx);
+    const rows = await ctx.db.query("products").withIndex("by_category", (q) => q.eq("category", category || undefined)).collect();
+    return rows.filter((p) => p.deletedAt === undefined).length;
+  },
+});
 export const get = query({
   args: { productId: v.id("products") },
   handler: async (ctx, { productId }) => {

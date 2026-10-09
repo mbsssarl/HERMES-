@@ -1,5 +1,5 @@
 import React from 'react';
-import { useMutation } from 'convex/react';
+import { useMutation, useQuery } from 'convex/react';
 import { CheckSquare, Plus, Trash2, Upload } from 'lucide-react';
 import type { Country, ProductCategory, ProductWithPrices } from '../types';
 import { api, type Id } from '../lib/convex';
@@ -9,9 +9,23 @@ import { useToast } from '../components/Toast';
 import { CatalogImportModal } from '../components/CatalogImportModal';
 import { Pager, usePage } from '../components/Pager';
 import { formatPrice, regionLabel } from '../lib/format';
+import { mapProduct } from '../lib/mappers';
 
 const errMsg = (err: unknown) => (err instanceof Error ? err.message : String(err));
 const NO_CATEGORY = '__none__'; // valeur du filtre/classement « sans catégorie »
+
+/** Tuile d'une catégorie : son nombre de produits est lu à part (le catalogue IMPA est trop gros pour tout charger). */
+function CategoryTile({ name, value, active, onClick }: { name: string; value: string; active: boolean; onClick: () => void }) {
+  const count = useQuery(api.products.countByCategory, { category: value });
+  // « Sans catégorie » n'apparaît que s'il en reste.
+  if (value === '' && count === 0 && !active) return null;
+  return (
+    <button type="button" className={`cat-tile ${active ? 'active' : ''}`} onClick={onClick} title={name}>
+      <span className="cat-name">{name}</span>
+      <span className="cat-count">{count ?? '…'}</span>
+    </button>
+  );
+}
 
 /**
  * Catalogue : chaque cellule est directement modifiable par l'admin (code, nom, catégorie, unité et
@@ -63,6 +77,23 @@ export function Products({
   const [newCountryId, setNewCountryId] = React.useState('');
   const [newPrice, setNewPrice] = React.useState('');
   const [saving, setSaving] = React.useState(false);
+
+  // Le catalogue IMPA compte des dizaines de milliers d'articles : `products` ne contient que ceux qui ont un
+  // prix ; les autres s'ouvrent par catégorie (tuile) ou par recherche, chargés à la demande.
+  const term = search.trim().toLowerCase();
+  const inCategory = useQuery(api.products.listByCategory, categoryFilter ? { category: categoryFilter === NO_CATEGORY ? '' : categoryFilter } : 'skip');
+  const searchHits = useQuery(api.products.list, term.length >= 2 ? { search: term } : 'skip');
+  const catalogue = React.useMemo(() => {
+    const known = new Set(products.map((p) => p.id));
+    const extra: ProductWithPrices[] = [];
+    for (const doc of [...(inCategory ?? []), ...(searchHits ?? [])]) {
+      if (known.has(doc._id)) continue;
+      known.add(doc._id); // un produit absent de `products` n'a aucun prix en vigueur
+      extra.push({ ...mapProduct(doc), product_prices: [] });
+    }
+    return extra.length > 0 ? [...products, ...extra] : products;
+  }, [products, inCategory, searchHits]);
+  const browsing = Boolean(categoryFilter) || term.length >= 2; // on parcourt le catalogue complet, pas seulement les prix
 
   const activeCountries = countries.filter((c) => c.active); // pour l'import
   const priceCountries = countries; // colonnes de prix : tous les pays, actifs ou non
@@ -162,25 +193,20 @@ export function Products({
     }
   };
 
-  const term = search.trim().toLowerCase();
-  const byTerm = term
-    ? products.filter((p) => p.name.toLowerCase().includes(term) || p.reference.toLowerCase().includes(term))
-    : products;
+  const tokens = term.split(/\s+/).filter(Boolean);
+  const byTerm = tokens.length
+    ? catalogue.filter((p) => {
+        const hay = `${p.name} ${p.reference}`.toLowerCase();
+        return tokens.every((tk) => hay.includes(tk));
+      })
+    : catalogue;
   const visible = !categoryFilter
     ? byTerm
     : categoryFilter === NO_CATEGORY
       ? byTerm.filter((p) => !p.category)
       : byTerm.filter((p) => p.category === categoryFilter);
 
-  // Nombre de produits par catégorie (selon la recherche en cours) pour les tuiles, comme sur impa.services.
-  const countByCategory = new Map<string, number>();
-  let uncategorized = 0;
-  for (const p of byTerm) {
-    if (p.category) countByCategory.set(p.category, (countByCategory.get(p.category) ?? 0) + 1);
-    else uncategorized++;
-  }
-  const tileCategories = categories.filter((c) => c.active || countByCategory.has(c.name));
-
+  const tileCategories = categories.filter((c) => c.active || c.name === categoryFilter);
   // Une ligne par produit et par pays : ... | Unit | Unit Price | Country
   const shownCountries = countryFilter ? priceCountries.filter((c) => c.id === countryFilter) : priceCountries;
   // Par défaut, seules les lignes qui ont un prix sont affichées - y compris un produit sans aucun prix nulle
@@ -191,6 +217,9 @@ export function Products({
     const all = shownCountries.map((c) => ({ p, c }));
     if (showEmpty) return all;
     const priced = all.filter(({ c }) => p.product_prices.some((pr) => pr.country_id === c.id));
+    // En parcourant le catalogue (catégorie / recherche), un article sans aucun prix reste visible : une seule
+    // ligne, sur la région affichée, pour pouvoir lui donner son premier prix.
+    if (priced.length === 0 && browsing && p.product_prices.length === 0 && all.length > 0) return [all[0]];
     hiddenCount += all.length - priced.length;
     return priced;
   });
@@ -232,28 +261,20 @@ export function Products({
           {showTiles && (
             <div className="cat-grid">
               {tileCategories.map((c) => (
-                <button
+                <CategoryTile
                   key={c.id}
-                  type="button"
-                  className={`cat-tile ${categoryFilter === c.name ? 'active' : ''}`}
+                  name={c.name}
+                  value={c.name}
+                  active={categoryFilter === c.name}
                   onClick={() => setCategoryFilter(categoryFilter === c.name ? '' : c.name)}
-                  title={c.name}
-                >
-                  <span className="cat-name">{c.name}</span>
-                  <span className="cat-count">{countByCategory.get(c.name) ?? 0}</span>
-                </button>
+                />
               ))}
-              {uncategorized > 0 && (
-                <button
-                  type="button"
-                  className={`cat-tile ${categoryFilter === NO_CATEGORY ? 'active' : ''}`}
-                  onClick={() => setCategoryFilter(categoryFilter === NO_CATEGORY ? '' : NO_CATEGORY)}
-                >
-                  <span className="cat-name">Sans catégorie</span>
-                  <span className="cat-count">{uncategorized}</span>
-                </button>
-              )}
-            </div>
+              <CategoryTile
+                name="Sans catégorie"
+                value=""
+                active={categoryFilter === NO_CATEGORY}
+                onClick={() => setCategoryFilter(categoryFilter === NO_CATEGORY ? '' : NO_CATEGORY)}
+              />            </div>
           )}
         </div>
       )}

@@ -69,6 +69,17 @@ export interface QuotationItem {
   candidate_products: Product[];
 }
 
+/** Modification d'une ligne proposée par un utilisateur autre que le propriétaire, en attente de sa décision. */
+export interface PendingEdit {
+  id: string;
+  item_id: string;
+  proposed_by_id: string;
+  proposed_by: string; // email de l'auteur
+  proposed_at: string;
+  // Champs modifiés (clés de convex/lib/lineEdits.ts) ; unitPrice null = retour au prix du catalogue.
+  changes: Record<string, string | number | null>;
+}
+
 export interface QuotationWithRelations {
   id: string;
   quotation_number: string;
@@ -82,6 +93,7 @@ export interface QuotationWithRelations {
   subtotal: number; // somme des lignes, avant discount global
   created_at: string;
   created_by: string | null;
+  owner_email: string | null; // propriétaire = créateur : seul à pouvoir valider les modifications des autres
   export_currency: string | null;
   // Un taux par devise d'origine réellement présente parmi les lignes (voir QuotationItem.price_currency) -
   // plusieurs lignes d'une même quotation peuvent avoir été tarifées dans des devises différentes.

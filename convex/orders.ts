@@ -113,7 +113,8 @@ export const get = query({
     if (!order) return null;
     const client = await ctx.db.get(order.clientId);
     const country = await ctx.db.get(order.countryId);
-    return { ...order, client, country };
+    const owner = await ctx.db.get(order.createdBy);
+    return { ...order, client, country, ownerEmail: owner?.email ?? null };
   },
 });
 
