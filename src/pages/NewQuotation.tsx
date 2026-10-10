@@ -4,7 +4,7 @@ import { UploadCloud } from 'lucide-react';
 import type { Country } from '../types';
 import { api, type Id } from '../lib/convex';
 import { useToast } from '../components/Toast';
-import { regionLabel } from '../lib/format';
+import { capitalizeWords, regionLabel } from '../lib/format';
 
 const ACCEPTED = '.pdf,.docx,.xlsx,.xls';
 
@@ -23,6 +23,7 @@ export function NewQuotation({
   const toast = useToast();
   const clients = useQuery(api.clients.list, {});
   const createClient = useMutation(api.clients.create);
+  const updateClient = useMutation(api.clients.update);
   const createOrder = useMutation(api.orders.create);
   const generateUploadUrl = useMutation(api.files.generateUploadUrl);
   const registerUploadedFile = useMutation(api.files.registerUploadedFile);
@@ -30,6 +31,8 @@ export function NewQuotation({
   const activeCountries = countries.filter((c) => c.active);
   const [countryId, setCountryId] = React.useState('');
   const [customerName, setCustomerName] = React.useState('');
+  const [customerEmail, setCustomerEmail] = React.useState('');
+  const [emailTouched, setEmailTouched] = React.useState(false);
   const [file, setFile] = React.useState<File | null>(null);
   const [dragging, setDragging] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
@@ -41,19 +44,28 @@ export function NewQuotation({
 
   const country = countries.find((c) => c.id === countryId);
 
+  const knownClient = clients?.find((c) => c.name.toLowerCase() === customerName.trim().toLowerCase());
+  React.useEffect(() => {
+    if (!emailTouched) setCustomerEmail(knownClient?.contactEmail ?? '');
+  }, [knownClient?._id, knownClient?.contactEmail, emailTouched]);
+
 
   const submit = async () => {
     if (!customerName.trim()) { toast('Indiquez le nom du client.', 'error'); return; }
     if (!countryId) { toast('Sélectionnez une région de cotation.', 'error'); return; }
     if (!file) { toast('Importez le fichier de demande du client.', 'error'); return; }
+    const email = customerEmail.trim();
+    if (email && !/^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(email)) { toast("L'adresse e-mail du client n'est pas valide.", 'error'); return; }
 
     setSubmitting(true);
     try {
-      const name = customerName.trim();
+      const name = capitalizeWords(customerName.trim());
       const existing = clients?.find((c) => c.name.toLowerCase() === name.toLowerCase());
       const clientId =
         existing?._id ??
-        (await createClient({ name, countryId: countryId as Id<'countries'> }));
+        (await createClient({ name, countryId: countryId as Id<'countries'>, contactEmail: email || undefined }));
+      // Client déjà connu : l'e-mail saisi (facultatif) remplace celui enregistré ; un champ vide n'efface rien.
+      if (existing && email && email !== existing.contactEmail) await updateClient({ clientId: existing._id, contactEmail: email });
 
       const orderId = await createOrder({ clientId, countryId: countryId as Id<'countries'> });
 
@@ -66,7 +78,7 @@ export function NewQuotation({
         orderId,
         storageId,
         kind: 'client_request',
-        fileName: file.name,
+        fileName: file.name.toLowerCase(),
         mimeType: file.type,
         size: file.size,
       });
@@ -85,7 +97,6 @@ export function NewQuotation({
       <div className="page-header">
         <div>
           <h1 className="page-title">Nouvelle quotation</h1>
-          <p className="page-subtitle">Indiquez le client et la région de cotation, puis importez sa demande : les articles connus et inconnus sont détectés automatiquement.</p>
         </div>
       </div>
 
@@ -94,7 +105,7 @@ export function NewQuotation({
           <div className="busy-overlay" style={{ borderRadius: 'inherit' }}>
             <div className="spinner" />
             <h3>Import du fichier en cours…</h3>
-            <p className="text-muted">Création de la quotation puis envoi de {file?.name ?? 'votre fichier'}. Ne fermez pas la page.</p>
+            <p className="text-muted">Création de la quotation puis envoi de {file?.name.toLowerCase() ?? 'votre fichier'}. Ne fermez pas la page.</p>
           </div>
         )}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 32, alignItems: 'stretch' }}>
@@ -106,12 +117,23 @@ export function NewQuotation({
             className="input"
             list="known-clients"
             value={customerName}
-            onChange={(e) => setCustomerName(e.target.value)}
-            placeholder="ABC Shipping & Logistics"
+            onChange={(e) => setCustomerName(capitalizeWords(e.target.value))}
+            placeholder="Abc Shipping & Logistics"
           />
           <datalist id="known-clients">
-            {(clients ?? []).map((c) => <option key={c._id} value={c.name} />)}
+            {(clients ?? []).map((c) => <option key={c._id} value={capitalizeWords(c.name)} />)}
           </datalist>
+        </div>
+        <div className="form-field">
+          <label>E-mail du client <span className="text-muted" style={{ fontWeight: 400 }}>(facultatif)</span></label>
+          <input
+            className="input"
+            type="email"
+            value={customerEmail}
+            onChange={(e) => { setCustomerEmail(e.target.value); setEmailTouched(true); }}
+            placeholder="contact@client.com"
+            autoComplete="off"
+          />
         </div>
         <div className="form-field">
           <label>Région de cotation</label>
@@ -125,7 +147,7 @@ export function NewQuotation({
             </div>
           )}
           <div className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>
-            Les prix appliqués sont ceux de cette région{country ? ` (${country.currency})` : ''} ; elle ne pourra plus être modifiée.
+            Les prix appliqués sont ceux de cette région{country ? ` (${country.currency})` : ''}.
           </div>
         </div>
 
@@ -147,7 +169,7 @@ export function NewQuotation({
           }}
         >
           <div className="upload-icon"><UploadCloud size={28} /></div>
-          <h3>{file?.name || 'Glissez un fichier ici'}</h3>
+          <h3>{file?.name.toLowerCase() || 'Glissez un fichier ici'}</h3>
           <p>Cliquez ou déposez un fichier PDF, Word ou Excel</p>
           <div className="upload-formats">
             <span className="format-chip">PDF</span>

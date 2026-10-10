@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { capitalizeWords } from "./lib/names";
 import { logActivity } from "./lib/audit";
 import { requireUser } from "./lib/permissions";
 
@@ -37,8 +38,11 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
+    // Le nom d'un client est enregistré avec une majuscule à chaque mot.
+    const name = capitalizeWords(args.name.trim());
     const clientId = await ctx.db.insert("clients", {
       ...args,
+      name,
       createdAt: Date.now(),
       createdBy: user._id,
     });
@@ -47,7 +51,7 @@ export const create = mutation({
       action: "client.created",
       entityType: "client",
       entityId: clientId,
-      metadata: { name: args.name },
+      metadata: { name },
     });
     return clientId;
   },

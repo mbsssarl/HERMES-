@@ -3,9 +3,10 @@ import { v } from "convex/values";
 import { logActivity } from "./lib/audit";
 import { requireAdmin, requireUser } from "./lib/permissions";
 import { noteCatalogUpdate } from "./lib/catalogUpdates";
-import { repriceOrderItem } from "./lib/matching";
+import { refreshCataloguePrice, repriceOrderItem } from "./lib/matching";
 import { getCurrentPrice, setCurrentPrice } from "./lib/productPricing";
-import { mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
+import { internalMutation, mutation, query } from "./_generated/server";
 
 /** Current (and, optionally, historical) prices of a product, one row per country. */
 export const listForProduct = query({
@@ -72,14 +73,44 @@ export const setPrice = mutation({
     const wave = Date.now();
     const repriced = new Map<Id<"orders">, number>();
     for (const item of affectedItems) {
-      if (item.unitPriceOriginal !== undefined) continue;
       const order = await ctx.db.get(item.orderId);
-      if (order?.countryId === args.countryId) {
+      if (order?.countryId !== args.countryId) continue;
+      // Ligne sans prix : on la chiffre. Ligne déjà chiffrée au catalogue : elle suit le nouveau prix.
+      let updated = false;
+      if (item.unitPriceOriginal === undefined) {
         await repriceOrderItem(ctx, item);
-        repriced.set(item.orderId, (repriced.get(item.orderId) ?? 0) + 1);
+        updated = true;
+      } else {
+        updated = await refreshCataloguePrice(ctx, item);
       }
+      if (updated) repriced.set(item.orderId, (repriced.get(item.orderId) ?? 0) + 1);
     }
     for (const [orderId, lines] of repriced) await noteCatalogUpdate(ctx, orderId, lines, admin.email ?? undefined, wave);
+  },
+});
+
+/**
+ * Supprime TOUS les prix du catalogue (en vigueur et historique), pour toutes les régions. Réservé aux administrateurs.
+ * Le travail se fait en tâche de fond, par paquets : l'écran se met à jour tout seul au fil de l'avancement. Les
+ * lignes de quotations ouvertes qui tiraient leur prix du catalogue repassent « sans prix » ; les prix saisis à la
+ * main et les quotations envoyées, validées ou archivées ne sont pas touchés.
+ */
+export const clearAll = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const admin = await requireAdmin(ctx);
+    await logActivity(ctx, { userId: admin._id, action: "product.prices_cleared", entityType: "product", entityId: "all" });
+    await ctx.scheduler.runAfter(0, internal.productPrices.clearBatch, {});
+  },
+});
+
+export const clearBatch = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("productPrices").take(400);
+    for (const row of rows) await ctx.db.delete(row._id);
+    if (rows.length === 400) await ctx.scheduler.runAfter(0, internal.productPrices.clearBatch, {});
+    else await ctx.scheduler.runAfter(0, internal.orderItems.clearCataloguePricesInternal, {});
   },
 });
 

@@ -4,14 +4,15 @@ import { useQuery } from 'convex/react';
 import React from 'react';
 import { api, type Id } from './convex';
 import { storedTheme } from './theme';
+import { storedLanguage } from './i18n';
 import { mapCountry, mapOrder, mapOrderItem, mapProductWithPrices, type OrderItemRow, type OrderRow } from './mappers';
-import type { AppUser, Country, Currency, PendingEdit, ProductCategory, ProductWithPrices, QuotationWithRelations } from '../types';
+import type { AppUser, Country, Currency, OrderValidation, PendingEdit, ProductCategory, ProductWithPrices, QuotationWithRelations } from '../types';
 
 export function useMe(): AppUser | null | undefined {
   const me = useQuery(api.users.getCurrentUser);
   return React.useMemo(() => {
     if (me === undefined || me === null) return me;
-    return { id: me._id, email: me.email ?? '', role: me.role, mustChangePassword: !!me.mustChangePassword, theme: me.theme ?? storedTheme() };
+    return { id: me._id, email: me.email ?? '', role: me.role, mustChangePassword: !!me.mustChangePassword, theme: me.theme ?? storedTheme(), language: me.language ?? storedLanguage() };
   }, [me]);
 }
 
@@ -63,11 +64,35 @@ export function useQuotations(): { quotations: QuotationWithRelations[]; deleted
   return { quotations, deleted, loading: orders === undefined };
 }
 
-export function useQuotation(id: string | null): { quotation: QuotationWithRelations | null; edits: PendingEdit[]; loading: boolean } {
+export function useQuotation(id: string | null): { quotation: QuotationWithRelations | null; edits: PendingEdit[]; validation: OrderValidation | null; loading: boolean } {
   const orderId = id as Id<'orders'> | null;
   const order = useQuery(api.orders.get, orderId ? { orderId } : 'skip');
   const items = useQuery(api.orderItems.listByOrder, orderId ? { orderId } : 'skip');
   const files = useQuery(api.files.listByOrder, orderId ? { orderId } : 'skip');
+  const validationRow = useQuery(api.orderValidation.get, orderId ? { orderId } : 'skip');
+  const validation = React.useMemo<OrderValidation | null>(
+    () =>
+      validationRow
+        ? {
+            validated_at: new Date(validationRow.validatedAt).toISOString(),
+            validated_by: validationRow.validatedByEmail,
+            file_name: validationRow.fileName,
+            items: validationRow.items.map((it) => ({
+              id: it._id,
+              position: it.position,
+              line_ref: it.lineRef ?? null,
+              code: it.rawCode ?? null,
+              description: it.description,
+              quantity: it.quantity ?? null,
+              unit: it.unit ?? null,
+              unit_price: it.unitPrice ?? null,
+              margin_percent: it.marginPercent,
+              matched: it.matched,
+            })),
+          }
+        : null,
+    [validationRow],
+  );
   const editRows = useQuery(api.orderItemEdits.listByOrder, orderId ? { orderId } : 'skip');
   const edits = React.useMemo<PendingEdit[]>(
     () =>
@@ -86,5 +111,5 @@ export function useQuotation(id: string | null): { quotation: QuotationWithRelat
     const source = files?.find((f) => f.kind === 'client_request')?.fileName ?? null;
     return mapOrder(order as OrderRow, (items as OrderItemRow[]).map(mapOrderItem), source);
   }, [order, items, files]);
-  return { quotation, edits, loading: !!orderId && (order === undefined || items === undefined) };
+  return { quotation, edits, validation, loading: !!orderId && (order === undefined || items === undefined) };
 }

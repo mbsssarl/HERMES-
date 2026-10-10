@@ -27,15 +27,6 @@ function encodeHeader(text: string): string {
   return parts.join('\r\n ');
 }
 
-/**
- * Brouillon de message (.eml) avec le fichier en pièce jointe. « X-Unsent: 1 » le fait s'ouvrir comme un
- * message à envoyer (et non reçu) dans Outlook / Courrier Windows : destinataire, objet, texte et pièce
- * jointe sont déjà là. Gmail (web) ne sait pas ouvrir ce format.
- */
-export function downloadEmailDraft(opts: { to: string; subject: string; body: string; fileName: string; base64: string; draftName: string }) {
-  downloadBlob(new Blob([buildEmlText(opts)], { type: 'message/rfc822' }), opts.draftName);
-}
-
 /** Message MIME complet (texte + pièce jointe), tel que lu par les clients de messagerie et par l'API Gmail. */
 export function buildEmlText(opts: { to: string; subject: string; body: string; fileName: string; base64: string }): string {
   const boundary = `----=_MBSS_${Date.now().toString(36)}`;

@@ -324,9 +324,10 @@ export const applyGlobalPricing = mutation({
     if (quotationPercent !== undefined) {
       const items = await ctx.db.query("orderItems").withIndex("by_order", (q) => q.eq("orderId", orderId)).collect();
       for (const item of items) {
-        const next = { ...item, quotationPercentLine: quotationPercent };
+        const next = { ...item, quotationPercentLine: quotationPercent, quotationAmountLine: undefined };
         await ctx.db.patch(item._id, {
           quotationPercentLine: quotationPercent,
+          quotationAmountLine: undefined,
           ...(await computeItemPricing(ctx, next)),
           updatedAt: Date.now(),
         });
@@ -393,8 +394,8 @@ export const persistExportRates = internalMutation({
  * conversion : chaque ligne du fichier ressort dans SA propre devise d'origine, sans facteur.
  */
 export const applyExportCurrency = action({
-  args: { orderId: v.id("orders"), targetCurrency: v.optional(v.string()) },
-  handler: async (ctx, { orderId, targetCurrency }): Promise<{ currency: string; rate: number; asOf: string; source: string }[] | null> => {
+  args: { orderId: v.id("orders"), targetCurrency: v.optional(v.string()), applyRate: v.optional(v.boolean()) },
+  handler: async (ctx, { orderId, targetCurrency, applyRate }): Promise<{ currency: string; rate: number; asOf: string; source: string }[] | null> => {
     const user = await ctx.runQuery(api.users.getCurrentUser, {});
     if (!user) throw new Error("Authentification requise.");
     const basis = await ctx.runQuery(internal.orders.getExportCurrencyBasis, { orderId });
@@ -416,6 +417,8 @@ export const applyExportCurrency = action({
     const sourceCurrencies = basis.currencies.length > 0 ? basis.currencies : [basis.fallback];
     const rates = await Promise.all(
       sourceCurrencies.map(async (currency) => {
+        // Changement d'étiquette seulement : les montants restent tels quels (taux 1), sans appel au service de change.
+        if (applyRate === false) return { currency, rate: 1, asOf: new Date().toISOString().slice(0, 10), source: "sans conversion" };
         const { rate, asOf, source } = await ctx.runAction(api.exchangeRates.getRate, { from: currency, to: targetCurrency });
         return { currency, rate, asOf, source };
       }),
@@ -432,17 +435,42 @@ export const applyExportCurrency = action({
   },
 });
 
+/** Définit (ou retire, avec 0 / vide) les frais de livraison + mise à l'eau ajoutés après le discount dans le fichier exporté. */
+export const setTransportFee = mutation({
+  args: { orderId: v.id("orders"), transportFee: v.optional(v.number()) },
+  handler: async (ctx, { orderId, transportFee }) => {
+    const admin = await requireAdmin(ctx);
+    const order = await ctx.db.get(orderId);
+    if (!order) throw new Error("Commande introuvable.");
+    if (transportFee !== undefined && (!Number.isFinite(transportFee) || transportFee < 0)) throw new Error("Frais de transport invalides.");
+    const fee = transportFee && transportFee > 0 ? Math.round(transportFee * 100) / 100 : undefined;
+    await ctx.db.patch(orderId, { transportFee: fee, updatedAt: Date.now() });
+    await logActivity(ctx, {
+      userId: admin._id,
+      action: "order.transport_fee_set",
+      entityType: "order",
+      entityId: orderId,
+      metadata: { transportFee: fee },
+    });
+  },
+});
+
 /** The signed-in user opened this quotation: its "updated" badge disappears for them. */
 export const markSeen = mutation({
   args: { orderId: v.id("orders") },
   handler: async (ctx, { orderId }) => {
     const user = await requireUser(ctx);
-    const existing = await ctx.db
+    // collect (et non unique) : deux ouvertures simultanées peuvent avoir créé deux lignes, on garde la première.
+    const rows = await ctx.db
       .query("orderSeen")
       .withIndex("by_user_order", (q) => q.eq("userId", user._id).eq("orderId", orderId))
-      .unique();
-    if (existing) await ctx.db.patch(existing._id, { seenAt: Date.now() });
-    else await ctx.db.insert("orderSeen", { orderId, userId: user._id, seenAt: Date.now() });
+      .collect();
+    const seenAt = Date.now();
+    if (rows.length === 0) await ctx.db.insert("orderSeen", { orderId, userId: user._id, seenAt });
+    else {
+      await ctx.db.patch(rows[0]._id, { seenAt });
+      for (const extra of rows.slice(1)) await ctx.db.delete(extra._id);
+    }
   },
 });
 
@@ -452,6 +480,52 @@ export const remove = mutation({
     const admin = await requireAdmin(ctx);
     await ctx.db.patch(orderId, { deletedAt: Date.now(), updatedAt: Date.now() });
     await logActivity(ctx, { userId: admin._id, action: "order.deleted", entityType: "order", entityId: orderId });
+  },
+});
+
+/**
+ * Vide la corbeille : supprime DÉFINITIVEMENT les quotations déjà supprimées, avec tout ce qui s'y rattache
+ * (lignes, validation, modifications, fichiers, devis, historique d'envoi). Réservé aux administrateurs.
+ * Traite quelques quotations par appel pour rester sous les limites d'une transaction : le client rappelle
+ * tant que `remaining` n'est pas 0.
+ */
+export const purgeDeleted = mutation({
+  args: {},
+  handler: async (ctx): Promise<{ purged: number; remaining: number }> => {
+    const admin = await requireAdmin(ctx);
+    const trashed = (await ctx.db.query("orders").collect()).filter((o) => o.deletedAt !== undefined);
+    const batch = trashed.slice(0, 4);
+
+    for (const order of batch) {
+      const orderId = order._id;
+      const removeAll = async (rows: { _id: Id<any> }[]) => { for (const row of rows) await ctx.db.delete(row._id); };
+
+      await removeAll(await ctx.db.query("orderItems").withIndex("by_order", (q) => q.eq("orderId", orderId)).collect());
+      await removeAll(await ctx.db.query("orderValidatedItems").withIndex("by_order", (q) => q.eq("orderId", orderId)).collect());
+      await removeAll(await ctx.db.query("orderItemEdits").withIndex("by_order", (q) => q.eq("orderId", orderId)).collect());
+      await removeAll(await ctx.db.query("supplierItems").withIndex("by_order", (q) => q.eq("orderId", orderId)).collect());
+      await removeAll(await ctx.db.query("emailLogs").withIndex("by_order", (q) => q.eq("orderId", orderId)).collect());
+
+      for (const file of await ctx.db.query("uploadedFiles").withIndex("by_order", (q) => q.eq("orderId", orderId)).collect()) {
+        await ctx.storage.delete(file.storageId).catch(() => {});
+        await ctx.db.delete(file._id);
+      }
+      for (const quote of await ctx.db.query("quotations").withIndex("by_order", (q) => q.eq("orderId", orderId)).collect()) {
+        if (quote.pdfStorageId) await ctx.storage.delete(quote.pdfStorageId).catch(() => {});
+        await ctx.db.delete(quote._id);
+      }
+      await removeAll((await ctx.db.query("orderSeen").collect()).filter((r) => r.orderId === orderId));
+
+      await ctx.db.delete(orderId);
+      await logActivity(ctx, {
+        userId: admin._id,
+        action: "order.purged",
+        entityType: "order",
+        entityId: orderId,
+        metadata: { reference: order.reference },
+      });
+    }
+    return { purged: batch.length, remaining: trashed.length - batch.length };
   },
 });
 

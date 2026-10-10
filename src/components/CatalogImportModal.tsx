@@ -288,7 +288,7 @@ export function CatalogImportModal({
         >
           {busy ? <div className="spinner" /> : <div className="upload-icon"><UploadCloud size={28} /></div>}
           <h3>{busy ? 'Analyse du fichier en cours…' : fileName || 'Glissez un fichier ici'}</h3>
-          <p>{busy ? `${fileName} - extraction des produits et comparaison avec le catalogue` : 'Cliquez ou déposez un fichier Excel, PDF ou Word'}</p>
+          <p>{busy ? `${fileName} · extraction des produits et comparaison avec le catalogue` : 'Cliquez ou déposez un fichier Excel, PDF ou Word'}</p>
           <input ref={fileInput} type="file" accept=".xlsx,.xls,.pdf,.docx" style={{ display: 'none' }}
             onChange={(e) => { const f = e.target.files?.[0]; if (f) void readFile(f); e.target.value = ''; }} />
         </div>
@@ -305,7 +305,7 @@ export function CatalogImportModal({
       {rows && (
         <div className="fill">
           <div className="text-muted" style={{ fontSize: 13, marginBottom: 8 }}>
-            {fileName}{stats ? ` (${stats.sheets} feuille(s), ${stats.read} ligne(s) lue(s)${stats.ignored > 0 ? `, ${stats.ignored} ignorée(s) : pieds de page et libellés` : ''})` : ''} - {groups.length} produit(s) distinct(s) ({duplicateRows} doublon(s) regroupé(s), dont {identicalRows} identique(s) fusionné(s) d'office) : {groups.filter((g) => !status(activeOf(g.root)).existing).length} nouveau(x), {groups.filter((g) => status(activeOf(g.root)).existing).length} déjà au catalogue - {selected.size} sélectionné(s).
+            {fileName}{stats ? ` (${stats.sheets} feuille(s), ${stats.read} ligne(s) lue(s)${stats.ignored > 0 ? `, ${stats.ignored} ignorée(s) : pieds de page et libellés` : ''})` : ''} · {groups.length} produit(s) distinct(s) ({duplicateRows} doublon(s) regroupé(s), dont {identicalRows} identique(s) fusionné(s) d'office) : {groups.filter((g) => !status(activeOf(g.root)).existing).length} nouveau(x), {groups.filter((g) => status(activeOf(g.root)).existing).length} déjà au catalogue - {selected.size} sélectionné(s).
             <button className="btn btn-ghost btn-sm" style={{ marginLeft: 8 }} onClick={() => setRows(null)}>Changer de fichier</button>
             {unknownRows > 0 && (
               <button
@@ -358,7 +358,7 @@ export function CatalogImportModal({
                           <input key={`n${i}${row.name}`} className="input cell-input" style={{ width: '100%' }} defaultValue={row.name}
                             onBlur={(e) => { const v = e.target.value.trim(); if (v !== row.name) void editRow(i, { name: v }); }} />
                           {row.matchedBy === 'code' && row.existingName && (
-                            <div className="text-muted" style={{ fontSize: 12 }}>= {row.existingCode ? `${row.existingCode} - ` : ''}{row.existingName}</div>
+                            <div className="text-muted" style={{ fontSize: 12 }}>= {row.existingCode ? `${row.existingCode} · ` : ''}{row.existingName}</div>
                           )}
                           {kindOf(i) === 'unknown' && (
                             <div style={{ fontSize: 12, marginTop: 2, color: 'var(--color-error)' }}>
@@ -378,17 +378,17 @@ export function CatalogImportModal({
                               })}
                               aria-label="Suggestions de produits proches"
                             >
-                              <option value="">Nouveau produit (No IMPA) - ou choisir un produit proche :</option>
+                              <option value="">Nouveau produit (No IMPA), ou choisir un produit proche :</option>
                               {row.suggestions!.map((s) => (
                                 <option key={s.productId} value={s.productId}>
-                                  {s.code ? s.code : 'sans code'} - {s.name} ({s.score}%)
+                                  {s.code ? s.code : 'sans code'} · {s.name} ({s.score}%)
                                 </option>
                               ))}
                             </select>
                           )}
                           {kindOf(i) === 'none' && link[i] && linkedSuggestion(i) && (
                             <div className="text-muted" style={{ fontSize: 12 }}>
-                              = {linkedSuggestion(i)!.code ? `${linkedSuggestion(i)!.code} - ` : ''}{linkedSuggestion(i)!.name}
+                              = {linkedSuggestion(i)!.code ? `${linkedSuggestion(i)!.code} · ` : ''}{linkedSuggestion(i)!.name}
                             </div>
                           )}
                         </td>
@@ -446,7 +446,7 @@ export function CatalogImportModal({
                             <td><input readOnly tabIndex={-1} className="input cell-input cell-readonly mono" style={{ width: 110 }} value={d.code ?? ''} /></td>
                             <td><input readOnly tabIndex={-1} className="input cell-input cell-readonly" style={{ width: '100%' }} value={d.name} /></td>
                             <td><input readOnly tabIndex={-1} className="input cell-input cell-readonly" style={{ width: 70 }} value={d.unit ?? ''} /></td>
-                            <td className="text-right"><input readOnly tabIndex={-1} className="input cell-input cell-readonly mono" style={{ width: 110, textAlign: 'right' }} value={d.price !== undefined ? d.price.toFixed(2) : ''} placeholder="-" /></td>
+                            <td className="text-right"><input readOnly tabIndex={-1} className="input cell-input cell-readonly mono" style={{ width: 110, textAlign: 'right' }} value={d.price !== undefined ? d.price.toFixed(2) : ''} placeholder="·" /></td>
                             <td>
                               <button className="btn btn-sm" onClick={() => setPick((prev) => ({ ...prev, [root]: m }))}><Check size={13} /> Choisir</button>
                             </td>

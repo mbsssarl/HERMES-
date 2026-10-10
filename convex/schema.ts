@@ -35,6 +35,10 @@ const schema = defineSchema({
 
     // Thème de l'interface choisi par l'utilisateur (suit son compte d'un poste à l'autre).
     theme: v.optional(v.union(v.literal("light"), v.literal("dark"))),
+    // Langue de l'interface (fr par défaut), elle aussi liée au compte.
+    language: v.optional(v.union(v.literal("fr"), v.literal("en"))),
+    // Hérité : la couleur de l'interface est désormais un réglage de l'entreprise (settings, clé « branding »).
+    accentColor: v.optional(v.string()),
 
     lastLoginAt: v.optional(v.number()), // horodatage de la dernière connexion, pour le dashboard admin
     createdAt: v.number(),
@@ -246,6 +250,8 @@ const schema = defineSchema({
     // peuvent avoir été importées/tarifées dans des devises différentes) - taux figés au moment où l'admin
     // a cliqué « Appliquer », récupérés en ligne sauf parité fixe EUR/CFA - voir convex/exchangeRates.ts.
     exportCurrency: v.optional(v.string()),
+    // Frais de livraison / mise à l'eau, dans la devise du fichier exporté (ajoutés après le discount) ; absent ou 0 = aucun.
+    transportFee: v.optional(v.number()),
     exportRates: v.optional(
       v.array(
         v.object({
@@ -278,6 +284,11 @@ const schema = defineSchema({
       }),
     ),
     supplyPlace: v.optional(v.string()), // port/lieu de livraison
+    // Validation de la commande : le client a renvoyé son fichier avec les articles finalement retenus (voir
+    // orderValidatedItems). Remplace l'ancien bouton « PO ».
+    validatedAt: v.optional(v.number()),
+    validatedBy: v.optional(v.id("users")),
+    validationFileName: v.optional(v.string()),
     // Cycle de vie complet d'une commande, voir §2 du cahier des charges.
     status: v.union(
       v.literal("draft"), // créée, aucun document importé
@@ -364,6 +375,9 @@ const schema = defineSchema({
     proposalsDismissed: v.optional(v.boolean()),
     // Cotation propre à la ligne (colonne "Cotation") : prime sur celle de la commande. Vide = cotation de la commande.
     quotationPercentLine: v.optional(v.number()),
+    // Cotation de la ligne exprimée en montant par unité (même devise que le prix), au lieu d'un pourcentage :
+    // l'un exclut l'autre (la dernière saisie l'emporte).
+    quotationAmountLine: v.optional(v.number()),
     total: v.optional(v.number()), // finalUnitPrice × quotedQuantity
 
     createdAt: v.number(),
@@ -376,6 +390,27 @@ const schema = defineSchema({
     // ou "ambiguous" d'une commande sans charger toutes les lignes
     // (utilisé pour le re-matching après ajout d'un produit au catalogue).
     .index("by_order_and_status", ["orderId", "matchStatus"]),
+  // ------------------------------------------------------------------
+  // ARTICLES VALIDÉS PAR LE CLIENT
+  // Lignes extraites du fichier final du client (même format que sa demande de cotation, mais avec seulement les
+  // articles qu'il veut recevoir, leurs quantités et prix). Servent au Purchase Order (prix d'achat = prix client
+  // moins la marge de la cotation) et au Delivery Note (même document sans prix).
+  // ------------------------------------------------------------------
+  orderValidatedItems: defineTable({
+    orderId: v.id("orders"),
+    position: v.number(), // ordre dans le fichier du client
+    lineRef: v.optional(v.number()), // n° de la colonne « No. » du fichier du client (peut avoir des trous)
+    rawCode: v.optional(v.string()),
+    description: v.string(),
+    quantity: v.optional(v.number()),
+    unit: v.optional(v.string()),
+    unitPrice: v.optional(v.number()), // prix client (après cotation), tel que dans le fichier importé
+    // Ligne de la cotation d'origine retrouvée (par code puis par description) et sa marge : la cotation (%)
+    // appliquée à cette ligne. Sans correspondance : cotation de la commande.
+    orderItemId: v.optional(v.id("orderItems")),
+    marginPercent: v.number(),
+  }).index("by_order", ["orderId"]),
+
   // ------------------------------------------------------------------
   // MODIFICATIONS PROPOSÉES SUR LES LIGNES
   // Tout utilisateur peut modifier une ligne de quotation, mais seul le propriétaire de la quotation
@@ -396,6 +431,7 @@ const schema = defineSchema({
       rawOrigin: v.optional(v.string()),
       quotedQuantity: v.optional(v.number()),
       quotationPercent: v.optional(v.number()),
+      quotationAmount: v.optional(v.number()),
       unitPrice: v.optional(v.union(v.number(), v.null())),
       reqNotes: v.optional(v.string()),
       enqNotes: v.optional(v.string()),
@@ -424,6 +460,7 @@ const schema = defineSchema({
     kind: v.union(
       v.literal("client_request"), // document envoyé par le client
       v.literal("supplier_response"), // fichier rempli par le fournisseur
+      v.literal("validation_file"), // fichier final du client (articles retenus, quantités, prix) importé à « Valider la commande »
       v.literal("generated_supplier_template"), // template Excel qu'on a généré pour le fournisseur
       v.literal("generated_quotation"), // PDF du devis final (réservé, généré via `quotations.pdfStorageId` en pratique)
     ),

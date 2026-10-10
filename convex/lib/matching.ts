@@ -1,7 +1,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { normalizeCode, normalizeName } from "./normalize";
-import { computeLinePricing } from "./pricing";
+import { computeLinePricing, round2 } from "./pricing";
 import { findProductByAlias } from "./productAliases";
 import { getCurrentPrice } from "./productPricing";
 import { jaroWinkler } from "./stringSimilarity";
@@ -200,12 +200,14 @@ export async function computeItemPricing(
   const pricing = computeLinePricing({
     unitPriceOriginal: base,
     quotationPercent: percent,
+    quotationAmount: item.quotationAmountLine,
     quantity: item.quotedQuantity ?? item.rawQuantity ?? 1,
   });
   return {
     unitPriceOriginal: base,
     priceCurrency,
-    quotationPercentApplied: percent,
+    // En cotation par montant, le pourcentage équivalent est calculé pour l'affichage.
+    quotationPercentApplied: item.quotationAmountLine !== undefined ? (base > 0 ? round2((item.quotationAmountLine / base) * 100) : 0) : percent,
     priceAfterQuotation: pricing.priceAfterQuotation,
     finalUnitPrice: pricing.finalUnitPrice,
     total: pricing.total,
@@ -240,6 +242,26 @@ export async function applyMatchedProduct(
     ...pricing,
     updatedAt: Date.now(),
   });
+}
+
+/**
+ * Remet une ligne déjà chiffrée au prix COURANT du catalogue quand celui-ci a changé (prix modifié ou devise
+ * changée). Concerne seulement les lignes dont le prix vient du catalogue (jamais un prix saisi à la main ou lu
+ * dans le fichier du client) et les commandes encore ouvertes : une quotation envoyée, validée (PO), archivée ou
+ * supprimée garde les montants qu'elle avait. Renvoie true si la ligne a été mise à jour.
+ */
+export async function refreshCataloguePrice(ctx: MutationCtx, item: Doc<"orderItems">): Promise<boolean> {
+  if (!item.productId || item.unitPriceManual !== undefined || item.unitPriceOriginal === undefined) return false;
+  const order = await ctx.db.get(item.orderId);
+  if (!order || order.deletedAt !== undefined || order.validatedAt !== undefined) return false;
+  if (order.status === "po" || order.status === "sent" || order.status === "archived") return false;
+
+  const current = await getCurrentPrice(ctx, item.productId, order.countryId);
+  if (!current) return false;
+  if (current.price === item.unitPriceOriginal && current.currency === item.priceCurrency) return false;
+
+  await repriceOrderItem(ctx, item);
+  return true;
 }
 
 /** Retries pricing for an item whose product is already identified but has no price for the order's country yet. */

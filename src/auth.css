@@ -105,17 +105,17 @@
 .input-wrap {
   display: flex;
   align-items: center;
-  height: 49px;
+  height: 52px;
   box-sizing: border-box;
-  margin-bottom: 17px;
-  border: 1px solid #dfe4ec;
-  border-radius: 11px;
-  background: #f7f8fb;
-  transition: border-color .2s, box-shadow .2s;
+  margin-bottom: 18px;
+  border: none;
+  border-radius: 14px;
+  background: #eef0f6;
+  transition: background .2s, box-shadow .2s;
 }
 .input-wrap:focus-within {
-  border-color: #36a445;
-  box-shadow: 0 0 0 3px rgba(54, 164, 69, .12);
+  background: #fff;
+  box-shadow: 0 0 0 4px rgba(54, 164, 69, .14), inset 0 0 0 1.5px #36a445;
 }
 .input-icon { width: 40px; color: #98a0aa; text-align: center; font-size: 16px; }
 .lock-icon { color: #36a445; font-size: 19px; }
@@ -206,8 +206,110 @@
 .steps { display: flex; gap: 8px; margin: 26px 0 4px; }
 .steps span { height: 4px; flex: 1; border-radius: 4px; background: #e2e5ea; }
 .steps span.done { background: #36a445; }
-.back-button { margin-top: 12px; height: 44px; width: 100%; border: 1px solid #dfe4ec; border-radius: 11px; background: #fff; color: #22439c; font-weight: 650; font-size: 12px; cursor: pointer; }
+.back-button { margin-top: 12px; height: 46px; width: 100%; border: none; border-radius: 14px; background: #fff; box-shadow: 0 1px 2px rgba(20,28,58,.06), 0 4px 14px rgba(20,28,58,.08); color: #22439c; font-weight: 650; font-size: 12px; cursor: pointer; }
 .back-button:hover { background: #f7f8fb; }
 .code-hint { margin: 14px 0 0; text-align: center; color: #8e929a; font-size: 12px; }
 .code-hint strong { color: #47505c; }
 .input-wrap input.code-input { letter-spacing: .45em; font-size: 18px; text-align: center; }
+
+
+/* ======================================================================================
+   Refonte v2 : mêmes jetons que l'application (police, bleu, champs remplis, ombres douces).
+   ====================================================================================== */
+
+.login-page {
+  font-family: var(--font-sans);
+  color: var(--color-text);
+  background: var(--color-bg);
+  padding: 16px;
+  gap: 16px;
+  grid-template-columns: minmax(420px, 46%) 1fr;
+}
+
+/* Panneau d'accueil : même dégradé bleu et mêmes angles que le menu de l'application */
+.welcome-panel { min-height: calc(100vh - 32px); border-radius: 28px; box-shadow: 0 2px 4px color-mix(in srgb, var(--color-primary) 18%, transparent), 0 24px 48px color-mix(in srgb, var(--color-primary) 32%, transparent); }
+.welcome-overlay {
+  background:
+    radial-gradient(110% 55% at 0% 0%, rgba(255, 255, 255, 0.18), transparent 60%),
+    linear-gradient(170deg, color-mix(in srgb, color-mix(in srgb, var(--color-primary) 86%, white) 80%, transparent) 0%, color-mix(in srgb, var(--color-primary) 86%, transparent) 45%, color-mix(in srgb, color-mix(in srgb, var(--color-primary) 60%, black) 94%, transparent) 100%);
+}
+.welcome-content { min-height: calc(100vh - 32px); }
+.company-logo-tile { width: 96px; height: 96px; border-radius: 24px; box-shadow: 0 10px 28px rgba(10, 20, 80, 0.35); }
+.kicker { color: rgba(255, 255, 255, 0.75); font-weight: 600; }
+.welcome-copy h1 { font-weight: 700; letter-spacing: -0.03em; }
+.welcome-copy h1 span { color: #fff; opacity: 0.82; }
+.welcome-description { color: rgba(255, 255, 255, 0.78); }
+.location { color: rgba(255, 255, 255, 0.62); }
+
+/* Panneau du formulaire : une carte blanche flottante, centrée */
+.login-panel { min-height: calc(100vh - 32px); justify-content: center; align-items: center; padding: 16px; gap: 12px; }
+.panel-inner {
+  width: min(100%, 440px);
+  padding: 32px 36px 36px;
+  border-radius: 28px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
+}
+.login-panel footer { color: var(--color-text-subtle); font-size: 11px; }
+
+.language-switch { width: auto; display: inline-flex; margin-left: auto; float: right; padding: 3px; gap: 2px; border-radius: 12px; background: var(--color-surface-3); }
+.language-switch button { padding: 6px 14px; border-radius: 9px; color: var(--color-text-muted); font: 600 12px var(--font-sans); }
+.language-switch button.active { color: var(--color-primary); background: var(--color-surface); box-shadow: var(--shadow-sm); }
+
+.login-content { margin-top: 28px; clear: both; padding-top: 6px; }
+.eyebrow { color: var(--color-text-subtle); font-size: 11px; letter-spacing: 0.14em; font-weight: 600; }
+.login-content h2 { color: var(--color-text); font-size: 28px; font-weight: 700; letter-spacing: -0.03em; }
+.login-subtitle { color: var(--color-text-muted); font-size: 14px; margin: 8px 0 26px; }
+
+.login-form > label, .login-form > .field-label { color: var(--color-text-muted); font-size: 12.5px; font-weight: 600; }
+
+.input-wrap { height: 50px; border-radius: 14px; background: var(--color-surface-3); margin-bottom: 18px; }
+.input-wrap:focus-within { background: var(--color-surface); box-shadow: var(--ring), inset 0 0 0 1.5px var(--color-primary); }
+.input-icon { color: var(--color-text-subtle); }
+.lock-icon { color: var(--color-primary); }
+.input-wrap input { color: var(--color-text); font: 14px var(--font-sans); }
+.input-wrap input::placeholder { color: var(--color-text-subtle); }
+.visibility-button { color: var(--color-text-subtle); }
+.visibility-button:hover { color: var(--color-text); }
+
+.form-options a, .link-button { color: var(--color-primary); }
+.remember-option input { accent-color: var(--color-primary); }
+
+.submit-button {
+  height: 50px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-primary) 88%, white) 0%, var(--color-primary) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 1px 2px color-mix(in srgb, var(--color-primary) 30%, transparent), 0 10px 22px color-mix(in srgb, var(--color-primary) 30%, transparent);
+  font: 700 14px var(--font-sans);
+}
+.submit-button:hover { background: linear-gradient(180deg, var(--color-primary) 0%, var(--color-primary-hover) 100%); }
+
+.form-message { color: var(--color-primary); }
+.form-message.error { color: var(--color-error); }
+
+.steps span { background: var(--color-surface-3); }
+.steps span.done { background: var(--color-primary); }
+.back-button { height: 48px; border-radius: 14px; background: var(--color-surface-3); color: var(--color-text); box-shadow: none; font: 600 13px var(--font-sans); }
+.back-button:hover { background: var(--color-border-strong); }
+.code-hint { color: var(--color-text-muted); }
+.code-hint strong { color: var(--color-text); }
+
+@media (max-width: 760px) {
+  .login-page { display: block; padding: 10px; }
+  .welcome-panel, .welcome-content { min-height: 380px; }
+  .login-panel { min-height: 0; padding: 14px 0; }
+  .panel-inner { padding: 26px 22px 28px; }
+}
+
+/* Panneau de gauche : logo en haut, message au centre, adresse en bas ; la photo reste visible sous le dégradé bleu */
+.welcome-overlay {
+  background:
+    radial-gradient(110% 55% at 0% 0%, rgba(255, 255, 255, 0.16), transparent 60%),
+    linear-gradient(170deg, color-mix(in srgb, color-mix(in srgb, var(--color-primary) 86%, white) 80%, transparent) 0%, color-mix(in srgb, var(--color-primary) 86%, transparent) 45%, color-mix(in srgb, color-mix(in srgb, var(--color-primary) 60%, black) 94%, transparent) 100%);
+}
+.welcome-content { align-items: flex-start; justify-content: flex-start; text-align: left; padding: clamp(34px, 5vw, 56px); }
+.company-logo-tile { width: 104px; height: 104px; margin-bottom: 0; }
+.welcome-copy { margin: auto 0; max-width: 460px; }
+.welcome-copy h1 { font-size: clamp(34px, 3.6vw, 48px); }
+.welcome-copy h1 span { color: #fff; opacity: 0.85; }
+.location { margin: auto 0 0; }

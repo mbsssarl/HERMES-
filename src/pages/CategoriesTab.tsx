@@ -58,7 +58,7 @@ export function CategoriesTab({ categories }: { categories: ProductCategory[] })
           <div>
             <h3 style={{ fontSize: 16 }}>Catégories</h3>
             <span className="text-muted" style={{ fontSize: 13 }}>
-              {categories.length} - classement des articles du catalogue (Produits & prix), comme sur impa.services. Pas de suppression : renommez ou désactivez.
+              {categories.length} · classement des articles du catalogue (Produits & prix), comme sur impa.services. Pas de suppression : renommez ou désactivez.
             </span>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>

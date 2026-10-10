@@ -50,6 +50,8 @@ export interface QuotationItem {
   // de base au taux de change lors d'une conversion du fichier exporté, indépendamment par ligne.
   price_currency: string | null;
   margin_percentage: number;
+  /** Cotation exprimée en montant par unité (null = la ligne est cotée en pourcentage). */
+  margin_amount: number | null;
   final_unit_price: number | null;
   total_price: number | null;
   match_status: MatchStatus;
@@ -67,6 +69,27 @@ export interface QuotationItem {
   unit_price_manual: number | null; // prix saisi à la main / lu dans le fichier client
   line_discount_percent: number;
   candidate_products: Product[];
+}
+
+/** Article retenu par le client dans son fichier final (validation de la commande). */
+export interface ValidationItem {
+  id: string;
+  position: number;
+  line_ref: number | null; // n° de la colonne « No. » du fichier du client
+  code: string | null;
+  description: string;
+  quantity: number | null;
+  unit: string | null;
+  unit_price: number | null; // prix client, tel que dans le fichier
+  margin_percent: number; // cotation (%) de la ligne d'origine, ou de la commande à défaut
+  matched: boolean; // ligne d'origine retrouvée dans la cotation
+}
+
+export interface OrderValidation {
+  validated_at: string;
+  validated_by: string | null;
+  file_name: string;
+  items: ValidationItem[];
 }
 
 /** Modification d'une ligne proposée par un utilisateur autre que le propriétaire, en attente de sa décision. */
@@ -106,6 +129,7 @@ export interface QuotationWithRelations {
   client_order_number: string | null;
   quotation_percent_override: number | null;
   global_discount_percent: number | null;
+  transport_fee: number | null; // frais de livraison + mise à l'eau, dans la devise du fichier exporté (ligne après le discount)
   item_count: number;
   unresolved_count: number; // lignes cochées encore inconnues ou à confirmer
   countries: Pick<Country, 'id' | 'code' | 'name' | 'city' | 'currency'> | null;
@@ -151,4 +175,5 @@ export interface AppUser {
   role: 'admin' | 'user';
   mustChangePassword: boolean;
   theme: 'light' | 'dark';
+  language: 'fr' | 'en';
 }

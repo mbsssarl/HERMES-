@@ -2,12 +2,13 @@ import React from 'react';
 import { Download, Mail } from 'lucide-react';
 import { Modal } from './ui';
 import { useToast } from './Toast';
-import { downloadEmailDraft, gmailComposeUrl, saveBase64File, yahooComposeUrl } from '../lib/exportFile';
+import { useBranding } from '../lib/branding';
+import { gmailComposeUrl, saveBase64File, yahooComposeUrl } from '../lib/exportFile';
 import { createGmailDraft, gmailApiConfigured, requestGmailToken } from '../lib/gmailDraft';
 
 export type RecipientType = 'client' | 'supplier';
 type Mode = 'download' | 'email';
-type Mailer = 'gmailApi' | 'gmail' | 'yahoo' | 'outlook';
+type Mailer = 'gmailApi' | 'gmail' | 'yahoo';
 
 const EMAIL_RE = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/;
 const errMsg = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -34,16 +35,17 @@ export function ExportModal({
   defaultTo: string;
   defaultType: RecipientType;
   /** Génère le fichier côté serveur (avec l'ETA saisie, si fournisseur) ; renvoie null (et affiche l'erreur) en cas d'échec. */
-  fetchExport: (opts: { eta?: string; clientFormat?: boolean }) => Promise<{ fileName: string; base64: string; notice?: string } | null>;
+  fetchExport: (opts: { eta?: string; clientFormat?: boolean }) => Promise<{ fileName: string; base64: string; notice?: string; format: 'client' | 'standard' } | null>;
   onClose: () => void;
 }) {
   const toast = useToast();
+  const brand = useBranding();
   const [mode, setMode] = React.useState<Mode>('download');
   const [recipientType, setRecipientType] = React.useState<RecipientType>(defaultType);
   const [to, setTo] = React.useState(defaultType === 'client' ? defaultTo : '');
   const [toTouched, setToTouched] = React.useState(false);
   const [subject, setSubject] = React.useState(
-    `${defaultType === 'client' ? 'Quotation' : 'Demande de prix'} ${quotationNumber} - MBSS Sarl`,
+    `${defaultType === 'client' ? 'Quotation' : 'Demande de prix'} ${quotationNumber} - ${brand.name}`,
   );
   const [subjectTouched, setSubjectTouched] = React.useState(false);
   const [message, setMessage] = React.useState('');
@@ -61,7 +63,7 @@ export function ExportModal({
     setRecipientType(type);
     // Suit le type tant que l'utilisateur n'a pas saisi lui-même l'adresse / l'objet.
     if (!toTouched) setTo(type === 'client' ? defaultTo : '');
-    if (!subjectTouched) setSubject(`${type === 'client' ? 'Quotation' : 'Demande de prix'} ${quotationNumber} - MBSS Sarl`);
+    if (!subjectTouched) setSubject(`${type === 'client' ? 'Quotation' : 'Demande de prix'} ${quotationNumber} - ${brand.name}`);
   };
 
   const recipients = to.split(/[;,]/).map((s) => s.trim()).filter(Boolean);
@@ -73,14 +75,14 @@ export function ExportModal({
     try {
       // La fenêtre d'autorisation Google doit s'ouvrir directement au clic : on la demande avant le calcul du fichier.
       const gmailToken = mode === 'email' && mailer === 'gmailApi' ? await requestGmailToken() : null;
-      const toSupplier = mode === 'email' && recipientType === 'supplier';
-      // Envoi au client : on lui renvoie son fichier d'origine complété des prix (le gabarit MBSS reste pour les fournisseurs).
-      const file = await fetchExport({ eta: toSupplier && eta ? eta : undefined, clientFormat: mode === 'email' && recipientType === 'client' });
+      // Le fichier suit le destinataire, en téléchargement comme en envoi : un client reçoit son fichier d'origine
+      // complété des prix, un fournisseur le gabarit MBSS (avec l'ETA saisie).
+      const file = await fetchExport({ eta: recipientType === 'supplier' && eta ? eta : undefined, clientFormat: recipientType === 'client' });
       if (!file) return;
       if (file.notice) toast(file.notice, 'info', { duration: 10000 });
       if (mode === 'download') {
         saveBase64File(file.fileName, file.base64);
-        toast('Fichier Excel téléchargé.', 'success');
+        toast(`Fichier Excel téléchargé (${file.format === 'client' ? 'modèle du client' : 'modèle standard'}).`, 'success');
         onClose();
         return;
       }
@@ -102,9 +104,6 @@ export function ExportModal({
         const url = await createGmailDraft(gmailToken, { to: toList, subject: subject.trim(), body, fileName: file.fileName, base64: file.base64 });
         window.open(url, '_blank');
         toast('Brouillon Gmail créé avec le fichier en pièce jointe.', 'success');
-      } else if (mailer === 'outlook') {
-        downloadEmailDraft({ to: toList, subject: subject.trim(), body, fileName: file.fileName, base64: file.base64, draftName: `${quotationNumber}.eml` });
-        toast('Brouillon téléchargé : ouvrez-le (double-clic) dans Outlook / Courrier, le fichier est déjà joint.', 'info', { duration: 9000 });
       } else {
         // Gmail et Yahoo ne permettent pas de joindre un fichier via un lien : on télécharge le fichier à côté du brouillon.
         const name = mailer === 'yahoo' ? 'Yahoo' : 'Gmail';
@@ -145,20 +144,23 @@ export function ExportModal({
         </button>
       </div>
 
+      <div className="form-field">
+        <label>Destinataire du fichier</label>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button type="button" className={choice(recipientType === 'client')} onClick={() => chooseType('client')}>Client</button>
+          <button type="button" className={choice(recipientType === 'supplier')} onClick={() => chooseType('supplier')}>Fournisseur</button>
+        </div>
+      </div>
+
+      {recipientType === 'supplier' && (
+        <div className="form-field">
+          <label>ETA (arrivée du navire)</label>
+          <input className="input" type="date" value={eta} onChange={(e) => setEta(e.target.value)} />
+        </div>
+      )}
+
       {mode === 'email' && (
         <>
-          <div className="form-field">
-            <label>Type de destinataire</label>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button type="button" className={choice(recipientType === 'client')} onClick={() => chooseType('client')}>Client</button>
-              <button type="button" className={choice(recipientType === 'supplier')} onClick={() => chooseType('supplier')}>Fournisseur</button>
-            </div>
-          </div>
-          <div className="text-muted" style={{ fontSize: 12, marginTop: -4, marginBottom: 12 }}>
-            {recipientType === 'client'
-              ? "Le client reçoit son fichier Excel d'origine, complété des prix de la cotation (mise en page inchangée)." 
-              : "Le fournisseur reçoit le fichier au format MBSS."}
-          </div>
           <div className="form-field">
             <label>Adresse du destinataire</label>
             <input
@@ -172,15 +174,6 @@ export function ExportModal({
             />
             {to.trim() !== '' && emailInvalid && <div style={{ fontSize: 12, marginTop: 4, color: 'var(--color-error)' }}>Adresse email invalide.</div>}
           </div>
-          {recipientType === 'supplier' && (
-            <div className="form-field">
-              <label>ETA (arrivée du navire)</label>
-              <input className="input" type="date" value={eta} onChange={(e) => setEta(e.target.value)} />
-              <div className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>
-                Pré-remplie à aujourd'hui + 4 jours pour laisser le temps de répondre au fournisseur ; modifiable. Elle figure dans l'en-tête du fichier.
-              </div>
-            </div>
-          )}
           <div className="form-field">
             <label>Objet</label>
             <input className="input" value={subject} onChange={(e) => { setSubject(e.target.value); setSubjectTouched(true); }} />
@@ -197,14 +190,11 @@ export function ExportModal({
               )}
               <button type="button" className={choice(mailer === 'gmail')} onClick={() => setMailer('gmail')}>{gmailApiConfigured ? 'Gmail (à joindre)' : 'Gmail'}</button>
               <button type="button" className={choice(mailer === 'yahoo')} onClick={() => setMailer('yahoo')}>Yahoo</button>
-              <button type="button" className={choice(mailer === 'outlook')} onClick={() => setMailer('outlook')}>Outlook / Courrier</button>
             </div>
             <div className="text-muted" style={{ fontSize: 12, marginTop: 6 }}>
               {mailer === 'gmailApi'
                 ? "Google vous demande une autorisation (création de brouillons uniquement) ; le brouillon est créé dans votre Gmail avec le fichier déjà joint, rien n'est envoyé."
-                : mailer !== 'outlook'
-                ? `${mailer === 'yahoo' ? 'Yahoo' : 'Gmail'} ne permet pas de pré-joindre un fichier : le brouillon s'ouvre pré-rempli et le fichier est téléchargé, il suffit de le glisser dedans.`
-                : "Télécharge un brouillon (.eml) à ouvrir dans Outlook / Courrier : destinataire, objet, message et fichier joint sont déjà en place."}
+                : `${mailer === 'yahoo' ? 'Yahoo' : 'Gmail'} ne permet pas de pré-joindre un fichier : le brouillon s'ouvre pré-rempli et le fichier est téléchargé, il suffit de le glisser dedans.`}
             </div>
           </div>
         </>

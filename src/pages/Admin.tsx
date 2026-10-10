@@ -9,6 +9,7 @@ import { StatusTag } from '../components/StatusTag';
 import { Countries } from './Countries';
 import { BackupsTab } from './BackupsTab';
 import { CategoriesTab } from './CategoriesTab';
+import { BrandingTab } from './BrandingTab';
 import type { Country, Currency, ProductCategory } from '../types';
 import { useToast } from '../components/Toast';
 
@@ -22,6 +23,7 @@ const ACTION_LABELS: Record<string, string> = {
   'order.archived': 'Quotation archivée',
   'order.status_changed': 'Statut modifié',
   'order.global_pricing_applied': 'Cotation / discount global appliqué',
+  'order.validated': 'Commande validée (fichier final du client)',
   'order_item.edit_proposed': 'Modification de ligne proposée',
   'order_item.edit_approved': 'Modification de ligne validée',
   'order_item.edit_rejected': 'Modification de ligne invalidée',
@@ -83,7 +85,7 @@ export function Admin({
   loadingCountries: boolean;
   onOpen: (q: QuotationWithRelations) => void;
 }) {
-  const [tab, setTab] = React.useState<'users' | 'logs' | 'countries' | 'currencies' | 'categories' | 'backups'>('users');
+  const [tab, setTab] = React.useState<'users' | 'logs' | 'countries' | 'currencies' | 'categories' | 'backups' | 'branding'>('users');
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const users = useQuery(api.users.listUsers);
 
@@ -96,27 +98,30 @@ export function Admin({
       <div className="page-header">
         <div>
           <h1 className="page-title">Admin</h1>
-          <p className="page-subtitle">Comptes utilisateurs, journal d'activité, quotations de chacun et régions de cotation.</p>
         </div>
-      </div>
-
-      {selected ? (
-        <UserDetail user={selected} quotations={quotations} onBack={() => setSelectedId(null)} onOpen={onOpen} users={users} />
-      ) : (
-        <>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+        {!selected && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button className={`btn btn-sm ${tab === 'users' ? 'btn-primary' : ''}`} onClick={() => setTab('users')}>Utilisateurs</button>
             <button className={`btn btn-sm ${tab === 'logs' ? 'btn-primary' : ''}`} onClick={() => setTab('logs')}>Journal d'activité</button>
             <button className={`btn btn-sm ${tab === 'countries' ? 'btn-primary' : ''}`} onClick={() => setTab('countries')}>Régions</button>
             <button className={`btn btn-sm ${tab === 'currencies' ? 'btn-primary' : ''}`} onClick={() => setTab('currencies')}>Devises</button>
             <button className={`btn btn-sm ${tab === 'categories' ? 'btn-primary' : ''}`} onClick={() => setTab('categories')}>Catégories</button>
             <button className={`btn btn-sm ${tab === 'backups' ? 'btn-primary' : ''}`} onClick={() => setTab('backups')}>Sauvegardes</button>
+            <button className={`btn btn-sm ${tab === 'branding' ? 'btn-primary' : ''}`} onClick={() => setTab('branding')}>Personnalisation</button>
           </div>
+        )}
+      </div>
+
+      {selected ? (
+        <UserDetail user={selected} quotations={quotations} onBack={() => setSelectedId(null)} onOpen={onOpen} users={users} />
+      ) : (
+        <>
           {tab === 'users' && <UsersTab users={users} quotations={quotations} onSelect={setSelectedId} />}
           {tab === 'logs' && <LogsTab users={users} />}
           {tab === 'currencies' && <CurrenciesTab currencies={currencies} />}
           {tab === 'categories' && <CategoriesTab categories={categories} />}
           {tab === 'backups' && <BackupsTab countries={countries} />}
+          {tab === 'branding' && <BrandingTab />}
           {tab === 'countries' && (
             <div className="card card-pad">
               <Countries countries={countries} currencies={currencies} loading={loadingCountries} isAdmin />
@@ -247,7 +252,7 @@ function UsersTab({
         >
           <div className="form-field">
             <label>Adresse email</label>
-            <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="prenom.nom@mbss-sarl.com" autoFocus />
+            <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="prenom.nom@entreprise.com" autoFocus />
           </div>
           <p className="text-muted" style={{ fontSize: 13 }}>
             Un mot de passe temporaire est généré. L'utilisateur devra le changer à sa première connexion.
@@ -351,7 +356,7 @@ function UserDetail({
                   <tr key={q.id} className="clickable" onClick={() => onOpen(q)}>
                     <td className="mono" style={{ fontWeight: 700 }}>{q.quotation_number}</td>
                     <td>{q.customer_name}</td>
-                    <td>{q.countries?.code ?? '-'}</td>
+                    <td>{q.countries?.code ?? '·'}</td>
                     <td><StatusTag status={q.status} /></td>
                     <td className="text-right mono">{formatAmount(q.total)}</td>
                     <td className="text-muted nowrap">{formatDate(q.created_at)}</td>
@@ -402,7 +407,7 @@ function LogsTab({ users, onlyUserId, title }: { users: UserDoc[]; onlyUserId?: 
         </div>
       </div>
       {logs === undefined ? (
-        <StateBox loading title="Chargement…" />
+        <StateBox loading variant="table" title="Chargement…" />
       ) : rows.length === 0 ? (
         <StateBox title="Aucune activité" />
       ) : (

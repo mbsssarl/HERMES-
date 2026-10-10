@@ -1,21 +1,28 @@
 import React from 'react';
-import { CheckCircle2, Clock, FileText, TrendingUp } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Clock, FileText, TrendingUp } from 'lucide-react';
 import type { QuotationWithRelations } from '../types';
 import { formatAmount, formatDate, regionLabel } from '../lib/format';
 import { StatusTag } from '../components/StatusTag';
 import { UpdateBadge } from '../components/UpdateBadge';
+import { ClientCell } from '../components/ClientCell';
+import { TableSkeleton } from '../components/ui';
+import { useT } from '../lib/i18n';
 
 export function Dashboard({
   quotations,
   loading,
   onOpen,
   onNew,
+  onSeeAll,
 }: {
   quotations: QuotationWithRelations[];
   loading: boolean;
   onOpen: (q: QuotationWithRelations) => void;
   onNew: () => void;
+  /** Ouvre l'onglet Quotations, où elles sont toutes. */
+  onSeeAll: () => void;
 }) {
+  const t = useT();
   const today = new Date().toDateString();
   const todayCount = quotations.filter((q) => new Date(q.created_at).toDateString() === today).length;
   // À vérifier : des lignes restent inconnues / à confirmer (hors quotations déjà en PO ou archivées)
@@ -24,23 +31,23 @@ export function Dashboard({
   const unresolvedLines = open.reduce((s, q) => s + q.unresolved_count, 0);
   const po = quotations.filter((q) => q.status === 'PO');
   const poValue = po.reduce((s, q) => s + (q.total ?? 0), 0);
-  const recent = quotations.slice(0, 6);
+  const RECENT_LIMIT = 6;
+  const recent = quotations.slice(0, RECENT_LIMIT);
 
   const stats = [
-    { label: 'Quotations du jour', value: String(todayCount), icon: <FileText size={18} />, trend: `${quotations.length} au total` },
-    { label: 'À vérifier', value: String(toCheck), icon: <Clock size={18} />, trend: `${unresolvedLines} ligne(s) à traiter` },
-    { label: 'PO reçus', value: String(po.length), icon: <CheckCircle2 size={18} />, trend: 'Approuvées par le client' },
-    { label: 'Valeur des PO', value: formatAmount(poValue), icon: <TrendingUp size={18} />, trend: 'Total des PO reçus' },
+    { label: t('dashboard.today'), value: String(todayCount), icon: <FileText size={18} />, trend: t('dashboard.inTotal', { n: quotations.length }) },
+    { label: t('dashboard.toCheck'), value: String(toCheck), icon: <Clock size={18} />, trend: t('dashboard.linesToProcess', { n: unresolvedLines }) },
+    { label: t('dashboard.poReceived'), value: String(po.length), icon: <CheckCircle2 size={18} />, trend: t('dashboard.approved') },
+    { label: t('dashboard.poValue'), value: formatAmount(poValue), icon: <TrendingUp size={18} />, trend: t('dashboard.poTotal') },
   ];
 
   return (
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-title">Tableau de bord</h1>
-          <p className="page-subtitle">Vue d’ensemble des quotations en cours et terminées.</p>
+          <h1 className="page-title">{t('dashboard.title')}</h1>
         </div>
-        <button className="btn btn-primary" onClick={onNew}>+ Nouvelle quotation</button>
+        <button className="btn btn-primary" onClick={onNew}>+ {t('common.newQuotation')}</button>
       </div>
 
       <div className="stats-grid">
@@ -57,32 +64,37 @@ export function Dashboard({
       </div>
 
       <div className="card">
-        <div className="card-pad" style={{ borderBottom: '1px solid var(--color-border)' }}>
-          <h3 style={{ fontSize: 16 }}>Quotations récentes</h3>
+        <div className="card-pad" style={{ borderBottom: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+          <h3 style={{ fontSize: 16 }}>{t('dashboard.recent')}</h3>
+          {quotations.length > 0 && (
+            <button className="btn btn-ghost btn-sm" onClick={onSeeAll}>
+              {t('dashboard.seeAll')} <ArrowRight size={14} />
+            </button>
+          )}
         </div>
         {loading ? (
-          <div className="state-box"><div className="spinner" /></div>
+          <TableSkeleton rows={5} cols={5} />
         ) : recent.length === 0 ? (
-          <div className="state-box"><h3>Aucune quotation</h3><p>Commencez par importer une demande client.</p></div>
+          <div className="state-box"><h3>{t('common.noQuotation')}</h3><p>{t('dashboard.empty')}</p></div>
         ) : (
           <div className="table-wrap">
-            <table className="data">
+            <table className="data list">
               <thead>
                 <tr>
-                  <th>Référence</th>
-                  <th>Client</th>
-                  <th>Région</th>
-                  <th>Statut</th>
-                  <th className="text-right">Total</th>
-                  <th>Date</th>
+                  <th style={{ width: 185 }}>{t('common.reference')}</th>
+                  <th>{t('common.client')}</th>
+                  <th style={{ width: 150 }}>{t('common.region')}</th>
+                  <th style={{ width: 160 }}>{t('common.status')}</th>
+                  <th className="text-right" style={{ width: 110 }}>{t('common.total')}</th>
+                  <th style={{ width: 170 }}>{t('common.date')}</th>
                 </tr>
               </thead>
               <tbody>
                 {recent.map((q) => (
                   <tr key={q.id} className="clickable" onClick={() => onOpen(q)}>
-                    <td className="mono" style={{ fontWeight: 700 }}>{q.quotation_number}<UpdateBadge update={q.catalog_update} /></td>
-                    <td>{q.customer_name}</td>
-                    <td>{q.countries ? regionLabel(q.countries) : '-'}</td>
+                    <td><div className="cell-ref"><span className="mono ref">{q.quotation_number}</span><UpdateBadge update={q.catalog_update} compact /></div></td>
+                    <td><ClientCell name={q.customer_name} /></td>
+                    <td className="cell-ellipsis" title={q.countries ? regionLabel(q.countries) : undefined}>{q.countries ? regionLabel(q.countries) : '·'}</td>
                     <td><StatusTag status={q.status} /></td>
                     <td className="text-right mono">{formatAmount(q.total)}</td>
                     <td className="text-muted nowrap">{formatDate(q.created_at)}</td>
@@ -90,6 +102,13 @@ export function Dashboard({
                 ))}
               </tbody>
             </table>
+            {quotations.length > RECENT_LIMIT && (
+              <div style={{ padding: '4px 16px 16px' }}>
+                <button className="btn btn-sm" onClick={onSeeAll}>
+                  {t('dashboard.seeAllCount', { n: quotations.length })} <ArrowRight size={14} />
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

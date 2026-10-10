@@ -4,6 +4,8 @@ import { ConvexAuthProvider } from '@convex-dev/auth/react';
 import { ConvexReactClient } from 'convex/react';
 import App from './App';
 import { applyTheme, storedTheme } from './lib/theme';
+import { applyAccent, storedAccent } from './lib/accent';
+import { enableEnterToCommit } from './lib/enterToCommit';
 import './styles.css';
 import './auth.css';
 
@@ -15,6 +17,8 @@ const convex = new ConvexReactClient(convexUrl);
 
 // Thème mémorisé sur ce poste, appliqué avant le premier affichage.
 applyTheme(storedTheme());
+applyAccent(storedAccent());
+enableEnterToCommit();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

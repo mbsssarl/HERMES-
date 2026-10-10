@@ -1,7 +1,8 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
+import { looksLikeSectionHeader } from "./lib/sectionHeaders";
 import { noteCatalogUpdate } from "./lib/catalogUpdates";
-import { applyMatchedProduct, computeItemPricing, matchOrderItem, rematchOrderItem } from "./lib/matching";
+import { applyMatchedProduct, computeItemPricing, matchOrderItem, refreshCataloguePrice, rematchOrderItem } from "./lib/matching";
 import { learnAlias } from "./lib/productAliases";
 import { logActivity } from "./lib/audit";
 import { applyLineChanges, lineChangesFields, validateLineChanges } from "./lib/lineEdits";
@@ -163,6 +164,8 @@ export const saveExtractedItemsInternal = internalMutation({
     for (let i = 0; i < items.length; i++) {
       const raw = items[i];
       const now = Date.now();
+      // Intitulé de section (texte seul) : importé mais décoché, et sans recherche dans le catalogue.
+      const sectionHeader = looksLikeSectionHeader(raw);
       const orderItemId = await ctx.db.insert("orderItems", {
         orderId,
         lineNo: existingCount + i + 1,
@@ -176,6 +179,7 @@ export const saveExtractedItemsInternal = internalMutation({
         reqNotes: raw.reqNotes,
         enqNotes: raw.enqNotes,
         sourceRow: raw.sourceRow,
+        excluded: sectionHeader ? true : undefined,
         matchStatus: "unmatched",
         createdAt: now,
         updatedAt: now,
@@ -186,6 +190,8 @@ export const saveExtractedItemsInternal = internalMutation({
         const inserted = await ctx.db.get(orderItemId);
         if (inserted) await ctx.db.patch(orderItemId, await computeItemPricing(ctx, inserted));
       }
+
+      if (sectionHeader) continue;
 
       const result = await matchOrderItem(ctx, { rawCode: raw.rawCode, rawDescription: raw.rawDescription });
       if (result.status === "ambiguous") {
@@ -274,7 +280,11 @@ export const rematchPendingInternal = internalMutation({
       if (item.unitPriceManual !== undefined && item.matchStatus !== "unmatched" && item.matchStatus !== "ambiguous") continue;
       const waitingForMatch = item.matchStatus === "unmatched" || item.matchStatus === "ambiguous";
       const waitingForPrice = item.productId !== undefined && item.unitPriceOriginal === undefined;
-      if (!waitingForMatch && !waitingForPrice) continue;
+      if (!waitingForMatch && !waitingForPrice) {
+        // Déjà chiffrée : suit le prix du catalogue s'il a changé.
+        if (await refreshCataloguePrice(ctx, item)) improved.set(item.orderId, (improved.get(item.orderId) ?? 0) + 1);
+        continue;
+      }
 
       await rematchOrderItem(ctx, item);
       const after = await ctx.db.get(item._id);
@@ -291,6 +301,69 @@ export const rematchPendingInternal = internalMutation({
         actorEmail,
       });
     }
+  },
+});
+
+/**
+ * « Actualiser » : refait un tour en base pour UNE quotation. Les lignes encore sans correspondance ou sans prix
+ * sont rapprochées du catalogue, et celles déjà chiffrées par le catalogue reprennent son prix courant (un prix
+ * saisi à la main n'est jamais touché). Traite un paquet de lignes par appel : l'appelant rappelle avec le curseur
+ * renvoyé tant que `done` est faux.
+ */
+export const refreshOrder = mutation({
+  args: { orderId: v.id("orders"), cursor: v.optional(v.string()) },
+  handler: async (ctx, { orderId, cursor }): Promise<{ done: boolean; cursor: string; matched: number; repriced: number }> => {
+    await requireUser(ctx);
+    const order = await ctx.db.get(orderId);
+    if (!order) throw new Error("Commande introuvable.");
+    if (order.deletedAt !== undefined) throw new Error("Cette quotation est dans la corbeille.");
+    if (order.validatedAt !== undefined || order.status === "po" || order.status === "sent" || order.status === "archived") {
+      throw new Error("Cette quotation est validée ou envoyée : ses montants sont figés.");
+    }
+
+    const page = await ctx.db
+      .query("orderItems")
+      .withIndex("by_order", (q) => q.eq("orderId", orderId))
+      .paginate({ numItems: 40, cursor: cursor ?? null });
+
+    let matched = 0;
+    let repriced = 0;
+    for (const item of page.page) {
+      if (item.productId === undefined || item.unitPriceOriginal === undefined) {
+        // pas encore reconnue, ou reconnue mais sans prix
+        await rematchOrderItem(ctx, item);
+        const after = await ctx.db.get(item._id);
+        if (after && item.productId === undefined && after.productId !== undefined) matched++;
+        if (after && item.unitPriceOriginal === undefined && after.unitPriceOriginal !== undefined) repriced++;
+      } else if (await refreshCataloguePrice(ctx, item)) {
+        repriced++;
+      }
+    }
+    return { done: page.isDone, cursor: page.continueCursor, matched, repriced };
+  },
+});
+
+/** Après la suppression des prix du catalogue : les lignes des quotations ouvertes qui en tiraient leur prix n'ont plus de prix. */
+export const clearCataloguePricesInternal = internalMutation({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (ctx, { cursor }): Promise<void> => {
+    const page = await ctx.db.query("orderItems").paginate({ numItems: 100, cursor: cursor ?? null });
+    for (const item of page.page) {
+      if (!item.productId || item.unitPriceManual !== undefined || item.unitPriceOriginal === undefined) continue;
+      const order = await ctx.db.get(item.orderId);
+      if (!order || order.deletedAt !== undefined || order.validatedAt !== undefined) continue;
+      if (order.status === "po" || order.status === "sent" || order.status === "archived") continue;
+      await ctx.db.patch(item._id, {
+        unitPriceOriginal: undefined,
+        priceCurrency: undefined,
+        quotationPercentApplied: undefined,
+        priceAfterQuotation: undefined,
+        finalUnitPrice: undefined,
+        total: undefined,
+        updatedAt: Date.now(),
+      });
+    }
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.orderItems.clearCataloguePricesInternal, { cursor: page.continueCursor });
   },
 });
 

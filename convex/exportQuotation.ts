@@ -24,11 +24,13 @@ export const exportQuotationXlsx = action({
     // (réservé aux fournisseurs et aux téléchargements simples).
     clientFormat: v.optional(v.boolean()),
   },
-  handler: async (ctx, { orderId, scope, eta, clientFormat }): Promise<{ fileName: string; base64: string; notice?: string }> => {
+  handler: async (ctx, { orderId, scope, eta, clientFormat }): Promise<{ fileName: string; base64: string; notice?: string; format: "client" | "standard" }> => {
     const user = await ctx.runQuery(api.users.getCurrentUser, {});
     if (!user) throw new Error("Authentification requise.");
 
     const data = await ctx.runQuery(internal.exportData.getForExport, { orderId });
+    const brand = await ctx.runQuery(api.branding.get, {});
+    const brandFile = brand.name.replace(/[\\/:*?"<>|]/g, " ").trim() || "export";
     if (!data) throw new Error("Commande introuvable.");
     const { order, client, country, currency } = data;
     // Taux figés au moment où l'admin a choisi la devise d'export (convex/orders.ts:applyExportCurrency) -
@@ -45,7 +47,8 @@ export const exportQuotationXlsx = action({
       if (scope === "all") return true;
       if (item.excluded) return false;
       if (scope === "known") return isKnown(item.matchStatus);
-      if (scope === "unknown") return !isKnown(item.matchStatus);
+      // « Sans prix » : aucun prix retenu pour la ligne (même logique que le compteur affiché dans l'application).
+      if (scope === "unknown") return item.priceAfterQuotation === undefined;
       return true;
     });
     if (items.length === 0) throw new Error("Aucune ligne à exporter pour ce choix.");
@@ -57,14 +60,13 @@ export const exportQuotationXlsx = action({
     if (clientFormat) {
       const original = data.clientFile;
       if (!original) {
-        notice = "Aucun fichier d'origine pour cette quotation : le format MBSS a été utilisé.";
+        notice = "Aucun fichier d'origine pour cette quotation : le format standard a été utilisé.";
       } else if (original.mimeType !== XLSX_MIME) {
-        notice = "Le fichier d'origine n'est pas un classeur Excel (.xlsx) et ne peut pas être complété : le format MBSS a été utilisé.";
+        notice = "Le fichier d'origine n'est pas un classeur Excel (.xlsx) et ne peut pas être complété : le format standard a été utilisé.";
       } else {
         try {
           const blob = await ctx.storage.get(original.storageId);
           if (!blob) throw new Error("Fichier d'origine introuvable dans le stockage.");
-          const discount = (order.globalDiscountPercent ?? 0) / 100;
           const { buffer, filled, unplaced } = await fillClientWorkbook(
             await blob.arrayBuffer(),
             items.map((item) => ({
@@ -72,22 +74,30 @@ export const exportQuotationXlsx = action({
               lineNo: item.lineNo,
               rawDescription: item.rawDescription,
               quantity: item.quotedQuantity ?? item.rawQuantity ?? 1,
-              // Le discount global n'a pas de ligne dans le fichier du client : il est appliqué aux prix écrits.
-              unitPrice: item.priceAfterQuotation !== undefined ? item.priceAfterQuotation * rateFor(item.priceCurrency) * (1 - discount) : undefined,
+              unitPrice: item.priceAfterQuotation !== undefined ? item.priceAfterQuotation * rateFor(item.priceCurrency) : undefined,
             })),
-            { currencyLabel: order.exportCurrency },
+            {
+              currencyLabel: order.exportCurrency,
+              // Remise et frais de transport : lignes de récapitulatif sous le tableau du client (prix unitaires bruts).
+              footer: { discountPercent: order.globalDiscountPercent ?? 0, transportFee: order.transportFee, currency: currency },
+            },
           );
           const base = original.fileName.replace(/\.[^.]+$/, "").replace(/[\\/:*?"<>|]/g, " ").trim() || order.reference;
           return {
-            fileName: `${base} - cotation MBSS.xlsx`,
+            fileName: `${base} - cotation ${brandFile}.xlsx`,
             base64: buffer.toString("base64"),
+            format: "client" as const,
             notice:
-              unplaced > 0
-                ? `${unplaced} ligne(s) n'ont pas pu être retrouvées dans le fichier d'origine et sont restées sans prix (${filled} ligne(s) chiffrée(s)).`
-                : undefined,
+              [
+                unplaced > 0
+                  ? `${unplaced} ligne(s) n'ont pas pu être retrouvées dans le fichier d'origine et sont restées sans prix (${filled} ligne(s) chiffrée(s)).`
+                  : undefined,
+              ]
+                .filter(Boolean)
+                .join(" ") || undefined,
           };
         } catch (err) {
-          notice = `Impossible de compléter le fichier d'origine (${err instanceof Error ? err.message : String(err)}) : le format MBSS a été utilisé.`;
+          notice = `Impossible de compléter le fichier d'origine (${err instanceof Error ? err.message : String(err)}) : le format standard a été utilisé.`;
         }
       }
     }
@@ -102,6 +112,7 @@ export const exportQuotationXlsx = action({
       category: order.documentInfo?.category,
       paymentDays: order.documentInfo?.paymentDays,
       discountPercent: order.globalDiscountPercent ?? 0,
+      transportFee: order.transportFee,
       items: items.map((item) => ({
         code: item.rawCode,
         description: item.rawDescription,
@@ -114,9 +125,10 @@ export const exportQuotationXlsx = action({
 
     const safeClient = (client?.name ?? "").replace(/[\\/:*?"<>|]/g, " ").trim();
     return {
-      fileName: `MBSS RFQ ${order.reference}${safeClient ? ` ${safeClient}` : ""}${suffix}.xlsx`,
+      fileName: `${brandFile} RFQ ${order.reference}${safeClient ? ` ${safeClient}` : ""}${suffix}.xlsx`,
       base64: buffer.toString("base64"),
       notice,
+      format: "standard" as const,
     };
   },
 });

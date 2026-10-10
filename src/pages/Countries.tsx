@@ -71,7 +71,7 @@ export function Countries({ countries, currencies, loading, isAdmin }: { countri
                 <tr key={c.id}>
                   <td><TextCell mono width={80} disabled={!isAdmin} value={c.code} onCommit={(v) => void edit(c, { code: v })} /></td>
                   <td style={{ minWidth: 220 }}><TextCell width="100%" disabled={!isAdmin} value={c.name} onCommit={(v) => void edit(c, { name: v })} /></td>
-                  <td style={{ minWidth: 160 }}><TextCell width="100%" disabled={!isAdmin} value={c.city ?? ''} placeholder="-" onCommit={(v) => void edit(c, { city: v })} /></td>
+                  <td style={{ minWidth: 160 }}><TextCell width="100%" disabled={!isAdmin} value={c.city ?? ''} placeholder="·" onCommit={(v) => void edit(c, { city: v })} /></td>
                   <td>
                     <select className="select cell-input" style={{ width: 110 }} disabled={!isAdmin} value={c.currency} onChange={(e) => void edit(c, { currency: e.target.value })}>
                       {!currencies.some((cur) => cur.code === c.currency) && <option value={c.currency}>{c.currency}</option>}
@@ -112,7 +112,7 @@ export function Countries({ countries, currencies, loading, isAdmin }: { countri
             <label>Devise</label>
             <select className="select" value={currency} onChange={(e) => setCurrency(e.target.value)}>
               <option value="" disabled>Choisir une devise…</option>
-              {currencies.filter((cur) => cur.active).map((cur) => <option key={cur.id} value={cur.code}>{cur.code} - {cur.name}</option>)}
+              {currencies.filter((cur) => cur.active).map((cur) => <option key={cur.id} value={cur.code}>{cur.code} · {cur.name}</option>)}
             </select>
             {currencies.length === 0 && <div style={{ fontSize: 12, marginTop: 4, color: 'var(--color-error)' }}>Ajoutez d'abord une devise dans l'onglet Devises.</div>}
           </div>

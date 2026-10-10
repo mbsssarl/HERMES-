@@ -12,6 +12,8 @@ export const lineChangesFields = {
   rawOrigin: v.optional(v.string()),
   quotedQuantity: v.optional(v.number()),
   quotationPercent: v.optional(v.number()),
+  // Cotation en montant par unité (alternative au pourcentage)
+  quotationAmount: v.optional(v.number()),
   // null = retirer le prix manuel (retour au prix du catalogue)
   unitPrice: v.optional(v.union(v.number(), v.null())),
   reqNotes: v.optional(v.string()),
@@ -27,6 +29,9 @@ export function validateLineChanges(edits: LineChanges) {
   if (edits.rawQuantity !== undefined && !(edits.rawQuantity > 0)) throw new Error("Quantité invalide.");
   if (edits.quotedQuantity !== undefined && !(edits.quotedQuantity > 0)) throw new Error("Quantité invalide.");
   if (typeof edits.unitPrice === "number" && edits.unitPrice < 0) throw new Error("Prix invalide.");
+  if (edits.quotationAmount !== undefined && !(Number.isFinite(edits.quotationAmount) && edits.quotationAmount >= 0)) {
+    throw new Error("Cotation invalide.");
+  }
   if (edits.quotationPercent !== undefined && (edits.quotationPercent < 0 || edits.quotationPercent > 1000)) {
     throw new Error("Cotation invalide.");
   }
@@ -49,7 +54,15 @@ export async function applyLineChanges(
   if (edits.rawOrigin !== undefined) patch.rawOrigin = edits.rawOrigin.trim() || undefined;
   if (edits.reqNotes !== undefined) patch.reqNotes = edits.reqNotes;
   if (edits.enqNotes !== undefined) patch.enqNotes = edits.enqNotes;
-  if (edits.quotationPercent !== undefined) patch.quotationPercentLine = edits.quotationPercent;
+  // Cotation en % ou en montant : la dernière saisie remplace l'autre.
+  if (edits.quotationPercent !== undefined) {
+    patch.quotationPercentLine = edits.quotationPercent;
+    patch.quotationAmountLine = undefined;
+  }
+  if (edits.quotationAmount !== undefined) {
+    patch.quotationAmountLine = Math.round(edits.quotationAmount * 100) / 100;
+    patch.quotationPercentLine = undefined;
+  }
 
   // The table shows a single "Quantity": editing it sets the quantity used for the amounts too.
   if (edits.rawQuantity !== undefined) {

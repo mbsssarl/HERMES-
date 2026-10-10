@@ -109,7 +109,7 @@ export function QuotesPanel({
           <div className="section-title">Emails envoyés</div>
           {(emailLogs ?? []).map((l) => (
             <div key={l._id} className="text-muted" style={{ fontSize: 13, padding: '2px 0' }}>
-              {formatDate(new Date(l.sentAt).toISOString())} - {l.to} - {l.status === 'sent' ? 'envoyé' : `échec (${l.errorMessage ?? 'erreur'})`}
+              {formatDate(new Date(l.sentAt).toISOString())} · {l.to} · {l.status === 'sent' ? 'envoyé' : `échec (${l.errorMessage ?? 'erreur'})`}
             </div>
           ))}
         </div>

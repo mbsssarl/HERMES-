@@ -1,5 +1,6 @@
 // Jointure Convex → modèle du front : on convertit les documents Convex
 // (camelCase, _id) vers les types historiques de l'UI (snake_case, id).
+import { capitalizeWords } from './format';
 import type { Doc } from './convex';
 import type {
   Country,
@@ -95,10 +96,10 @@ export function mapOrder(
   return {
     id: o._id,
     quotation_number: o.reference,
-    customer_name: o.client?.name ?? 'Client inconnu',
+    customer_name: capitalizeWords(o.client?.name ?? 'Client inconnu'),
     customer_email: o.client?.contactEmail ?? null,
     country_id: o.countryId,
-    source_file_name: sourceFileName,
+    source_file_name: sourceFileName?.toLowerCase() ?? null,
     status: o.deletedAt !== undefined ? 'DELETED' : ORDER_TO_UI_STATUS[o.status],
     margin_percentage: o.quotationPercentOverride ?? applied ?? 0,
     total,
@@ -116,6 +117,7 @@ export function mapOrder(
     client_order_number: o.clientOrderNumber ?? null,
     quotation_percent_override: o.quotationPercentOverride ?? null,
     global_discount_percent: o.globalDiscountPercent ?? null,
+    transport_fee: o.transportFee ?? null,
     item_count: items.length > 0 ? included.length : (o.itemCount ?? 0),
     unresolved_count: items.length > 0 ? included.filter((it) => it.match_status !== 'MATCHED').length : (o.unresolvedCount ?? 0),
     countries: o.country
@@ -146,6 +148,7 @@ export function mapOrderItem(it: OrderItemRow): QuotationItem {
     base_price: it.unitPriceOriginal ?? null,
     price_currency: it.priceCurrency ?? null,
     margin_percentage: it.quotationPercentLine ?? it.quotationPercentApplied ?? 0,
+    margin_amount: it.quotationAmountLine ?? null,
     final_unit_price: it.finalUnitPrice ?? null,
     total_price: it.total ?? null,
     match_status: MATCH_TO_UI[it.matchStatus],

@@ -139,6 +139,27 @@ function toCodeOrUndefined(value: CellValue): string | undefined {
 }
 
 /**
+ * Formes de code IMPA rencontrées dans le catalogue (relevées dans les fichiers de chaque catégorie) :
+ *   770101 (6 chiffres, de loin la plus courante) · 790800A (6 chiffres + lettre) · 7911 (4 chiffres, anciens codes) ·
+ *   2312A (4 chiffres + lettre) · 33X100 (2 chiffres, lettre, 3 chiffres) · 2312-A (4 chiffres, tiret, lettre) ·
+ *   231750-1 (6 chiffres, tiret, chiffre).
+ * Les formes avec tiret gardent leur tiret ; pour les autres, les séparateurs éventuels (« 77.01.01 », « 77 01 01 »)
+ * sont retirés. Tout autre code (référence interne du client comme « BAK81 », code trop court ou trop long, lettres au
+ * début...) n'est pas un code IMPA : il est ignoré, la ligne est alors reconnue par son nom.
+ */
+const IMPA_HYPHEN_FORMS = [/^\d{4}-[A-Z]$/, /^\d{6}-\d$/];
+const IMPA_PLAIN_FORMS = [/^\d{6}$/, /^\d{6}[A-Z]$/, /^\d{4}$/, /^\d{4}[A-Z]$/, /^\d{2}[A-Z]\d{3}$/];
+
+export function toImpaCode(value: CellValue): string | undefined {
+  const str = toStringOrUndefined(value);
+  if (str === undefined) return undefined;
+  const raw = str.trim().toUpperCase();
+  if (IMPA_HYPHEN_FORMS.some((re) => re.test(raw))) return raw;
+  const compact = raw.replace(/[\s.\-_/\\,]/g, "");
+  return IMPA_PLAIN_FORMS.some((re) => re.test(compact)) ? compact : undefined;
+}
+
+/**
  * A merged cell's value gets duplicated across every underlying cell when
  * read row-by-row - a footer/signature line ("Enquired: 07/08/2025...")
  * spanning several columns then looks like a fake item with the same text
@@ -207,11 +228,11 @@ export function locateClientColumns(headerRow: string[]) {
   };
 }
 
-export function mapRowsToClientItems(
+function extractClientRows(
   headerRow: string[],
   dataRows: CellValue[][],
   dataRowNumbers?: number[],
-): NormalizedClientItem[] {
+): { item: NormalizedClientItem; rowIndex: number }[] {
   const columns: Record<Exclude<keyof NormalizedClientItem, "sourceRow">, number> = {
     rawCode: findColumnIndex(headerRow, CLIENT_FIELD_ALIASES.rawCode),
     rawDescription: findColumnIndex(headerRow, CLIENT_FIELD_ALIASES.rawDescription),
@@ -225,7 +246,7 @@ export function mapRowsToClientItems(
     enqNotes: findColumnIndex(headerRow, CLIENT_FIELD_ALIASES.enqNotes),
   };
 
-  const items: NormalizedClientItem[] = [];
+  const items: { item: NormalizedClientItem; rowIndex: number }[] = [];
   for (let rowIndex = 0; rowIndex < dataRows.length; rowIndex++) {
     const row = dataRows[rowIndex];
     if (isRowEmpty(row)) continue;
@@ -237,16 +258,17 @@ export function mapRowsToClientItems(
     // simply failed to map to "description".
     if (!description) continue;
 
-    const rawCode = columns.rawCode !== -1 ? toCodeOrUndefined(row[columns.rawCode]) : undefined;
+    const codeText = columns.rawCode !== -1 ? toCodeOrUndefined(row[columns.rawCode]) : undefined;
+    const rawCode = columns.rawCode !== -1 ? toImpaCode(row[columns.rawCode]) : undefined;
     const rawUnit = columns.rawUnit !== -1 ? toStringOrUndefined(row[columns.rawUnit]) : undefined;
     const rawOrigin = columns.rawOrigin !== -1 ? toStringOrUndefined(row[columns.rawOrigin]) : undefined;
 
     // A merged footer/signature cell duplicated across columns looks like a
     // fake item ("Enquired: 07/08/2025" as code, unit, AND origin) - not a
     // real client-requested line, so it's excluded rather than kept.
-    if (looksLikeMergedArtifactRow(description, [rawCode, rawUnit, rawOrigin])) continue;
+    if (looksLikeMergedArtifactRow(description, [codeText, rawUnit, rawOrigin])) continue;
 
-    items.push({
+    items.push({ rowIndex, item: {
       rawCode,
       rawDescription: description,
       rawQuantity: columns.rawQuantity !== -1 ? toNumberOrUndefined(row[columns.rawQuantity]) : undefined,
@@ -258,9 +280,35 @@ export function mapRowsToClientItems(
       reqNotes: columns.reqNotes !== -1 ? toStringOrUndefined(row[columns.reqNotes]) : undefined,
       enqNotes: columns.enqNotes !== -1 ? toStringOrUndefined(row[columns.enqNotes]) : undefined,
       sourceRow: dataRowNumbers?.[rowIndex],
-    });
+    } });
   }
   return items;
+}
+
+export function mapRowsToClientItems(
+  headerRow: string[],
+  dataRows: CellValue[][],
+  dataRowNumbers?: number[],
+): NormalizedClientItem[] {
+  return extractClientRows(headerRow, dataRows, dataRowNumbers).map((r) => r.item);
+}
+
+// En-têtes de la colonne « No. » d'un document client (comparaison exacte : « no » ne doit pas attraper « notes »).
+const LINE_REF_ALIASES = ["no", "n°", "n", "#", "item", "item no", "num", "numero", "line", "line no"];
+
+export interface ValidationFileItem extends NormalizedClientItem {
+  /** Numéro de la colonne « No. » du fichier du client (il peut sauter des numéros : articles retirés). */
+  lineRef?: number;
+}
+
+/** Lignes d'un fichier de validation de commande : mêmes colonnes qu'une demande de cotation, plus le n° de ligne du client. */
+export function mapRowsToValidationItems(headerRow: string[], dataRows: CellValue[][]): ValidationFileItem[] {
+  const normalized = Array.from(headerRow, (h) => normalizeHeader(h ?? ""));
+  const refColumn = normalized.findIndex((h) => LINE_REF_ALIASES.includes(h));
+  return extractClientRows(headerRow, dataRows).map(({ item, rowIndex }) => ({
+    ...item,
+    lineRef: refColumn !== -1 ? toNumberOrUndefined(dataRows[rowIndex][refColumn]) : undefined,
+  }));
 }
 
 export function mapRowsToSupplierItems(
@@ -292,12 +340,13 @@ export function mapRowsToSupplierItems(
     const name = designation && details ? `${designation} ${details}` : (designation ?? details);
     if (!name) continue;
 
-    const rawCode = columns.rawCode !== -1 ? toCodeOrUndefined(row[columns.rawCode]) : undefined;
+    const codeText = columns.rawCode !== -1 ? toCodeOrUndefined(row[columns.rawCode]) : undefined;
+    const rawCode = columns.rawCode !== -1 ? toImpaCode(row[columns.rawCode]) : undefined;
     const rawUnit = columns.rawUnit !== -1 ? toStringOrUndefined(row[columns.rawUnit]) : undefined;
 
     // Merged banner / footer cells: the same text sits in the code (and/or unit) column as in the name.
-    if (rawCode && designation && rawCode.toLowerCase() === designation.toLowerCase()) continue;
-    if (looksLikeMergedArtifactRow(name, [rawCode, rawUnit])) continue;
+    if (codeText && designation && codeText.toLowerCase() === designation.toLowerCase()) continue;
+    if (looksLikeMergedArtifactRow(name, [codeText, rawUnit])) continue;
 
     items.push({
       rawCode,

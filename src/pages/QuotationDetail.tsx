@@ -1,13 +1,15 @@
 import React from 'react';
 import { useAction, useMutation } from 'convex/react';
-import { ArrowLeft } from 'lucide-react';
-import type { Currency, PendingEdit, ProductWithPrices, QuotationWithRelations } from '../types';
-import { MATCH_LABELS, formatPrice, formatAmount, formatDate, regionLabel } from '../lib/format';
+import { ArrowLeft, RefreshCw } from 'lucide-react';
+import type { Currency, OrderValidation, PendingEdit, ProductWithPrices, QuotationWithRelations } from '../types';
+import { MATCH_LABELS, formatPrice, formatAmount, formatDate } from '../lib/format';
 import { StatusTag } from '../components/StatusTag';
 import { Modal, StateBox } from '../components/ui';
 import { LinesTable } from '../components/LinesTable';
 import { RequestInfoCard } from '../components/RequestInfoCard';
 import { ExportModal } from '../components/ExportModal';
+import { ValidateOrderModal } from '../components/ValidateOrderModal';
+import { ValidationDetails } from '../components/ValidationDetails';
 import { api, type Id } from '../lib/convex';
 import { UI_TO_ORDER_STATUS } from '../lib/mappers';
 import { useToast } from '../components/Toast';
@@ -22,6 +24,7 @@ export function QuotationDetail({
   isAdmin,
   meId,
   edits,
+  validation,
   onBack,
 }: {
   quotation: QuotationWithRelations | null;
@@ -33,15 +36,28 @@ export function QuotationDetail({
   meId: string;
   /** Modifications de lignes proposées par d'autres utilisateurs, en attente. */
   edits: PendingEdit[];
+  /** Fichier final du client importé à « Valider la commande » (null tant que la commande n'est pas validée). */
+  validation: OrderValidation | null;
   onBack: () => void;
 }) {
   const toast = useToast();
   const confirmMatch = useMutation(api.orderItems.confirmAmbiguousMatch);
   const updateItem = useMutation(api.orderItems.update);
+  const refreshOrder = useMutation(api.orderItems.refreshOrder);
+  const [refreshing, setRefreshing] = React.useState(false);
+  // Cotation des lignes saisie en pourcentage ou en montant par unité (choix mémorisé sur ce poste).
+  const [cotationMode, setCotationMode] = React.useState<'percent' | 'price'>(() => {
+    try { return localStorage.getItem('cotationMode') === 'price' ? 'price' : 'percent'; } catch { return 'percent'; }
+  });
+  const changeCotationMode = (mode: 'percent' | 'price') => {
+    setCotationMode(mode);
+    try { localStorage.setItem('cotationMode', mode); } catch { /* stockage indisponible */ }
+  };
   const updateStatus = useMutation(api.orders.updateStatus);
   const applyGlobalPricing = useMutation(api.orders.applyGlobalPricing);
   const exportXlsx = useAction(api.exportQuotation.exportQuotationXlsx);
   const applyExportCurrency = useAction(api.orders.applyExportCurrency);
+  const setTransportFee = useMutation(api.orders.setTransportFee);
   const markSeen = useMutation(api.orders.markSeen);
   const setExcluded = useMutation(api.orderItems.setExcluded).withOptimisticUpdate((store, { orderItemIds, excluded }) => {
     const ids = new Set<string>(orderItemIds);
@@ -65,23 +81,42 @@ export function QuotationDetail({
   const [convertingCurrency, setConvertingCurrency] = React.useState(false);
   const [confirmDelete, setConfirmDelete] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
-  const [confirmPo, setConfirmPo] = React.useState(false);
-  const [savingPo, setSavingPo] = React.useState(false);
+  const [validateModal, setValidateModal] = React.useState(false);
+  const [showValidation, setShowValidation] = React.useState(false);
   const [exportDialog, setExportDialog] = React.useState<'selected' | 'unknown' | null>(null);
 
 
   // Ouvrir la quotation fait disparaître son badge « mise à jour » pour cet utilisateur.
   const seenId = quotation?.id;
-  const hasUpdate = Boolean(quotation?.catalog_update);
+  // (orders.get ne renvoie pas le badge : on enregistre simplement l'ouverture, la liste fait le reste.)
   React.useEffect(() => {
-    if (seenId && hasUpdate) markSeen({ orderId: seenId as Id<'orders'> }).catch(() => {});
-  }, [seenId, hasUpdate, markSeen]);
+    if (seenId) markSeen({ orderId: seenId as Id<'orders'> }).catch(() => {});
+  }, [seenId, markSeen]);
 
   if (loading) return <StateBox loading title="Chargement…" />;
   if (!quotation) return <StateBox title="Quotation introuvable" />;
 
   const orderId = quotation.id as Id<'orders'>;
+  // Valider la commande engage la quotation : réservé à son propriétaire (et aux administrateurs).
+  const canValidate = quotation.created_by === meId || isAdmin;
   const currency = quotation.countries?.currency ?? 'EUR';
+
+  // Récapitulatif du bas de tableau : sous-total, discount, frais de transport, total. Les frais sont saisis dans la
+  // devise du fichier exporté ; si une vraie conversion est appliquée, les montants affichés ici restent dans la devise
+  // d'origine de chaque ligne et le total converti (avec frais) est donné à part.
+  const discountPercent = quotation.global_discount_percent ?? 0;
+  const transportFee = quotation.transport_fee ?? 0;
+  const exportCurrency = quotation.export_currency;
+  const converting =
+    Boolean(exportCurrency) && quotation.export_rates.length > 0 && !quotation.export_rates.every((r) => r.source === 'sans conversion');
+  const totalWithFee = quotation.total + (converting ? 0 : transportFee);
+  const convertedTotal = converting
+    ? quotation.quotation_items
+        .filter((it) => !it.excluded && it.total_price != null)
+        .reduce((sum, it) => sum + (it.total_price as number) * (quotation.export_rates.find((r) => r.currency === (it.price_currency ?? currency))?.rate ?? 1), 0) *
+        (1 - discountPercent / 100) +
+      transportFee
+    : null;
   const items = quotation.quotation_items;
   // Les lignes décochées sont écartées des statistiques.
   const includedItems = items.filter((it) => !it.excluded);
@@ -89,7 +124,8 @@ export function QuotationDetail({
   const counts = {
     selected: includedItems.length,
     known: includedItems.filter(isKnown).length,
-    unknown: includedItems.filter((it) => !isKnown(it)).length,
+    // « Sans prix » = aucun prix retenu pour la ligne (un article reconnu au catalogue mais non chiffré en fait partie).
+    unknown: includedItems.filter((it) => it.unit_price === null).length,
     all: items.length,
   };
   const unknownCount = includedItems.filter((it) => it.match_status === 'NOT_FOUND').length;
@@ -107,12 +143,44 @@ export function QuotationDetail({
     }
   };
 
-  const applyExportCurrencyChange = async (targetCurrency: string | undefined) => {
+  // Refait un tour en base : reconnaissance des lignes en attente et prix courants du catalogue.
+  const refreshPrices = async () => {
+    setRefreshing(true);
+    try {
+      let matched = 0;
+      let repriced = 0;
+      let cursor: string | undefined;
+      for (;;) {
+        const res = await refreshOrder({ orderId, cursor });
+        matched += res.matched;
+        repriced += res.repriced;
+        if (res.done) break;
+        cursor = res.cursor;
+      }
+      toast(
+        matched + repriced === 0
+          ? 'Quotation déjà à jour.'
+          : `Quotation actualisée : ${matched} ligne(s) reconnue(s), ${repriced} prix mis à jour.`,
+        'success',
+      );
+    } catch (err) {
+      toast('Erreur: ' + errMsg(err), 'error');
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const applyExportCurrencyChange = async (targetCurrency: string | undefined, applyRate: boolean) => {
     setConvertingCurrency(true);
     try {
-      const rates = await applyExportCurrency({ orderId, targetCurrency });
+      const rates = await applyExportCurrency({ orderId, targetCurrency, applyRate });
       const summary = rates?.map((r) => `1 ${r.currency} = ${r.rate.toFixed(4)} ${targetCurrency}`).join(', ');
-      toast(summary ? `Taux appliqué : ${summary}.` : 'Conversion annulée : chaque ligne du fichier ressortira dans sa devise d\'origine.', 'success');
+      toast(
+        !rates ? 'Conversion annulée : chaque ligne du fichier ressortira dans sa devise d\'origine.'
+          : applyRate ? `Taux appliqué : ${summary}.`
+          : `Devise du fichier changée en ${targetCurrency} sans conversion : les montants restent inchangés.`,
+        'success',
+      );
     } catch (err) {
       toast('Erreur: ' + errMsg(err), 'error');
     } finally {
@@ -155,7 +223,7 @@ export function QuotationDetail({
   };
 
   // Génère le fichier Excel du gabarit MBSS pour ce périmètre (le modal décide ensuite : téléchargement ou email).
-  const fetchExport = async (scope: 'selected' | 'unknown', opts: { eta?: string; clientFormat?: boolean }): Promise<{ fileName: string; base64: string; notice?: string } | null> => {
+  const fetchExport = async (scope: 'selected' | 'unknown', opts: { eta?: string; clientFormat?: boolean }): Promise<{ fileName: string; base64: string; notice?: string; format: 'client' | 'standard' } | null> => {
     try {
       return await exportXlsx({ orderId, scope, eta: opts.eta, clientFormat: opts.clientFormat });
     } catch (err) {
@@ -166,16 +234,13 @@ export function QuotationDetail({
 
   return (
     <div>
-      <div className="page-header">
-        <div>
-          <button className="btn btn-ghost btn-sm" onClick={onBack} style={{ marginBottom: 8 }}>
-            <ArrowLeft size={16} /> Retour
-          </button>
-          <h1 className="page-title">{quotation.quotation_number}</h1>
-          <p className="page-subtitle">{quotation.customer_name} - {quotation.countries ? regionLabel(quotation.countries) : 'Région non renseignée'}{quotation.owner_email ? ` - Propriétaire : ${quotation.owner_email}` : ''}</p>
-        </div>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+      <div className="page-header" style={{ alignItems: 'center' }}>
+        <button className="btn btn-ghost btn-sm" onClick={onBack}>
+          <ArrowLeft size={16} /> Retour
+        </button>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
           <StatusTag status={quotation.status} />
+          <h1 className="page-title" style={{ fontSize: 18, fontWeight: 500, letterSpacing: 0, color: 'var(--color-text-muted)' }}>{quotation.quotation_number}</h1>
         </div>
       </div>
 
@@ -183,11 +248,11 @@ export function QuotationDetail({
         <div className="summary-item">
           <label>Client</label>
           <div className="value" title={quotation.customer_name}>{quotation.customer_name}</div>
-          <div className="sub" title={quotation.customer_email ?? ''}>{quotation.customer_email ?? '-'}</div>
+          <div className="sub" title={quotation.customer_email ?? ''}>{quotation.customer_email ?? '·'}</div>
         </div>
         <div className="summary-item">
           <label>Région de cotation</label>
-          <div className="value">{quotation.countries?.name ?? '-'}</div>
+          <div className="value">{quotation.countries?.name ?? '·'}</div>
           <div className="sub">{quotation.countries?.city ?? ''}</div>
         </div>
         <div className="summary-item summary-wide">
@@ -198,7 +263,7 @@ export function QuotationDetail({
         <div className="summary-item">
           <label>Créée le</label>
           <div className="value">{formatDate(quotation.created_at)}</div>
-          <div className="sub">&nbsp;</div>
+          <div className="sub" title={quotation.owner_email ?? ''}>{quotation.owner_email ? `par ${quotation.owner_email}` : ''}&nbsp;</div>
         </div>
       </div>
 
@@ -208,21 +273,32 @@ export function QuotationDetail({
           currencies={currencies}
           pricingCurrency={quotation.countries?.currency ?? ''}
           convertingCurrency={convertingCurrency}
-          onApplyExportCurrency={(target) => void applyExportCurrencyChange(target)}
+          onApplyExportCurrency={(target, applyRate) => void applyExportCurrencyChange(target, applyRate)}
+          cotationMode={cotationMode}
+          onCotationModeChange={changeCotationMode}
+          onRefresh={() => void refreshPrices()}
+          refreshing={refreshing}
+          refreshDisabled={validation !== null || ['PO', 'SENT', 'CANCELLED', 'DELETED'].includes(quotation.status)}
+          onSaveTransportFee={(fee) =>
+            setTransportFee({ orderId, transportFee: fee })
+              .then(() => toast(fee ? 'Frais de transport enregistrés : ils figureront dans le fichier après le discount.' : 'Frais de transport retirés.', 'success'))
+              .catch((err) => toast('Erreur: ' + errMsg(err), 'error'))
+          }
           applying={applying} onApply={(cot, dis) => void applyGlobal(cot, dis)} />
       )}
 
       <div className="card">
-        <div className="card-pad" style={{ borderBottom: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="card-pad" style={{ borderBottom: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14 }}>
           <h3 style={{ fontSize: 16 }}>Lignes de la quotation</h3>
-          <span className="text-muted" style={{ fontSize: 13 }}>
+          <span className="text-muted" style={{ fontSize: 13, marginLeft: 'auto' }}>
             {includedItems.length}/{items.length} ligne(s) · {unknownCount} inconnue(s) · {reviewCount} à confirmer · cotation {quotation.margin_percentage}%
           </span>
         </div>
         {items.length === 0 ? (
-          <StateBox loading title="Analyse du document en cours…" subtitle="Les lignes apparaissent ici dès que l'extraction est terminée." />
+          <StateBox loading variant="table" title="Analyse du document en cours…" subtitle="Les lignes apparaissent ici dès que l'extraction est terminée." />
         ) : (
           <LinesTable
+            cotationMode={cotationMode}
             items={items}
             products={products}
             currency={currency}
@@ -263,31 +339,43 @@ export function QuotationDetail({
           />
         )}
         <div className="total-bar" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
-          {(quotation.global_discount_percent ?? 0) > 0 && (
-            <>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span className="label">Sous-total</span>
-                <span className="mono">{formatAmount(quotation.subtotal)}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span className="label">Discount global {quotation.global_discount_percent}%</span>
-                <span className="mono">-{formatAmount(quotation.subtotal - quotation.total)}</span>
-              </div>
-            </>
+          {(discountPercent > 0 || transportFee > 0) && (
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span className="label">Sous-total</span>
+              <span className="mono">{formatAmount(quotation.subtotal)}</span>
+            </div>
+          )}
+          {discountPercent > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span className="label">Discount global {discountPercent}%</span>
+              <span className="mono">-{formatAmount(quotation.subtotal - quotation.total)}</span>
+            </div>
+          )}
+          {transportFee > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span className="label">(+) Delivery + launch service</span>
+              <span className="mono">+{formatAmount(transportFee)}{exportCurrency ? ` ${exportCurrency}` : ''}</span>
+            </div>
           )}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span className="label">Total quotation</span>
-            <span className="amount mono">{formatAmount(quotation.total)}</span>
+            <span className="amount mono">{formatAmount(totalWithFee)}</span>
           </div>
+          {convertedTotal !== null && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span className="label">Total du fichier exporté ({exportCurrency})</span>
+              <span className="mono" style={{ fontWeight: 700 }}>{formatAmount(convertedTotal)}</span>
+            </div>
+          )}
         </div>
       </div>
 
       <div className="actions-bar">
         <button className="btn" onClick={() => setExportDialog('selected')} disabled={counts.selected === 0}>
-          Extraire les éléments sélectionnés ({counts.selected})
+          Exporter la sélection ({counts.selected})
         </button>
         <button className="btn" onClick={() => setExportDialog('unknown')} disabled={counts.unknown === 0}>
-          Extraire les éléments sans prix ({counts.unknown})
+          Exporter sans prix ({counts.unknown})
         </button>
         {quotation.status === 'DELETED' ? (
           isAdmin && <button className="btn" onClick={() => void restoreQuotation()}>Restaurer</button>
@@ -299,10 +387,53 @@ export function QuotationDetail({
             )}
           </>
         )}
-        <button className="btn btn-primary" onClick={() => setConfirmPo(true)} disabled={quotation.status === 'PO' || quotation.status === 'DELETED'} title="Le client a approuvé la demande">
-          PO
-        </button>
+        {validation ? (
+          <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setShowValidation(true)}>
+            Détails de validation
+          </button>
+        ) : (
+          <button
+            className="btn btn-primary"
+            style={{ marginLeft: 'auto' }}
+            onClick={() => setValidateModal(true)}
+            disabled={quotation.status === 'DELETED' || !canValidate}
+            title={canValidate ? "Importer le fichier final du client (articles retenus, quantités, prix)" : 'Réservé au propriétaire de la quotation'}
+          >
+            Valider la commande
+          </button>
+        )}
       </div>
+
+      {validation && showValidation && (
+        <Modal
+          title="Détails de validation"
+          wide
+          onClose={() => setShowValidation(false)}
+          actions={
+            canValidate && quotation.status !== 'DELETED' ? (
+              <button className="btn btn-sm" onClick={() => setValidateModal(true)}><RefreshCw size={14} /> Remplacer le fichier</button>
+            ) : undefined
+          }
+        >
+          <div style={{ overflowY: 'auto', flex: '1 1 auto', minHeight: 0 }}>
+            <ValidationDetails
+              quotation={quotation}
+              validation={validation}
+              currency={currency}
+            />
+          </div>
+        </Modal>
+      )}
+
+      {validateModal && (
+        <ValidateOrderModal
+          orderId={quotation.id}
+          quotationNumber={quotation.quotation_number}
+          replacing={validation !== null}
+          onClose={() => setValidateModal(false)}
+          onDone={() => { setValidateModal(false); setShowValidation(true); }}
+        />
+      )}
 
       {exportDialog && (
         <ExportModal
@@ -337,34 +468,6 @@ export function QuotationDetail({
         </Modal>
       )}
 
-      {confirmPo && (
-        <Modal
-          title="Confirmer le PO ?"
-          onClose={() => !savingPo && setConfirmPo(false)}
-          footer={<>
-            <button className="btn" onClick={() => setConfirmPo(false)} disabled={savingPo}>Annuler</button>
-            <button
-              className="btn btn-primary"
-              disabled={savingPo}
-              onClick={async () => {
-                setSavingPo(true);
-                await setStatus('PO');
-                setSavingPo(false);
-                setConfirmPo(false);
-              }}
-            >
-              {savingPo ? 'Enregistrement…' : 'Confirmer le PO'}
-            </button>
-          </>}
-        >
-          <p>
-            Le client a-t-il approuvé la demande <strong>{quotation.quotation_number}</strong> ?
-          </p>
-          <p className="text-muted" style={{ fontSize: 13, marginTop: 8 }}>
-            La quotation passera au statut « PO reçu » ({formatAmount(quotation.total)} {currency}).
-          </p>
-        </Modal>
-      )}
     </div>
   );
 }

@@ -80,7 +80,7 @@ export function SupplierPanel({ orderId, unknownCount }: { orderId: Id<'orders'>
     <div className="card" style={{ marginTop: 20 }}>
       <div className="card-pad" style={{ borderBottom: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <div>
-          <h3 style={{ fontSize: 16 }}>Articles inconnus - fournisseur</h3>
+          <h3 style={{ fontSize: 16 }}>Articles inconnus · fournisseur</h3>
           <span className="text-muted" style={{ fontSize: 13 }}>
             {unknownCount} article(s) à faire chiffrer. Téléchargez le fichier, faites-le remplir, puis réimportez-le.
           </span>
@@ -114,7 +114,7 @@ export function SupplierPanel({ orderId, unknownCount }: { orderId: Id<'orders'>
                       <td className="mono">
                         {editable
                           ? <input className="input" style={{ width: 110 }} defaultValue={it.rawCode ?? ''} onBlur={(e) => void updateItem({ supplierItemId: it._id, rawCode: e.target.value.trim() || undefined })} />
-                          : it.rawCode ?? '-'}
+                          : it.rawCode ?? '·'}
                       </td>
                       <td>
                         {editable
@@ -124,12 +124,12 @@ export function SupplierPanel({ orderId, unknownCount }: { orderId: Id<'orders'>
                       <td>
                         {editable
                           ? <input className="input" style={{ width: 80 }} defaultValue={it.rawUnit ?? ''} onBlur={(e) => void updateItem({ supplierItemId: it._id, rawUnit: e.target.value.trim() || undefined })} />
-                          : it.rawUnit ?? '-'}
+                          : it.rawUnit ?? '·'}
                       </td>
                       <td className="text-right mono">
                         {editable
                           ? <input className="input" type="number" step="any" style={{ width: 110 }} defaultValue={it.rawPrice ?? ''} onBlur={(e) => void updateItem({ supplierItemId: it._id, rawPrice: e.target.value === '' ? undefined : Number(e.target.value) })} />
-                          : it.rawPrice ?? '-'}
+                          : it.rawPrice ?? '·'}
                       </td>
                       <td><Badge label={SUPPLIER_STATUS[it.status].label} color={SUPPLIER_STATUS[it.status].color} /></td>
                       <td>

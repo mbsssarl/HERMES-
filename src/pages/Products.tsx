@@ -1,6 +1,6 @@
 import React from 'react';
-import { useMutation, useQuery } from 'convex/react';
-import { CheckSquare, Plus, Trash2, Upload } from 'lucide-react';
+import { useMutation, usePaginatedQuery, useQueries, useQuery } from 'convex/react';
+import { ArrowLeft, CheckSquare, Plus, Trash2, Upload } from 'lucide-react';
 import type { Country, ProductCategory, ProductWithPrices } from '../types';
 import { api, type Id } from '../lib/convex';
 import { Modal, StateBox } from '../components/ui';
@@ -53,7 +53,8 @@ export function Products({
   const setCategoryMany = useMutation(api.products.setCategoryMany);
   const [bulkCategory, setBulkCategory] = React.useState('');
   const [classifying, setClassifying] = React.useState(false);
-  const [showTiles, setShowTiles] = React.useState(true);
+  // false = page d'accueil (les catégories) ; true = page d'une catégorie (ou de la recherche) avec son tableau.
+  const [inList, setInList] = React.useState(false);
   // Mode sélection (suppression en masse)
   const [selectMode, setSelectMode] = React.useState(false);
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
@@ -67,7 +68,8 @@ export function Products({
   const [search, setSearch] = React.useState('');
   const [countryFilter, setCountryFilter] = React.useState('');
   const [categoryFilter, setCategoryFilter] = React.useState('');
-  const [showEmpty, setShowEmpty] = React.useState(false); // afficher aussi les lignes (produit, pays) sans prix
+  // Filtre de prix : tous les produits, seulement ceux qui ont un prix, ou seulement ceux qui n'en ont pas (à chiffrer).
+  const [priceView, setPriceView] = React.useState<'all' | 'priced' | 'unpriced'>('all');
 
   // Formulaire d'ajout : la « référence » de l'UI correspond à l'IMPA/code du catalogue
   const [ref, setRef] = React.useState('');
@@ -77,23 +79,35 @@ export function Products({
   const [newCountryId, setNewCountryId] = React.useState('');
   const [newPrice, setNewPrice] = React.useState('');
   const [saving, setSaving] = React.useState(false);
+  const clearAllPrices = useMutation(api.productPrices.clearAll);
+  const [showClearPrices, setShowClearPrices] = React.useState(false);
+  const [clearingPrices, setClearingPrices] = React.useState(false);
 
   // Le catalogue IMPA compte des dizaines de milliers d'articles : `products` ne contient que ceux qui ont un
   // prix ; les autres s'ouvrent par catégorie (tuile) ou par recherche, chargés à la demande.
   const term = search.trim().toLowerCase();
   const inCategory = useQuery(api.products.listByCategory, categoryFilter ? { category: categoryFilter === NO_CATEGORY ? '' : categoryFilter } : 'skip');
   const searchHits = useQuery(api.products.list, term.length >= 2 ? { search: term } : 'skip');
+  // « Tous les produits » : le catalogue entier, chargé page par page (« Charger la suite »).
+  const allPage = usePaginatedQuery(api.products.listAllPage, inList && !categoryFilter && term.length < 2 ? {} : 'skip', { initialNumItems: 300 });
   const catalogue = React.useMemo(() => {
     const known = new Set(products.map((p) => p.id));
     const extra: ProductWithPrices[] = [];
-    for (const doc of [...(inCategory ?? []), ...(searchHits ?? [])]) {
+    for (const doc of [...(inCategory ?? []), ...(searchHits ?? []), ...allPage.results]) {
       if (known.has(doc._id)) continue;
       known.add(doc._id); // un produit absent de `products` n'a aucun prix en vigueur
       extra.push({ ...mapProduct(doc), product_prices: [] });
     }
     return extra.length > 0 ? [...products, ...extra] : products;
-  }, [products, inCategory, searchHits]);
-  const browsing = Boolean(categoryFilter) || term.length >= 2; // on parcourt le catalogue complet, pas seulement les prix
+  }, [products, inCategory, searchHits, allPage.results]);
+
+  const countQueries = React.useMemo(
+    () => Object.fromEntries([...categories.map((c) => c.name), ''].map((name) => [name || NO_CATEGORY, { query: api.products.countByCategory, args: { category: name } }])),
+    [categories],
+  );
+  const categoryCounts = useQueries(countQueries);
+  const countValues = Object.values(categoryCounts);
+  const totalProducts = countValues.length > 0 && countValues.every((n) => typeof n === 'number') ? (countValues as number[]).reduce((a, b) => a + b, 0) : undefined;
 
   const activeCountries = countries.filter((c) => c.active); // pour l'import
   const priceCountries = countries; // colonnes de prix : tous les pays, actifs ou non
@@ -149,6 +163,8 @@ export function Products({
       .catch((err) => toast('Erreur: ' + errMsg(err), 'error'));
 
   const exitSelection = () => { setSelectMode(false); setSelected(new Set()); };
+  const openCategory = (value: string) => { setCategoryFilter(value); setInList(true); };
+  const leaveList = () => { setInList(false); setCategoryFilter(''); setSearch(''); exitSelection(); };
   const toggleOne = (id: string) =>
     setSelected((prev) => {
       const next = new Set(prev);
@@ -209,23 +225,20 @@ export function Products({
   const tileCategories = categories.filter((c) => c.active || c.name === categoryFilter);
   // Une ligne par produit et par pays : ... | Unit | Unit Price | Country
   const shownCountries = countryFilter ? priceCountries.filter((c) => c.id === countryFilter) : priceCountries;
-  // Par défaut, seules les lignes qui ont un prix sont affichées - y compris un produit sans aucun prix nulle
-  // part, qui disparaît alors entièrement de la liste. Cochez "Afficher les lignes sans prix" pour le retrouver
-  // et lui donner un premier prix.
-  let hiddenCount = 0;
+  // « Avec prix » : seules les lignes (produit, région) chiffrées. « Sans prix » : les produits non chiffrés dans la
+  // région affichée (toutes les régions si aucune n'est choisie), une ligne chacun, pour leur donner un premier prix.
+  // « Tous » : en plus, chaque produit non chiffré garde une ligne ; avec une région choisie, tous les produits y figurent.
   const rows = visible.flatMap((p) => {
     const all = shownCountries.map((c) => ({ p, c }));
-    if (showEmpty) return all;
     const priced = all.filter(({ c }) => p.product_prices.some((pr) => pr.country_id === c.id));
-    // En parcourant le catalogue (catégorie / recherche), un article sans aucun prix reste visible : une seule
-    // ligne, sur la région affichée, pour pouvoir lui donner son premier prix.
-    if (priced.length === 0 && browsing && p.product_prices.length === 0 && all.length > 0) return [all[0]];
-    hiddenCount += all.length - priced.length;
-    return priced;
+    if (priceView === 'priced') return priced;
+    if (priceView === 'unpriced') return priced.length === 0 && all.length > 0 ? [all[0]] : [];
+    if (countryFilter) return all;
+    return priced.length === 0 && all.length > 0 ? [all[0]] : priced;
   });
 
   // Seules 100 lignes sont dessinées à la fois (la liste complète reste filtrable/sélectionnable).
-  const paged = usePage(rows, `${search}|${countryFilter}|${categoryFilter}|${showEmpty}`);
+  const paged = usePage(rows, `${search}|${countryFilter}|${categoryFilter}|${priceView}`);
 
   if (loading) return <StateBox loading title="Chargement du catalogue…" />;
 
@@ -233,10 +246,14 @@ export function Products({
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-title">Produits & prix</h1>
-          <p className="page-subtitle">
-            Catalogue produits avec tarifs par région.{isAdmin ? ' Cliquez sur une cellule pour la modifier.' : ''}
-          </p>
+          {inList && (
+            <button className="btn btn-ghost btn-sm" onClick={leaveList} style={{ marginBottom: 8 }}>
+              <ArrowLeft size={16} /> Catégories
+            </button>
+          )}
+          <h1 className="page-title">
+            {!inList ? 'Produits & prix' : categoryFilter === NO_CATEGORY ? 'Sans catégorie' : categoryFilter || (term.length >= 2 ? 'Résultats de la recherche' : 'Tous les produits')}
+          </h1>
         </div>
         {isAdmin && (
           <div style={{ display: 'flex', gap: 8 }}>
@@ -244,177 +261,220 @@ export function Products({
             <button className={`btn ${selectMode ? 'btn-primary' : ''}`} onClick={() => (selectMode ? exitSelection() : setSelectMode(true))}>
               <CheckSquare size={16} /> {selectMode ? 'Terminer la sélection' : 'Sélectionner'}
             </button>
+            <button className="btn" onClick={() => setShowClearPrices(true)} title="Supprime tous les prix de tous les produits, dans toutes les régions"><Trash2 size={16} /> Supprimer tous les prix</button>
             <button className="btn btn-primary" onClick={() => setShowImport(true)}><Upload size={16} /> Importer un catalogue</button>
           </div>
         )}
       </div>
 
-      {categories.length > 0 && (
-        <div className="card card-pad" style={{ marginBottom: 20 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: showTiles ? 12 : 0 }}>
-            <div className="section-title" style={{ margin: 0 }}>Catégories</div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              {categoryFilter && <button className="btn btn-ghost btn-sm" onClick={() => setCategoryFilter('')}>Tout afficher</button>}
-              <button className="btn btn-ghost btn-sm" onClick={() => setShowTiles((s) => !s)}>{showTiles ? 'Masquer' : 'Afficher'}</button>
+      {!inList && (
+        <>
+          <div style={{ marginBottom: 20 }}>
+            <input
+              className="input"
+              style={{ width: '100%' }}
+              placeholder="Rechercher dans tout le catalogue (nom, code), puis Entrée"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && search.trim()) openCategory(''); }}
+            />
+          </div>
+          <div className="card card-pad" style={{ marginBottom: 20 }}>
+            <div className="section-title">Catégories</div>
+            <div className="cat-grid">
+              <button type="button" className="cat-tile" onClick={() => openCategory('')} title="Tous les produits">
+                <span className="cat-name">Tous les produits</span>
+                <span className="cat-count">{totalProducts ?? '…'}</span>
+              </button>
+              {tileCategories.map((c) => (
+                <CategoryTile key={c.id} name={c.name} value={c.name} active={false} onClick={() => openCategory(c.name)} />
+              ))}
+              <CategoryTile name="Sans catégorie" value="" active={false} onClick={() => openCategory(NO_CATEGORY)} />
             </div>
           </div>
-          {showTiles && (
-            <div className="cat-grid">
-              {tileCategories.map((c) => (
-                <CategoryTile
-                  key={c.id}
-                  name={c.name}
-                  value={c.name}
-                  active={categoryFilter === c.name}
-                  onClick={() => setCategoryFilter(categoryFilter === c.name ? '' : c.name)}
-                />
-              ))}
-              <CategoryTile
-                name="Sans catégorie"
-                value=""
-                active={categoryFilter === NO_CATEGORY}
-                onClick={() => setCategoryFilter(categoryFilter === NO_CATEGORY ? '' : NO_CATEGORY)}
-              />            </div>
+        </>
+      )}
+
+      {inList && (
+        <div className="card">
+          <div className="card-pad" style={{ borderBottom: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div>
+              <span style={{ fontSize: 14, fontWeight: 600 }}>
+                {visible.length} produit(s) · {countryFilter
+                  ? `${shownCountries[0]?.name ?? ''} (${shownCountries[0]?.currency ?? ''})`
+                  : `${priceCountries.length} région(s)`}
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'nowrap', alignItems: 'center', flex: '1 1 auto', justifyContent: 'flex-end', minWidth: 0 }}>
+              <div className="segmented" role="group" aria-label="Filtre de prix">
+                {([['all', 'Tous'], ['priced', 'Avec prix'], ['unpriced', 'Sans prix']] as const).map(([value, label]) => (
+                  <button key={value} type="button" className={priceView === value ? 'active' : ''} onClick={() => setPriceView(value)}>{label}</button>
+                ))}
+              </div>
+              <select className="select" style={{ width: 190, flex: '0 1 190px' }} value={countryFilter} onChange={(e) => setCountryFilter(e.target.value)} aria-label="Région">
+                <option value="">Toutes les régions</option>
+                {priceCountries.map((c) => <option key={c.id} value={c.id}>{c.code} · {regionLabel(c)}</option>)}
+              </select>
+              {!categoryFilter && (
+                <select className="select" style={{ width: 190, flex: '0 1 190px' }} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} aria-label="Catégorie">
+                  <option value="">Toutes les catégories</option>
+                  <option value={NO_CATEGORY}>Sans catégorie</option>
+                  {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+                </select>
+              )}
+              <input className="input" style={{ flex: '1 1 150px', minWidth: 130 }} placeholder="Rechercher (nom, code)…" value={search} onChange={(e) => setSearch(e.target.value)} />
+            </div>
+          </div>
+          {selectMode && (
+            <div className="card-pad" style={{ borderBottom: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, background: 'var(--color-surface-2)' }}>
+              <span style={{ fontSize: 14, fontWeight: 600 }}>{selected.size} produit(s) sélectionné(s)</span>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <select className="select" style={{ width: 220, height: 32 }} value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)} aria-label="Classer dans" disabled={selected.size === 0}>
+                  <option value="" disabled>Classer dans…</option>
+                  <option value={NO_CATEGORY}>Sans catégorie</option>
+                  {categories.filter((c) => c.active).map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+                </select>
+                <button className="btn btn-sm btn-primary" onClick={() => void classifySelected()} disabled={selected.size === 0 || !bulkCategory || classifying}>
+                  {classifying ? 'Classement…' : 'Classer'}
+                </button>
+                <button className="btn btn-sm" onClick={() => setSelected(new Set())} disabled={selected.size === 0}>Tout désélectionner</button>
+                <button
+                  className="btn btn-sm btn-primary"
+                  style={{ background: '#dc2626', borderColor: '#dc2626' }}
+                  onClick={() => setConfirmBulk(true)}
+                  disabled={selected.size === 0}
+                >
+                  <Trash2 size={14} /> Supprimer ({selected.size})
+                </button>
+              </div>
+            </div>
+          )}
+          <div className="table-scroll" style={{ maxHeight: '70vh', border: 'none', borderRadius: 0 }}>
+            <table className="data">
+              <thead>
+                <tr>
+                  {selectMode && (
+                    <th style={{ width: 30 }}>
+                      <input
+                        type="checkbox"
+                        checked={visible.length > 0 && visible.every((p) => selected.has(p.id))}
+                        onChange={() => setSelected(visible.every((p) => selected.has(p.id)) ? new Set() : new Set(visible.map((p) => p.id)))}
+                        aria-label="Tout sélectionner"
+                        title="Sélectionner tous les produits affichés"
+                      />
+                    </th>
+                  )}
+                  <th style={{ width: 48 }}>No.</th>
+                  <th style={{ width: 130 }}>Code</th>
+                  <th>Description</th>
+                  <th style={{ width: 160 }}>Category</th>
+                  <th style={{ width: 90 }}>Unit</th>
+                  <th className="text-right">Unit Price</th>
+                  <th style={{ width: 110 }}>Region</th>
+                  {isAdmin && <th style={{ width: 44 }}></th>}
+                </tr>
+              </thead>
+              <tbody>
+                {paged.slice.map(({ p, c }, i) => {
+                  const index = paged.offset + i;
+                  const price = p.product_prices.find((pr) => pr.country_id === c.id);
+                  return (
+                    <tr key={`${p.id}-${c.id}`} style={selectMode && selected.has(p.id) ? { background: 'var(--color-primary-soft)' } : undefined}>
+                      {selectMode && (
+                        <td><input type="checkbox" checked={selected.has(p.id)} onChange={() => toggleOne(p.id)} aria-label={`Sélectionner ${p.name}`} /></td>
+                      )}
+                      <td className="text-muted mono">{index + 1}</td>
+                      <td>
+                        <TextCell mono width={110} disabled={!isAdmin} value={p.reference}
+                          onCommit={(v) => edit(p, { code: v.trim() })} />
+                      </td>
+                      <td style={{ minWidth: 220 }}>
+                        <TextCell width="100%" disabled={!isAdmin} value={p.name}
+                          onCommit={(v) => { if (v.trim()) void edit(p, { name: v.trim() }); else toast('Le nom ne peut pas être vide.', 'error'); }} />
+                      </td>
+                      <td>
+                        <select className="select cell-input" style={{ width: '100%' }} disabled={!isAdmin} value={p.category} onChange={(e) => void edit(p, { category: e.target.value })}>
+                          <option value="">Aucune</option>
+                          {!categories.some((c) => c.name === p.category) && p.category && <option value={p.category}>{p.category}</option>}
+                          {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+                        </select>
+                      </td>
+                      <td>
+                        <TextCell width={80} disabled={!isAdmin} value={p.unit}
+                          onCommit={(v) => { if (v.trim()) void edit(p, { unit: v.trim() }); else toast("L'unité ne peut pas être vide.", 'error'); }} />
+                      </td>
+                      <td className="text-right">
+                        <NumberCell
+                          width={110}
+                          decimals={2}
+                          disabled={!isAdmin}
+                          value={price ? price.base_price : null}
+                          placeholder="·"
+                          onCommit={(v) => void savePrice(p, c, v)}
+                        />
+                      </td>
+                      <td className="mono nowrap" title={c.name} style={{ fontWeight: 600 }}>
+                        {c.code}
+                      </td>
+                      {isAdmin && (
+                        <td>
+                          <button className="btn btn-ghost btn-sm" title="Supprimer" aria-label={`Supprimer ${p.name}`} onClick={() => setToDelete(p)}>
+                            <Trash2 size={14} />
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+                {paged.total === 0 && (
+                  <tr><td colSpan={isAdmin ? 8 : 7} className="text-muted" style={{ padding: 24 }}>{priceView === 'priced' && visible.length > 0 ? `Aucun des ${visible.length} produit(s) n'a de prix ici. Choisissez « Tous » ou « Sans prix » pour les voir.` : 'Aucun produit.'}</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <Pager page={paged.page} pages={paged.pages} total={paged.total} pageSize={paged.pageSize} setPage={paged.setPage} />
+          {!categoryFilter && term.length < 2 && allPage.status !== 'Exhausted' && (
+            <div style={{ padding: '4px 20px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <button className="btn btn-sm" onClick={() => allPage.loadMore(1000)} disabled={allPage.status !== 'CanLoadMore'}>
+                {allPage.status === 'CanLoadMore' ? 'Charger la suite' : 'Chargement…'}
+              </button>
+              <span className="text-muted" style={{ fontSize: 13 }}>{allPage.results.length}{totalProducts ? ` / ${totalProducts}` : ''} produits chargés</span>
+            </div>
           )}
         </div>
       )}
 
-      <div className="card">
-        <div className="card-pad" style={{ borderBottom: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <div>
-            <h3 style={{ fontSize: 16 }}>Catalogue produits</h3>
-            <span className="text-muted" style={{ fontSize: 13 }}>
-              {visible.length} produit(s) · {countryFilter
-                ? `${shownCountries[0]?.name ?? ''} (${shownCountries[0]?.currency ?? ''})`
-                : `${priceCountries.length} région(s)`}
-            </span>
-          </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
-              <input type="checkbox" checked={showEmpty} onChange={(e) => setShowEmpty(e.target.checked)} />
-              Afficher les lignes sans prix{!showEmpty && hiddenCount > 0 ? ` (${hiddenCount} masquée${hiddenCount > 1 ? 's' : ''})` : ''}
-            </label>
-            <select className="select" style={{ width: 200 }} value={countryFilter} onChange={(e) => setCountryFilter(e.target.value)} aria-label="Région">
-              <option value="">Toutes les régions</option>
-              {priceCountries.map((c) => <option key={c.id} value={c.id}>{c.code} - {regionLabel(c)}</option>)}
-            </select>
-            <select className="select" style={{ width: 200 }} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} aria-label="Catégorie">
-              <option value="">Toutes les catégories</option>
-              <option value={NO_CATEGORY}>Sans catégorie</option>
-              {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
-            </select>
-            <input className="input" style={{ width: 260 }} placeholder="Rechercher (nom, code)…" value={search} onChange={(e) => setSearch(e.target.value)} />
-          </div>
-        </div>
-        {selectMode && (
-          <div className="card-pad" style={{ borderBottom: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, background: 'var(--color-surface-2)' }}>
-            <span style={{ fontSize: 14, fontWeight: 600 }}>{selected.size} produit(s) sélectionné(s)</span>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              <select className="select" style={{ width: 220, height: 32 }} value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)} aria-label="Classer dans" disabled={selected.size === 0}>
-                <option value="" disabled>Classer dans…</option>
-                <option value={NO_CATEGORY}>Sans catégorie</option>
-                {categories.filter((c) => c.active).map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
-              </select>
-              <button className="btn btn-sm btn-primary" onClick={() => void classifySelected()} disabled={selected.size === 0 || !bulkCategory || classifying}>
-                {classifying ? 'Classement…' : 'Classer'}
-              </button>
-              <button className="btn btn-sm" onClick={() => setSelected(new Set())} disabled={selected.size === 0}>Tout désélectionner</button>
-              <button
-                className="btn btn-sm btn-primary"
-                style={{ background: '#dc2626', borderColor: '#dc2626' }}
-                onClick={() => setConfirmBulk(true)}
-                disabled={selected.size === 0}
-              >
-                <Trash2 size={14} /> Supprimer ({selected.size})
-              </button>
-            </div>
-          </div>
-        )}
-        <div className="table-scroll" style={{ maxHeight: '70vh', border: 'none', borderRadius: 0 }}>
-          <table className="data">
-            <thead>
-              <tr>
-                {selectMode && (
-                  <th style={{ width: 30 }}>
-                    <input
-                      type="checkbox"
-                      checked={visible.length > 0 && visible.every((p) => selected.has(p.id))}
-                      onChange={() => setSelected(visible.every((p) => selected.has(p.id)) ? new Set() : new Set(visible.map((p) => p.id)))}
-                      aria-label="Tout sélectionner"
-                      title="Sélectionner tous les produits affichés"
-                    />
-                  </th>
-                )}
-                <th style={{ width: 48 }}>No.</th>
-                <th style={{ width: 130 }}>Code</th>
-                <th>Description</th>
-                <th style={{ width: 160 }}>Category</th>
-                <th style={{ width: 90 }}>Unit</th>
-                <th className="text-right">Unit Price</th>
-                <th style={{ width: 110 }}>Region</th>
-                {isAdmin && <th style={{ width: 44 }}></th>}
-              </tr>
-            </thead>
-            <tbody>
-              {paged.slice.map(({ p, c }, i) => {
-                const index = paged.offset + i;
-                const price = p.product_prices.find((pr) => pr.country_id === c.id);
-                return (
-                  <tr key={`${p.id}-${c.id}`} style={selectMode && selected.has(p.id) ? { background: 'var(--color-primary-soft)' } : undefined}>
-                    {selectMode && (
-                      <td><input type="checkbox" checked={selected.has(p.id)} onChange={() => toggleOne(p.id)} aria-label={`Sélectionner ${p.name}`} /></td>
-                    )}
-                    <td className="text-muted mono">{index + 1}</td>
-                    <td>
-                      <TextCell mono width={110} disabled={!isAdmin} value={p.reference}
-                        onCommit={(v) => edit(p, { code: v.trim() })} />
-                    </td>
-                    <td style={{ minWidth: 220 }}>
-                      <TextCell width="100%" disabled={!isAdmin} value={p.name}
-                        onCommit={(v) => { if (v.trim()) void edit(p, { name: v.trim() }); else toast('Le nom ne peut pas être vide.', 'error'); }} />
-                    </td>
-                    <td>
-                      <select className="select cell-input" style={{ width: '100%' }} disabled={!isAdmin} value={p.category} onChange={(e) => void edit(p, { category: e.target.value })}>
-                        <option value="">-</option>
-                        {!categories.some((c) => c.name === p.category) && p.category && <option value={p.category}>{p.category}</option>}
-                        {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
-                      </select>
-                    </td>
-                    <td>
-                      <TextCell width={80} disabled={!isAdmin} value={p.unit}
-                        onCommit={(v) => { if (v.trim()) void edit(p, { unit: v.trim() }); else toast("L'unité ne peut pas être vide.", 'error'); }} />
-                    </td>
-                    <td className="text-right">
-                      <NumberCell
-                        width={110}
-                        decimals={2}
-                        disabled={!isAdmin}
-                        value={price ? price.base_price : null}
-                        placeholder="-"
-                        onCommit={(v) => void savePrice(p, c, v)}
-                      />
-                    </td>
-                    <td className="mono nowrap" title={c.name} style={{ fontWeight: 600 }}>
-                      {c.code}
-                    </td>
-                    {isAdmin && (
-                      <td>
-                        <button className="btn btn-ghost btn-sm" title="Supprimer" aria-label={`Supprimer ${p.name}`} onClick={() => setToDelete(p)}>
-                          <Trash2 size={14} />
-                        </button>
-                      </td>
-                    )}
-                  </tr>
-                );
-              })}
-              {paged.total === 0 && (
-                <tr><td colSpan={isAdmin ? 8 : 7} className="text-muted" style={{ padding: 24 }}>Aucun produit.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        <Pager page={paged.page} pages={paged.pages} total={paged.total} pageSize={paged.pageSize} setPage={paged.setPage} />
-      </div>
+      {showClearPrices && (
+        <Modal
+          title="Supprimer tous les prix ?"
+          onClose={() => !clearingPrices && setShowClearPrices(false)}
+          footer={<>
+            <button className="btn" onClick={() => setShowClearPrices(false)} disabled={clearingPrices}>Annuler</button>
+            <button
+              className="btn btn-primary"
+              style={{ background: '#dc2626' }}
+              disabled={clearingPrices}
+              onClick={async () => {
+                setClearingPrices(true);
+                try {
+                  await clearAllPrices({});
+                  toast('Suppression des prix en cours : l\'écran se met à jour au fur et à mesure.', 'success');
+                  setShowClearPrices(false);
+                } catch (err) {
+                  toast('Erreur: ' + errMsg(err), 'error');
+                } finally {
+                  setClearingPrices(false);
+                }
+              }}
+            >
+              {clearingPrices ? 'Suppression…' : 'Supprimer tous les prix'}
+            </button>
+          </>}
+        >
+          <p>Les prix de tous les produits seront supprimés définitivement, dans toutes les régions, y compris l'historique. Cette action est irréversible.</p>
+          <p className="text-muted" style={{ marginTop: 10, fontSize: 13 }}>Les lignes des quotations encore ouvertes qui utilisaient un prix du catalogue repassent « sans prix ». Les prix saisis à la main et les quotations envoyées, validées ou archivées ne changent pas.</p>
+        </Modal>
+      )}
 
       {confirmBulk && (
         <Modal
@@ -447,7 +507,7 @@ export function Products({
           </>}
         >
           <p>
-            <strong>{toDelete.reference ? `${toDelete.reference} - ` : ''}{toDelete.name}</strong> sera supprimé définitivement, avec ses prix par région.
+            <strong>{toDelete.reference ? `${toDelete.reference} · ` : ''}{toDelete.name}</strong> sera supprimé définitivement, avec ses prix par région.
           </p>
           <p className="text-muted" style={{ fontSize: 13, marginTop: 8 }}>
             Les lignes de quotation qui l'utilisent repasseront en « Inconnu ». Une copie de sauvegarde est conservée à
@@ -473,7 +533,7 @@ export function Products({
           <div className="form-field">
             <label>Category</label>
             <select className="select" value={newCategory} onChange={(e) => setNewCategory(e.target.value)}>
-              <option value="">-</option>
+              <option value="">Aucune</option>
               {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
             </select>
           </div>

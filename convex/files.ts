@@ -56,7 +56,7 @@ export const registerUploadedFile = mutation({
       orderId: args.orderId,
       kind: args.kind,
       storageId: args.storageId,
-      fileName: args.fileName,
+      fileName: args.fileName.toLowerCase(), // le nom d'un fichier déposé est toujours en minuscules
       mimeType: args.mimeType,
       size: args.size,
       status: "uploaded",

@@ -1,3 +1,4 @@
+import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -39,6 +40,21 @@ export const list = query({
     const productIds = [...new Set(prices.map((p) => p.productId))];
     const docs = await Promise.all(productIds.map((id) => ctx.db.get(id)));
     return docs.filter((p): p is Doc<"products"> => p !== null && p.active && p.deletedAt === undefined);
+  },
+});
+
+/**
+ * Tous les produits du catalogue, page par page (la liste complète dépasse la taille d'un résultat de requête) :
+ * c'est ce qu'ouvre la tuile « Tous les produits ».
+ */
+export const listAllPage = query({
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { paginationOpts }) => {
+    await requireUser(ctx);
+    return await ctx.db
+      .query("products")
+      .filter((q) => q.eq(q.field("deletedAt"), undefined))
+      .paginate(paginationOpts);
   },
 });
 

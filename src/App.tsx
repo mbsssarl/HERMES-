@@ -11,12 +11,14 @@ import { Login, SetPassword } from './pages/Login';
 import { Admin } from './pages/Admin';
 import { Settings } from './pages/Settings';
 import { applyTheme } from './lib/theme';
+import { setLanguage, useLanguage } from './lib/i18n';
 import { api } from './lib/convex';
 import { StateBox } from './components/ui';
 import { useCountries, useCurrencies, useMe, useProductCategories, useProducts, useQuotation, useQuotations } from './lib/hooks';
 
 function AppInner() {
   const me = useMe();
+  useLanguage(); // redessine toute l'application quand la langue change
   const [view, setView] = React.useState<View>('dashboard');
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const { countries, loading: loadingCountries } = useCountries();
@@ -25,7 +27,7 @@ function AppInner() {
   // Le catalogue n'est chargé que là où il sert (catalogue, détail d'une quotation pour ses propositions).
   const { products, loading: loadingProducts } = useProducts(view === 'products' || view === 'detail');
   const { quotations, deleted: deletedQuotations, loading: loadingQuotations } = useQuotations();
-  const { quotation: selectedQuotation, edits: pendingEdits, loading: loadingDetail } = useQuotation(selectedId);
+  const { quotation: selectedQuotation, edits: pendingEdits, validation, loading: loadingDetail } = useQuotation(selectedId);
 
   // Dernière connexion : enregistrée une fois par session, quand le profil est bien chargé.
   const recordLogin = useMutation(api.users.recordLogin);
@@ -42,6 +44,10 @@ function AppInner() {
   // Le thème du compte s'applique dès que le profil est chargé (et suit l'utilisateur d'un poste à l'autre).
   const theme = me?.theme;
   React.useEffect(() => { if (theme) applyTheme(theme); }, [theme]);
+
+  // Idem pour la langue de l'interface.
+  const language = me?.language;
+  React.useEffect(() => { if (language) setLanguage(language); }, [language]);
 
   // Filet de sécurité : si un utilisateur non-admin se retrouve sur un onglet réservé (ex. son rôle vient de
   // changer pendant que l'app était ouverte), on le ramène au tableau de bord plutôt que d'afficher un écran vide.
@@ -76,7 +82,7 @@ function AppInner() {
     knownUpdates.current = new Map(quotations.filter((q) => q.catalog_update).map((q) => [q.id, q.catalog_update!.at]));
   }, [quotations, loadingQuotations, toast]);
 
-  if (me === undefined || me === null) return <StateBox loading title="Chargement…" />;
+  if (me === undefined || me === null) return <StateBox loading variant="app" title="Chargement…" />;
   if (me.mustChangePassword) return <SetPassword />;
 
   const openQuotation = (id: string) => {
@@ -103,6 +109,7 @@ function AppInner() {
             loading={loadingQuotations}
             onOpen={(q) => openQuotation(q.id)}
             onNew={() => setView('new')}
+            onSeeAll={() => setView('quotations')}
           />
         )}
         {view === 'quotations' && (
@@ -110,6 +117,7 @@ function AppInner() {
             quotations={quotations}
             deletedQuotations={deletedQuotations}
             loading={loadingQuotations}
+            isAdmin={me.role === 'admin'}
             onOpen={(q) => openQuotation(q.id)}
             onNew={() => setView('new')}
           />
@@ -126,6 +134,7 @@ function AppInner() {
             isAdmin={me.role === 'admin'}
             meId={me.id}
             edits={pendingEdits}
+            validation={validation}
             onBack={() => { setSelectedId(null); setView('quotations'); }}
           />
         )}
@@ -144,7 +153,7 @@ function AppInner() {
 export default function App() {
   return (
     <ToastProvider>
-      <AuthLoading><StateBox loading title="Chargement…" /></AuthLoading>
+      <AuthLoading><StateBox loading variant="app" title="Chargement…" /></AuthLoading>
       <Unauthenticated><Login /></Unauthenticated>
       <Authenticated><AppInner /></Authenticated>
     </ToastProvider>

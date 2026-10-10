@@ -109,12 +109,12 @@ export function BackupsTab({ countries }: { countries: Country[] }) {
                 {items.map((b) => (
                   <tr key={b._id} style={selected.has(b._id) ? { background: 'var(--color-primary-soft)' } : undefined}>
                     <td><input type="checkbox" checked={selected.has(b._id)} onChange={() => toggle(b._id)} aria-label={`Sélectionner ${b.name}`} /></td>
-                    <td className="mono">{b.code || '-'}</td>
+                    <td className="mono">{b.code || '·'}</td>
                     <td style={{ minWidth: 260 }}>{b.name}</td>
                     <td className="text-muted">{b.unit}</td>
                     <td className="text-right mono">{b.priceCount}</td>
                     <td className="text-muted nowrap">{formatDate(new Date(b.deletedAt).toISOString())}</td>
-                    <td className="text-muted">{b.deletedBy || '-'}</td>
+                    <td className="text-muted">{b.deletedBy || '·'}</td>
                     <td className="text-right nowrap">
                       <button className="btn btn-ghost btn-sm" title="Consulter" onClick={() => setViewId(b._id)}><Eye size={14} /></button>
                       <button className="btn btn-ghost btn-sm" title="Restaurer" onClick={() => setConfirm({ kind: 'restore', ids: [b._id] })}><RotateCcw size={14} /></button>
@@ -174,7 +174,7 @@ function BackupView({ backupId, countries, onClose }: { backupId: string; countr
   return (
     <Modal title="Produit sauvegardé" wide onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Fermer</button>}>
       {b === undefined ? (
-        <StateBox loading title="Chargement…" />
+        <StateBox loading variant="table" title="Chargement…" />
       ) : b === null ? (
         <StateBox title="Sauvegarde introuvable" />
       ) : (
@@ -185,7 +185,7 @@ function BackupView({ backupId, countries, onClose }: { backupId: string; countr
             <div className="form-field"><label>Unit</label><input className="input cell-readonly" readOnly value={String(b.product.unit ?? '')} /></div>
           </div>
           <p className="text-muted" style={{ fontSize: 13, marginBottom: 8 }}>
-            Supprimé le {formatDate(new Date(b.deletedAt).toISOString())} par {b.deletedBy || '-'}.
+            Supprimé le {formatDate(new Date(b.deletedAt).toISOString())} par {b.deletedBy || '·'}.
           </p>
           <div className="section-title">Prix ({b.prices.length})</div>
           {b.prices.length === 0 ? (
@@ -201,7 +201,7 @@ function BackupView({ backupId, countries, onClose }: { backupId: string; countr
                     <td className="mono">{codeOf(p.countryId)}</td>
                     <td className="text-right mono">{formatAmount(Number(p.price))}</td>
                     <td>{String(p.currency ?? '')}</td>
-                    <td className="text-muted nowrap">{p.validFrom ? formatDate(new Date(Number(p.validFrom)).toISOString()) : '-'}</td>
+                    <td className="text-muted nowrap">{p.validFrom ? formatDate(new Date(Number(p.validFrom)).toISOString()) : '·'}</td>
                     <td className="text-muted nowrap">{p.validTo ? formatDate(new Date(Number(p.validTo)).toISOString()) : 'en cours'}</td>
                   </tr>
                 ))}

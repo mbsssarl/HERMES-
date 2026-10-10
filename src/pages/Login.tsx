@@ -1,4 +1,5 @@
 import React from 'react';
+import { useBranding } from '../lib/branding';
 import { useAuthActions } from '@convex-dev/auth/react';
 import { useMutation } from 'convex/react';
 import { Eye, EyeOff, Lock, Mail } from 'lucide-react';
@@ -12,19 +13,17 @@ type Lang = 'FR' | 'EN';
 
 const TEXTS = {
   FR: {
-    portal: 'PORTAIL EMPLOYÉS · DOUALA',
+    portal: 'PORTAIL EMPLOYÉS',
     welcome: 'Bon retour à bord,',
-    crew: 'équipage M.B.S.S.',
+    crew: 'équipage {name}.',
     welcomeText: "Chaque navire servi commence par vous. Connectez-vous pour suivre les commandes, les livraisons à quai et les stocks du jour.",
     setTitle: 'Bienvenue à bord,',
     setCrew: 'sécurisons votre compte.',
-    setText: 'Votre mot de passe est temporaire. Choisissez-en un nouveau pour accéder à l\'application.',
-    location: '⌖  Bonantone, Deido, Douala - Cameroun · Port autonome de Douala',
-    tagline: 'SUPPLY SOLUTIONS FOR YOUR SHIP',
-    space: 'ESPACE EMPLOYÉ',
+    setText: "Votre mot de passe est temporaire. Choisissez-en un nouveau pour accéder à l'application.",
+    location: '⌖  Bonantone, Deido, Douala, Cameroun · Port autonome de Douala',
     signOut: '←  Retour à la connexion',
     signIn: 'Connexion',
-    signInSub: 'Utilisez votre adresse professionnelle M.B.S.S.',
+    signInSub: 'Utilisez votre adresse e-mail professionnelle.',
     email: 'Adresse e-mail',
     password: 'Mot de passe',
     forgotHelp: 'Mot de passe oublié ? Contactez votre administrateur : il vous remettra un mot de passe à usage unique.',
@@ -41,22 +40,20 @@ const TEXTS = {
     setSub: 'Choisissez un mot de passe personnel (8 caractères minimum).',
     setSubmit: 'Enregistrer le mot de passe',
     show: 'Afficher le mot de passe',
-    rights: '© 2026 M.B.S.S Sarl · Douala, Cameroun · Tous droits réservés',
+    rights: 'Tous droits réservés',
   },
   EN: {
-    portal: 'EMPLOYEE PORTAL · DOUALA',
+    portal: 'EMPLOYEE PORTAL',
     welcome: 'Welcome back on board,',
-    crew: 'M.B.S.S. crew.',
+    crew: '{name} crew.',
     welcomeText: "Every ship we serve starts with you. Sign in to follow orders, dock deliveries and today's stock.",
     setTitle: 'Welcome on board,',
     setCrew: "let's secure your account.",
     setText: 'Your password is temporary. Choose a new one to access the application.',
-    location: '⌖  Bonantone, Deido, Douala - Cameroon · Douala Autonomous Port',
-    tagline: 'SUPPLY SOLUTIONS FOR YOUR SHIP',
-    space: 'EMPLOYEE SPACE',
+    location: '⌖  Bonantone, Deido, Douala, Cameroon · Douala Autonomous Port',
     signOut: '←  Back to sign in',
     signIn: 'Sign in',
-    signInSub: 'Use your professional M.B.S.S. address.',
+    signInSub: 'Use your professional email address.',
     email: 'Email address',
     password: 'Password',
     forgotHelp: 'Forgot your password? Contact your administrator: they will give you a one-time password.',
@@ -73,7 +70,7 @@ const TEXTS = {
     setSub: 'Choose a personal password (8 characters minimum).',
     setSubmit: 'Save the password',
     show: 'Show password',
-    rights: '© 2026 M.B.S.S Sarl · Douala, Cameroon · All rights reserved',
+    rights: 'All rights reserved',
   },
 } as const;
 
@@ -106,7 +103,6 @@ function AuthShell({
   headline,
   headline2,
   text,
-  tag,
   title,
   subtitle,
   children,
@@ -117,27 +113,28 @@ function AuthShell({
   headline: string;
   headline2: string;
   text: string;
-  tag: string;
   title: string;
   subtitle: string;
   children: React.ReactNode;
 }) {
   const t = TEXTS[lang];
+  const brand = useBranding();
   return (
     <main className="login-page">
       <section className="welcome-panel" style={{ backgroundImage: "url('/bateau.jpg')" }}>
         <div className="welcome-overlay" />
         <div className="welcome-content">
-          <div className="company-logo-tile"><img src="/logo-mbss.webp" alt="M.B.S.S Sarl" /></div>
+          <div className="company-logo-tile"><img src={brand.logoUrl} alt={brand.name} /></div>
           <div className="welcome-copy">
             <p className="kicker">{kicker}</p>
             <h1>
               {headline}
-              <span>{headline2}</span>
+              <span>{headline2.replace('{name}', brand.name)}</span>
             </h1>
             <p className="welcome-description">{text}</p>
           </div>
-          <p className="location">{t.location}</p>
+          {/* L'adresse est celle de l'entreprise par défaut : masquée dès que le nom est personnalisé. */}
+          {!brand.customName && <p className="location">{t.location}</p>}
         </div>
       </section>
 
@@ -148,13 +145,12 @@ function AuthShell({
             <button type="button" className={lang === 'EN' ? 'active' : ''} onClick={() => setLang('EN')}>EN</button>
           </div>
           <div className="login-content">
-            <p className="eyebrow">M.B.S.S SARL · {tag}</p>
             <h2>{title}</h2>
             <p className="login-subtitle">{subtitle}</p>
             {children}
           </div>
         </div>
-        <footer>{t.rights}</footer>
+        <footer>© {new Date().getFullYear()} {brand.name} · {t.rights}</footer>
       </section>
     </main>
   );
@@ -259,13 +255,12 @@ export function Login() {
       headline={t.welcome}
       headline2={t.crew}
       text={t.welcomeText}
-      tag={t.tagline}
       title={t.signIn}
       subtitle={t.signInSub}
     >
       <form className="login-form" onSubmit={submit}>
         <label className="field-label">{t.email}</label>
-        <Field icon="mail" type="email" value={email} onChange={setEmail} placeholder="prenom.nom@mbss-sarl.cm" autoComplete="email" autoFocus />
+        <Field icon="mail" type="email" value={email} onChange={setEmail} placeholder="prenom.nom@entreprise.com" autoComplete="email" autoFocus />
         <label className="field-label">{t.password}</label>
         <Field icon="lock" password required={false} showLabel={t.show} value={password} onChange={setPassword} placeholder="(laisser vide si vous n'en avez pas encore)" autoComplete="current-password" />
         <button className="submit-button" type="submit" disabled={loading}>{loading ? t.loading : t.submit}</button>
@@ -312,7 +307,6 @@ export function SetPassword() {
       headline={t.setTitle}
       headline2={t.setCrew}
       text={t.setText}
-      tag={t.space}
       title={t.setHeading}
       subtitle={t.setSub}
     >

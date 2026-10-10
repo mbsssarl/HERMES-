@@ -25,6 +25,8 @@ export interface ExportData {
   paymentDays?: string;
   /** Global discount in percent, applied on the total of the whole order. */
   discountPercent: number;
+  /** Frais de livraison / mise à l'eau, dans la devise du fichier : ajoutés après le discount quand ils sont définis (> 0). */
+  transportFee?: number;
   items: ExportItem[];
 }
 
@@ -163,10 +165,15 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
   const footerStart = row;
   gross = round2(gross);
   const discountAmount = round2((gross * data.discountPercent) / 100);
+  const fee = data.transportFee && data.transportFee > 0 ? round2(data.transportFee) : 0;
+  const hasFee = fee > 0;
+  // Sans frais, la ligne « (+) DELIVERY + LAUNCH SERVICE » du gabarit disparaît et celles qui suivent remontent.
+  const off = (i: number) => (hasFee || i < F_TRANSPORT ? i : i - 1);
 
   // --- footer block, copied below the last article
   footer.forEach((f, i) => {
-    const r = ws.getRow(footerStart + i);
+    if (!hasFee && i === F_TRANSPORT) return;
+    const r = ws.getRow(footerStart + off(i));
     f.cells.forEach((captured, c) => {
       const cell = r.getCell(c + 1);
       let value = captured.value;
@@ -179,21 +186,27 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
     if (f.height) r.height = f.height;
   });
 
-  const at = (i: number) => footerStart + i;
+  const at = (i: number) => footerStart + off(i);
   ws.getCell(`G${at(F_GROSS)}`).value = {
     formula: data.items.length > 0 ? `SUM(G${FIRST_ITEM_ROW}:G${lastItemRow})` : "0",
     result: gross,
   };
   ws.getCell(`E${at(F_DISCOUNT)}`).value = `DISCOUNT ${data.discountPercent}%`;
   ws.getCell(`G${at(F_DISCOUNT)}`).value = discountAmount;
+  if (hasFee) {
+    ws.getCell(`E${at(F_TRANSPORT)}`).value = "(+) DELIVERY + LAUNCH SERVICE";
+    ws.getCell(`G${at(F_TRANSPORT)}`).value = fee;
+  }
   ws.getCell(`G${at(F_NET)}`).value = {
-    formula: `G${at(F_GROSS)}-G${at(F_DISCOUNT)}+G${at(F_TRANSPORT)}`,
-    result: round2(gross - discountAmount),
+    formula: `G${at(F_GROSS)}-G${at(F_DISCOUNT)}${hasFee ? `+G${at(F_TRANSPORT)}` : ""}`,
+    result: round2(gross - discountAmount + fee),
   };
   if (data.paymentDays) ws.getCell(`B${at(F_PAYMENT)}`).value = `Payment Time: ${data.paymentDays}`;
 
   for (const m of footerMerges) {
-    ws.mergeCells(m.replace(/\d+/g, (n) => String(parseInt(n, 10) - FOOTER_FIRST + footerStart)));
+    const mergeOffset = parseInt(m.replace(/^[A-Z]+/, ""), 10) - FOOTER_FIRST;
+    if (!hasFee && mergeOffset === F_TRANSPORT) continue;
+    ws.mergeCells(m.replace(/\d+/g, (n) => String(footerStart + off(parseInt(n, 10) - FOOTER_FIRST))));
   }
 
   // Sheet name: quotation reference + date (Excel: 31 chars max, no []:*?/\).

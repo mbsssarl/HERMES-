@@ -1,6 +1,8 @@
 export interface LinePricingInput {
   unitPriceOriginal: number;
   quotationPercent: number;
+  /** Cotation en montant par unité : si présent, remplace le pourcentage. */
+  quotationAmount?: number;
   quantity: number;
 }
 
@@ -17,7 +19,10 @@ export interface LinePricingResult {
  * a line concern: a single global discount applies to the total of the whole order (see orders / export).
  */
 export function computeLinePricing(input: LinePricingInput): LinePricingResult {
-  const raw = input.unitPriceOriginal * (1 + input.quotationPercent / 100);
+  const raw =
+    input.quotationAmount !== undefined
+      ? input.unitPriceOriginal + input.quotationAmount
+      : input.unitPriceOriginal * (1 + input.quotationPercent / 100);
   return {
     priceAfterQuotation: round2(raw),
     finalUnitPrice: round2(raw),

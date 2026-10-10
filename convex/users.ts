@@ -267,6 +267,15 @@ export const changeMyPassword = mutation({
   },
 });
 
+/** Stores the interface language on the account so it follows the user across devices. */
+export const setLanguage = mutation({
+  args: { language: v.union(v.literal("fr"), v.literal("en")) },
+  handler: async (ctx, { language }) => {
+    const user = await requireUser(ctx);
+    await ctx.db.patch(user._id, { language });
+  },
+});
+
 /** Stores the interface theme on the account so it follows the user across devices. */
 export const setTheme = mutation({
   args: { theme: v.union(v.literal("light"), v.literal("dark")) },
