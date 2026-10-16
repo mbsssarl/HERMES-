@@ -10,6 +10,7 @@ import { UpdateBadge } from '../components/UpdateBadge';
 import { ClientCell } from '../components/ClientCell';
 import { Badge, Modal, StateBox } from '../components/ui';
 import { useT } from '../lib/i18n';
+import { DeleteQuotationButton } from '../components/DeleteQuotationButton';
 
 export function QuotationsList({
   quotations,
@@ -129,7 +130,8 @@ export function QuotationsList({
                   <th style={{ width: 160 }}>{t('common.status')}</th>
                   <th className="text-right" style={{ width: 110 }}>{t('common.total')}</th>
                   <th style={{ width: 170 }}>{t('common.date')}</th>
-                  {isAdmin && <th style={{ width: 64 }} aria-label="Actions" />}
+                  {/* [SUPPRESSION - collègue] version finale : colonne d'actions admin, masquée dans le filtre « Supprimé » */}
+                  {isAdmin && filter !== 'DELETED' && <th style={{ width: 56 }} />}
                 </tr>
               </thead>
               <tbody>
@@ -144,22 +146,9 @@ export function QuotationsList({
                     <td data-label={t('common.status')}><StatusTag status={q.status} /></td>
                     <td className="text-right mono" data-label={t('common.total')}>{formatAmount(q.total)}</td>
                     <td className="text-muted nowrap" data-label={t('common.date')}>{formatDate(q.created_at)}</td>
-                    {/* [SUPPRESSION - collègue] Colonne d'actions réservée aux admins : supprimer ou restaurer une quotation.
-                        Pas de data-label volontairement : sur téléphone le bouton s'affiche seul, sans libellé de colonne.
-                        stopPropagation évite d'ouvrir la quotation quand on clique sur le bouton. */}
-                    {isAdmin && (
-                      <td className="text-right" onClick={(e) => e.stopPropagation()}>
-                        {q.status === 'DELETED' ? (
-                          <button className="btn btn-ghost btn-icon" title={t('list.restore')} aria-label={`${t('list.restore')} ${q.quotation_number}`} onClick={() => void restoreOne(q)}>
-                            <RotateCcw size={16} />
-                          </button>
-                        ) : (
-                          <button className="btn btn-ghost btn-icon" title={t('list.delete')} aria-label={`${t('list.delete')} ${q.quotation_number}`} onClick={() => setToDelete(q)}>
-                            <Trash2 size={16} />
-                          </button>
-                        )}
-                      </td>
-                    )}
+                    {/* [SUPPRESSION - collègue] version finale : composant DeleteQuotationButton (il gère sa propre confirmation).
+                        Pas de data-label volontairement : sur téléphone le bouton s'affiche seul, sans libellé de colonne. */}
+                    {isAdmin && filter !== 'DELETED' && <td className="text-right"><DeleteQuotationButton quotation={q} /></td>}
                   </tr>
                 ))}
               </tbody>

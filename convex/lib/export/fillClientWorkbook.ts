@@ -10,6 +10,7 @@ import { adaptiveNumFmt, roundMoney } from "../pricing";
 const numFmtFor = (existing: string | undefined, value: number) =>
   adaptiveNumFmt(!existing || existing === "General" ? "#,##0.00" : existing, value);
 import { recalculateWorkbook } from "./recalc";
+import { adaptNumberFormats } from "./numberFormats";
 
 export interface ClientFooter {
   /** Remise globale en % (0 = aucune ligne de remise). */
@@ -180,14 +181,14 @@ export async function fillClientWorkbook(
     // 1) Champs prévus par le fichier du client : remise, frais de livraison, devise. Les formules du fichier
     //    (remise par ligne, total, grand total) s'en servent, les prix unitaires écrits sont donc bruts.
     let discountDone = discountPercent <= 0;
-    let feeDone = fee <= 0;
+    let feeDone = false; // les frais de transport sont toujours affichés, même à 0
     if (hasPrices) {
       if (fields.discount && discountPercent > 0) {
         fields.discount.value = discountPercent / 100; // les formules attendent une fraction (10 % = 0,1)
         if (!fields.discount.numFmt || fields.discount.numFmt === "General") fields.discount.numFmt = "0.0%";
         discountDone = true;
       }
-      if (fields.delivery && fee > 0) {
+      if (fields.delivery) {
         fields.delivery.value = fee;
         fields.delivery.numFmt = numFmtFor(fields.delivery.numFmt, fee);
         feeDone = true;
@@ -245,6 +246,7 @@ export async function fillClientWorkbook(
   // Les formules du fichier du client gardent le résultat périmé du fichier d'origine : on les recalcule ici, et on
   // demande aussi à Excel de tout recalculer à l'ouverture.
   recalculateWorkbook(workbook);
+  workbook.eachSheet((sheet) => adaptNumberFormats(sheet));
   workbook.calcProperties.fullCalcOnLoad = true;
   return { buffer: Buffer.from(await workbook.xlsx.writeBuffer()), filled, unplaced };
 }

@@ -7,6 +7,7 @@ import { UpdateBadge } from '../components/UpdateBadge';
 import { ClientCell } from '../components/ClientCell';
 import { TableSkeleton } from '../components/ui';
 import { useT } from '../lib/i18n';
+import { DeleteQuotationButton } from '../components/DeleteQuotationButton';
 
 export function Dashboard({
   quotations,
@@ -14,6 +15,7 @@ export function Dashboard({
   onOpen,
   onNew,
   onSeeAll,
+  isAdmin,
 }: {
   quotations: QuotationWithRelations[];
   loading: boolean;
@@ -21,6 +23,8 @@ export function Dashboard({
   onNew: () => void;
   /** Ouvre l'onglet Quotations, où elles sont toutes. */
   onSeeAll: () => void;
+  /** Affiche le bouton de suppression (réservé aux administrateurs). */
+  isAdmin: boolean;
 }) {
   const t = useT();
   const today = new Date().toDateString();
@@ -87,17 +91,22 @@ export function Dashboard({
                   <th style={{ width: 160 }}>{t('common.status')}</th>
                   <th className="text-right" style={{ width: 110 }}>{t('common.total')}</th>
                   <th style={{ width: 170 }}>{t('common.date')}</th>
+                  {isAdmin && <th style={{ width: 56 }} />}
                 </tr>
               </thead>
               <tbody>
                 {recent.map((q) => (
                   <tr key={q.id} className="clickable" onClick={() => onOpen(q)}>
+                    {/* CONFLIT RÉSOLU (fusion develop) : on garde les DEUX changements.
+                        [RESPONSIVE - nous] data-label = libellés de colonne en affichage « cartes » sur téléphone (voir styles.css). */}
                     <td data-label={t('common.reference')}><div className="cell-ref"><span className="mono ref">{q.quotation_number}</span><UpdateBadge update={q.catalog_update} compact /></div></td>
                     <td data-label={t('common.client')}><ClientCell name={q.customer_name} /></td>
                     <td className="cell-ellipsis" data-label={t('common.region')} title={q.countries ? regionLabel(q.countries) : undefined}>{q.countries ? regionLabel(q.countries) : '·'}</td>
                     <td data-label={t('common.status')}><StatusTag status={q.status} /></td>
                     <td className="text-right mono" data-label={t('common.total')}>{formatAmount(q.total)}</td>
                     <td className="text-muted nowrap" data-label={t('common.date')}>{formatDate(q.created_at)}</td>
+                    {/* [SUPPRESSION - collègue] bouton de suppression admin (composant DeleteQuotationButton) */}
+                    {isAdmin && <td className="text-right"><DeleteQuotationButton quotation={q} /></td>}
                   </tr>
                 ))}
               </tbody>
