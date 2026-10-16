@@ -13,14 +13,12 @@ type Lang = 'FR' | 'EN';
 
 const TEXTS = {
   FR: {
-    portal: 'PORTAIL EMPLOYÉS',
     welcome: 'Bon retour à bord,',
-    crew: 'équipage {name}.',
+    crew: 'équipage.',
     welcomeText: "Chaque navire servi commence par vous. Connectez-vous pour suivre les commandes, les livraisons à quai et les stocks du jour.",
     setTitle: 'Bienvenue à bord,',
     setCrew: 'sécurisons votre compte.',
     setText: "Votre mot de passe est temporaire. Choisissez-en un nouveau pour accéder à l'application.",
-    location: '⌖  Bonantone, Deido, Douala, Cameroun · Port autonome de Douala',
     signOut: '←  Retour à la connexion',
     signIn: 'Connexion',
     signInSub: 'Utilisez votre adresse e-mail professionnelle.',
@@ -44,14 +42,12 @@ const TEXTS = {
     rights: 'Tous droits réservés',
   },
   EN: {
-    portal: 'EMPLOYEE PORTAL',
     welcome: 'Welcome back on board,',
-    crew: '{name} crew.',
+    crew: 'crew.',
     welcomeText: "Every ship we serve starts with you. Sign in to follow orders, dock deliveries and today's stock.",
     setTitle: 'Welcome on board,',
     setCrew: "let's secure your account.",
     setText: 'Your password is temporary. Choose a new one to access the application.',
-    location: '⌖  Bonantone, Deido, Douala, Cameroon · Douala Autonomous Port',
     signOut: '←  Back to sign in',
     signIn: 'Sign in',
     signInSub: 'Use your professional email address.',
@@ -101,7 +97,6 @@ const errText = (err: unknown, fallback: string) => {
 function AuthShell({
   lang,
   setLang,
-  kicker,
   headline,
   headline2,
   text,
@@ -111,7 +106,6 @@ function AuthShell({
 }: {
   lang: Lang;
   setLang: (l: Lang) => void;
-  kicker: string;
   headline: string;
   headline2: string;
   text: string;
@@ -126,17 +120,14 @@ function AuthShell({
       <section className="welcome-panel" style={{ backgroundImage: "url('/bateau.jpg')" }}>
         <div className="welcome-overlay" />
         <div className="welcome-content">
-          <div className="company-logo-tile"><img src={brand.logoUrl} alt={brand.name} /></div>
+          <div className="company-logo-tile"><img src={brand.logoUrl} alt="" /></div>
           <div className="welcome-copy">
-            <p className="kicker">{kicker}</p>
             <h1>
               {headline}
-              <span>{headline2.replace('{name}', brand.name)}</span>
+              <span>{headline2}</span>
             </h1>
             <p className="welcome-description">{text}</p>
           </div>
-          {/* L'adresse est celle de l'entreprise par défaut : masquée dès que le nom est personnalisé. */}
-          {!brand.customName && <p className="location">{t.location}</p>}
         </div>
       </section>
 
@@ -152,7 +143,7 @@ function AuthShell({
             {children}
           </div>
         </div>
-        <footer>© {new Date().getFullYear()} {brand.name} · {t.rights}</footer>
+        <footer>© {new Date().getFullYear()} · {t.rights}</footer>
       </section>
     </main>
   );
@@ -259,7 +250,6 @@ export function Login() {
     <AuthShell
       lang={lang}
       setLang={setLang}
-      kicker={t.portal}
       headline={t.welcome}
       headline2={t.crew}
       text={t.welcomeText}
@@ -311,7 +301,6 @@ export function SetPassword() {
     <AuthShell
       lang={lang}
       setLang={setLang}
-      kicker={t.portal}
       headline={t.setTitle}
       headline2={t.setCrew}
       text={t.setText}
