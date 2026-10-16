@@ -68,14 +68,10 @@ export function BaseRatesPanel({
   // Une saisie doit être un nombre > 0 ; une devise sans taux en ligne exige une saisie.
   const invalid = currencies.some((c) => (overridden(c) ? !(parseRate(typed[c]) > 0) : failed[c] !== undefined));
 
-  if (currencies.length === 0) {
-    return (
-      <section className="panel panel-wide">
-        <div className="panel-title">Conversion en USD</div>
-        <div className="panel-hint" style={{ marginTop: 8 }}>Toutes les lignes sont déjà en USD : aucune conversion nécessaire.</div>
-      </section>
-    );
-  }
+  // MASQUÉ quand il n'y a rien à convertir : toutes les lignes sont déjà en USD. L'ancien message « aucune conversion
+  // nécessaire » était redondant. Le panneau réapparaît tout seul dès qu'une ligne est chiffrée dans une autre devise
+  // (EUR, XAF...), car c'est lui qui règle alors le taux de cette devise vers l'USD. (Tous les hooks sont déjà appelés plus haut.)
+  if (currencies.length === 0) return null;
 
   return (
     <section className="panel panel-wide">
