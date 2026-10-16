@@ -114,7 +114,9 @@ const schema = defineSchema({
     companyId: v.optional(v.id("companies")),
     name: v.string(),
     active: v.boolean(),
-  }).index("by_name", ["name"]),
+  })
+    .index("by_name", ["name"])
+    .index("by_company", ["companyId"]),
 
   // ------------------------------------------------------------------
   // DEVISES
@@ -127,7 +129,9 @@ const schema = defineSchema({
     code: v.string(), // code à 3 lettres en majuscules (XAF, EUR, USD...)
     name: v.string(),
     active: v.boolean(),
-  }).index("by_code", ["code"]),
+  })
+    .index("by_code", ["code"])
+    .index("by_company", ["companyId"]),
 
   // ------------------------------------------------------------------
   // PAYS
@@ -145,7 +149,9 @@ const schema = defineSchema({
     // l'import du catalogue) et les quotations se convertissent en USD (orders.baseRates). Ignoré par le calcul.
     currency: v.optional(v.string()),
     active: v.boolean(),
-  }).index("by_code", ["code"]),
+  })
+    .index("by_code", ["code"])
+    .index("by_company", ["companyId"]),
 
   // ------------------------------------------------------------------
   // CLIENTS
@@ -385,7 +391,8 @@ const schema = defineSchema({
     .index("by_status", ["status"]) // pour la liste filtrée par statut
     .index("by_client", ["clientId"])
     .index("by_createdBy", ["createdBy"]) // pour "mes commandes"
-    .index("by_reference", ["reference"]),
+    .index("by_reference", ["reference"])
+    .index("by_company", ["companyId"]),
 
   // ------------------------------------------------------------------
   // LIGNES DE COMMANDE

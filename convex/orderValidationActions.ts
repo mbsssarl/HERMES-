@@ -22,7 +22,7 @@ const ALLOWED_MIME_TYPES = new Set([
 export const importValidationFile = action({
   args: { orderId: v.id("orders"), storageId: v.id("_storage"), mimeType: v.string(), fileName: v.string() },
   handler: async (ctx, { orderId, storageId, mimeType, fileName }): Promise<{ lines: number; matched: number }> => {
-    const user = await ctx.runQuery(api.users.getCurrentUser, {});
+    const user = await ctx.runQuery(api.users.getBusinessUser, {});
     if (!user) {
       await ctx.storage.delete(storageId);
       throw new Error("Authentification requise.");

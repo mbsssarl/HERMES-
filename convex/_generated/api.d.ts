@@ -59,6 +59,7 @@ import type * as orderItems from "../orderItems.js";
 import type * as orderValidation from "../orderValidation.js";
 import type * as orderValidationActions from "../orderValidationActions.js";
 import type * as orders from "../orders.js";
+import type * as platform from "../platform.js";
 import type * as productBackups from "../productBackups.js";
 import type * as productCategories from "../productCategories.js";
 import type * as productPrices from "../productPrices.js";
@@ -127,6 +128,7 @@ declare const fullApi: ApiFromModules<{
   orderValidation: typeof orderValidation;
   orderValidationActions: typeof orderValidationActions;
   orders: typeof orders;
+  platform: typeof platform;
   productBackups: typeof productBackups;
   productCategories: typeof productCategories;
   productPrices: typeof productPrices;

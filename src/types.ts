@@ -177,6 +177,9 @@ export interface AppUser {
   email: string;
   role: 'superadmin' | 'admin' | 'user';
   mustChangePassword: boolean;
+  /** L'entreprise du compte est suspendue : seul l'écran d'information est accessible. */
+  companySuspended: boolean;
+  companyName: string | null;
   theme: 'light' | 'dark';
   language: 'fr' | 'en';
 }

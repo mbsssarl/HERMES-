@@ -14,7 +14,7 @@ export const generateQuotation = action({
   // comes from the generated api graph that itself includes this very
   // function - without an annotation here, TS can't resolve the cycle.
   handler: async (ctx, { orderId }): Promise<Id<"quotations">> => {
-    const user = await ctx.runQuery(api.users.getCurrentUser, {});
+    const user = await ctx.runQuery(api.users.getBusinessUser, {});
     if (!user) throw new Error("Authentification requise.");
 
     await ctx.runAction(api.orders.ensureBaseRates, { orderId });

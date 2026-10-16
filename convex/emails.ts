@@ -48,7 +48,7 @@ export const sendQuotationEmail = action({
     message: v.string(),
   },
   handler: async (ctx, { orderId, quotationId, to, subject, message }) => {
-    const user = await ctx.runQuery(api.users.getCurrentUser, {});
+    const user = await ctx.runQuery(api.users.getBusinessUser, {});
     if (!user) throw new Error("Authentification requise.");
 
     const quotation = await ctx.runQuery(internal.quotations.getQuotationInternal, {

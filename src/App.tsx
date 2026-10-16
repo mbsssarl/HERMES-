@@ -11,6 +11,7 @@ import { Login, SetPassword } from './pages/Login';
 import { useAuthActions } from '@convex-dev/auth/react';
 import { Admin } from './pages/Admin';
 import { Settings } from './pages/Settings';
+import { PlatformApp } from './pages/Platform';
 import { applyTheme } from './lib/theme';
 import { setLanguage, useLanguage } from './lib/i18n';
 import { api } from './lib/convex';
@@ -28,6 +29,41 @@ function AccessDenied() {
       </div>
     </div>
   );
+}
+
+function CompanySuspended({ name }: { name: string | null }) {
+  const { signOut } = useAuthActions();
+  return (
+    <div style={{ display: 'grid', placeItems: 'center', minHeight: '100vh', padding: 24, textAlign: 'center' }}>
+      <div style={{ maxWidth: 420 }}>
+        <h2>Entreprise suspendue</h2>
+        <p>
+          L'accès de {name ? <strong>{name}</strong> : 'votre entreprise'} à l'application est suspendu. Contactez l'administrateur de la
+          plateforme pour le rétablir.
+        </p>
+        <button className="submit-button" type="button" onClick={() => void signOut()}>Se déconnecter</button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Aiguillage après connexion : le super admin va à son espace, une entreprise suspendue à l'écran d'information,
+ * tous les autres au tableau de bord de leur entreprise. Les requêtes métier ne sont lancées que pour ces derniers.
+ */
+function Gate() {
+  const me = useMe();
+  useLanguage();
+  const theme = me?.theme;
+  React.useEffect(() => { if (theme) applyTheme(theme); }, [theme]);
+  const language = me?.language;
+  React.useEffect(() => { if (language) setLanguage(language); }, [language]);
+
+  if (me === undefined) return <StateBox loading variant="app" title="Chargement…" />;
+  if (me === null) return <AccessDenied />;
+  if (me.companySuspended) return <CompanySuspended name={me.companyName} />;
+  if (me.role === 'superadmin') return me.mustChangePassword ? <SetPassword /> : <PlatformApp me={me} />;
+  return <AppInner />;
 }
 
 function AppInner() {
@@ -173,7 +209,7 @@ export default function App() {
     <ToastProvider>
       <AuthLoading><StateBox loading variant="app" title="Chargement…" /></AuthLoading>
       <Unauthenticated><Login /></Unauthenticated>
-      <Authenticated><AppInner /></Authenticated>
+      <Authenticated><Gate /></Authenticated>
     </ToastProvider>
   );
 }
