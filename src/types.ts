@@ -175,7 +175,7 @@ export interface Currency {
 export interface AppUser {
   id: string;
   email: string;
-  role: 'admin' | 'user';
+  role: 'superadmin' | 'admin' | 'user';
   mustChangePassword: boolean;
   theme: 'light' | 'dark';
   language: 'fr' | 'en';

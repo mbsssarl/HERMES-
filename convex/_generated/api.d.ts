@@ -53,6 +53,7 @@ import type * as lib_productPricing from "../lib/productPricing.js";
 import type * as lib_sectionHeaders from "../lib/sectionHeaders.js";
 import type * as lib_stringSimilarity from "../lib/stringSimilarity.js";
 import type * as lib_tokens from "../lib/tokens.js";
+import type * as multiTenantMigration from "../multiTenantMigration.js";
 import type * as orderItemEdits from "../orderItemEdits.js";
 import type * as orderItems from "../orderItems.js";
 import type * as orderValidation from "../orderValidation.js";
@@ -120,6 +121,7 @@ declare const fullApi: ApiFromModules<{
   "lib/sectionHeaders": typeof lib_sectionHeaders;
   "lib/stringSimilarity": typeof lib_stringSimilarity;
   "lib/tokens": typeof lib_tokens;
+  multiTenantMigration: typeof multiTenantMigration;
   orderItemEdits: typeof orderItemEdits;
   orderItems: typeof orderItems;
   orderValidation: typeof orderValidation;
