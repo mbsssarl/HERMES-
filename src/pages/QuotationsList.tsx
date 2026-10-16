@@ -135,12 +135,12 @@ export function QuotationsList({
               <tbody>
                 {filtered.map((q) => (
                   <tr key={q.id} className="clickable" onClick={() => onOpen(q)}>
-                    <td><div className="cell-ref"><span className="mono ref">{q.quotation_number}</span><UpdateBadge update={q.catalog_update} compact /></div></td>
-                    <td><ClientCell name={q.customer_name} /></td>
-                    <td className="cell-ellipsis" title={q.countries ? regionLabel(q.countries) : undefined}>{q.countries ? regionLabel(q.countries) : '·'}</td>
-                    <td><StatusTag status={q.status} /></td>
-                    <td className="text-right mono">{formatAmount(q.total)}</td>
-                    <td className="text-muted nowrap">{formatDate(q.created_at)}</td>
+                    <td data-label={t('common.reference')}><div className="cell-ref"><span className="mono ref">{q.quotation_number}</span><UpdateBadge update={q.catalog_update} compact /></div></td>
+                    <td data-label={t('common.client')}><ClientCell name={q.customer_name} /></td>
+                    <td className="cell-ellipsis" data-label={t('common.region')} title={q.countries ? regionLabel(q.countries) : undefined}>{q.countries ? regionLabel(q.countries) : '·'}</td>
+                    <td data-label={t('common.status')}><StatusTag status={q.status} /></td>
+                    <td className="text-right mono" data-label={t('common.total')}>{formatAmount(q.total)}</td>
+                    <td className="text-muted nowrap" data-label={t('common.date')}>{formatDate(q.created_at)}</td>
                     {isAdmin && (
                       <td className="text-right" onClick={(e) => e.stopPropagation()}>
                         {q.status === 'DELETED' ? (
