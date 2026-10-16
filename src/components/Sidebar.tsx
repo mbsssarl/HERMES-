@@ -2,8 +2,7 @@ import React from 'react';
 import { FileText, Package, LayoutDashboard, LogOut, Settings as SettingsIcon, ShieldCheck } from 'lucide-react';
 import { useAuthActions } from '@convex-dev/auth/react';
 import type { AppUser } from '../types';
-import { setLanguage, useT } from '../lib/i18n';
-import { applyTheme } from '../lib/theme';
+import { useT } from '../lib/i18n';
 import { useBranding } from '../lib/branding';
 import { Modal } from './ui';
 
@@ -74,16 +73,7 @@ export function Sidebar({
         onClose={() => setConfirmLogout(false)}
         footer={<>
           <button className="btn" onClick={() => setConfirmLogout(false)}>{t('common.cancel')}</button>
-          <button
-            className="btn btn-primary"
-            onClick={() => {
-              applyTheme('light');
-              setLanguage('fr');
-              void signOut();
-            }}
-          >
-            {t('nav.logoutConfirm')}
-          </button>
+          <button className="btn btn-primary" onClick={() => void signOut()}>{t('nav.logoutConfirm')}</button>
         </>}
       >
         <p>{t('nav.logoutBody')}</p>

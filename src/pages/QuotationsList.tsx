@@ -1,7 +1,7 @@
 import React from 'react';
-import { Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { useMutation } from 'convex/react';
-import { api, type Id } from '../lib/convex';
+import { api } from '../lib/convex';
 import { useToast } from '../components/Toast';
 import type { QuotationWithRelations } from '../types';
 import { formatAmount, formatDate, regionLabel } from '../lib/format';
@@ -31,28 +31,6 @@ export function QuotationsList({
   const toast = useToast();
   const purgeDeleted = useMutation(api.orders.purgeDeleted);
   const [confirmPurge, setConfirmPurge] = React.useState(false);
-  const removeOrder = useMutation(api.orders.remove);
-  const restoreOrder = useMutation(api.orders.restore);
-  const [toDelete, setToDelete] = React.useState<QuotationWithRelations | null>(null);
-  const [deletingOne, setDeletingOne] = React.useState(false);
-
-  const deleteOne = async () => {
-    if (!toDelete) return;
-    setDeletingOne(true);
-    try {
-      await removeOrder({ orderId: toDelete.id as Id<'orders'> });
-      toast(t('list.deleted', { ref: toDelete.quotation_number }), 'success');
-      setToDelete(null);
-    } catch (err) {
-      toast('Erreur: ' + (err instanceof Error ? err.message : String(err)), 'error');
-    } finally {
-      setDeletingOne(false);
-    }
-  };
-  const restoreOne = (q: QuotationWithRelations) =>
-    restoreOrder({ orderId: q.id as Id<'orders'> })
-      .then(() => toast(t('list.restored', { ref: q.quotation_number }), 'success'))
-      .catch((err) => toast('Erreur: ' + (err instanceof Error ? err.message : String(err)), 'error'));
   const [purging, setPurging] = React.useState(false);
   const [filter, setFilter] = React.useState<string>('ALL');
   const filters: Array<{ id: string; label: string }> = [
@@ -130,11 +108,7 @@ export function QuotationsList({
                   <th style={{ width: 160 }}>{t('common.status')}</th>
                   <th className="text-right" style={{ width: 110 }}>{t('common.total')}</th>
                   <th style={{ width: 170 }}>{t('common.date')}</th>
-<<<<<<< HEAD
                   {isAdmin && filter !== 'DELETED' && <th style={{ width: 56 }} />}
-=======
-                  {isAdmin && <th style={{ width: 64 }} aria-label="Actions" />}
->>>>>>> 3c6f2f1a2c9b16edd0f89958b50fd21ce907492e
                 </tr>
               </thead>
               <tbody>
@@ -154,21 +128,6 @@ export function QuotationsList({
           </div>
         )}
       </div>
-
-      {toDelete && (
-        <Modal
-          title={t('list.deleteTitle')}
-          onClose={() => !deletingOne && setToDelete(null)}
-          footer={<>
-            <button className="btn" onClick={() => setToDelete(null)} disabled={deletingOne}>{t('common.cancel')}</button>
-            <button className="btn btn-primary" style={{ background: '#dc2626' }} onClick={() => void deleteOne()} disabled={deletingOne}>
-              {deletingOne ? t('list.purging') : t('list.delete')}
-            </button>
-          </>}
-        >
-          <p>{t('list.deleteBody', { ref: toDelete.quotation_number })}</p>
-        </Modal>
-      )}
 
       {confirmPurge && (
         <Modal

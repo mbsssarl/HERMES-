@@ -47,11 +47,11 @@ export function QuotationDetail({
   const [refreshing, setRefreshing] = React.useState(false);
   // Cotation des lignes saisie en pourcentage ou en montant par unité (choix mémorisé sur ce poste).
   const [cotationMode, setCotationMode] = React.useState<'percent' | 'price'>(() => {
-    try { return localStorage.getItem(`cotationMode:${meId}`) === 'price' ? 'price' : 'percent'; } catch { return 'percent'; }
+    try { return localStorage.getItem('cotationMode') === 'price' ? 'price' : 'percent'; } catch { return 'percent'; }
   });
   const changeCotationMode = (mode: 'percent' | 'price') => {
     setCotationMode(mode);
-    try { localStorage.setItem(`cotationMode:${meId}`, mode); } catch { /* stockage indisponible */ }
+    try { localStorage.setItem('cotationMode', mode); } catch { /* stockage indisponible */ }
   };
   const updateStatus = useMutation(api.orders.updateStatus);
   const applyGlobalPricing = useMutation(api.orders.applyGlobalPricing);

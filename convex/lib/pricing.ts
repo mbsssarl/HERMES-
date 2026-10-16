@@ -51,5 +51,5 @@ export function adaptiveNumFmt(format: string, value: number | undefined): strin
   const frac = decimals === 0 ? "" : "." + "0".repeat(decimals);
   // Seules les parties numériques changent (pas le texte entre crochets ou guillemets, ex. « [$-409] ») ; un format
   // sans décimales (« #,##0 ») en reçoit si la valeur en a (2 au maximum).
-  return format.replace(/(\[[^\]]*\]|"[^"]*"|\\.)|([#0,]*0)(\.[0#]+)?/g, (m, literal, int) => (literal ? m : int + frac));
+  return format.replace(/(\[[^\]]*\]|"[^"]*"|\\.|_.|\*.)|([#0,]*0)(\.[0#]+)?/g, (m, literal, int) => (literal ? m : int + frac));
 }
