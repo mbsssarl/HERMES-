@@ -70,8 +70,8 @@ npx convex run users:bootstrapFirstAdmin
 Compte existant mais connexion impossible (ex. après un import de backup) :
 
 ```bash
-npx convex run debugAuth:checkAccount '{"email":"admin@hermes.local"}'                        # diagnostic
-npx convex run debugAuth:recoverLogin '{"email":"admin@hermes.local","newPassword":"..."}'   # mot de passe à usage unique
+npx convex run debugAuth:checkAccount '{"email":"admin@hermes.dev"}'                        # diagnostic
+npx convex run debugAuth:recoverLogin '{"email":"admin@hermes.dev","newPassword":"..."}'   # mot de passe à usage unique
 ```
 
 ### 6. Lancer le frontend

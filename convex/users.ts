@@ -38,7 +38,7 @@ export const listUsers = query({
   },
 });
 
-const DEFAULT_ADMIN_EMAIL = "admin@hermes.local";
+const DEFAULT_ADMIN_EMAIL = "admin@hermes.dev";
 const DEFAULT_ADMIN_PASSWORD = "Hermes-Admin-2026!";
 
 /**
