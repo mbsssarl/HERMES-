@@ -10,7 +10,7 @@ export function useMe(): AppUser | null | undefined {
   const me = useQuery(api.users.getCurrentUser);
   return React.useMemo(() => {
     if (me === undefined || me === null) return me;
-    return { id: me._id, email: me.email ?? '', role: me.role, mustChangePassword: !!me.mustChangePassword, companySuspended: me.companySuspended, companyName: me.companyName, theme: me.theme ?? 'light', language: me.language ?? 'fr' };
+    return { id: me._id, email: me.email ?? '', role: me.role, mustChangePassword: !!me.mustChangePassword, companySuspended: me.companySuspended, companyName: me.companyName, companySuspendKind: me.companySuspendKind, companySubscriptionEndsAt: me.companySubscriptionEndsAt, companySuspendReason: me.companySuspendReason, theme: me.theme ?? 'light', language: me.language ?? 'fr' };
   }, [me]);
 }
 

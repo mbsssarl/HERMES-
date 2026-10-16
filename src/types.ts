@@ -180,6 +180,12 @@ export interface AppUser {
   /** L'entreprise du compte est suspendue : seul l'écran d'information est accessible. */
   companySuspended: boolean;
   companyName: string | null;
+  /** « subscription » : abonnement échu ; « manual » : décision du super admin ; null : pas suspendue (ou ancienne suspension). */
+  companySuspendKind: 'manual' | 'subscription' | null;
+  /** Fin de l'abonnement (ms), null = pas d'échéance. */
+  companySubscriptionEndsAt: number | null;
+  /** Motif de la suspension saisi par le super admin (null pour un abonnement échu). */
+  companySuspendReason: string | null;
   theme: 'light' | 'dark';
   language: 'fr' | 'en';
 }

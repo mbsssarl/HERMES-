@@ -16,6 +16,7 @@ import { applyTheme } from './lib/theme';
 import { setLanguage, useLanguage } from './lib/i18n';
 import { api } from './lib/convex';
 import { StateBox } from './components/ui';
+import { showSuspension } from './lib/suspension';
 import { useCountries, useCurrencies, useMe, useProductCategories, useProducts, useQuotation, useQuotations } from './lib/hooks';
 
 function AccessDenied() {
@@ -31,21 +32,7 @@ function AccessDenied() {
   );
 }
 
-function CompanySuspended({ name }: { name: string | null }) {
-  const { signOut } = useAuthActions();
-  return (
-    <div style={{ display: 'grid', placeItems: 'center', minHeight: '100vh', padding: 24, textAlign: 'center' }}>
-      <div style={{ maxWidth: 420 }}>
-        <h2>Entreprise suspendue</h2>
-        <p>
-          L'accès de {name ? <strong>{name}</strong> : 'votre entreprise'} à l'application est suspendu. Contactez l'administrateur de la
-          plateforme pour le rétablir.
-        </p>
-        <button className="submit-button" type="button" onClick={() => void signOut()}>Se déconnecter</button>
-      </div>
-    </div>
-  );
-}
+const longDate = (ms: number) => new Intl.DateTimeFormat('fr-FR', { dateStyle: 'long' }).format(new Date(ms));
 
 /**
  * Aiguillage après connexion : le super admin va à son espace, une entreprise suspendue à l'écran d'information,
@@ -53,15 +40,26 @@ function CompanySuspended({ name }: { name: string | null }) {
  */
 function Gate() {
   const me = useMe();
+  const { signOut } = useAuthActions();
   useLanguage();
   const theme = me?.theme;
   React.useEffect(() => { if (theme) applyTheme(theme); }, [theme]);
   const language = me?.language;
   React.useEffect(() => { if (language) setLanguage(language); }, [language]);
 
-  if (me === undefined) return <StateBox loading variant="app" title="Chargement…" />;
+  // Entreprise suspendue (à la connexion, ou pendant la session) : retour discret à la page de connexion, qui explique
+  // pourquoi dans une fenêtre d'information - jamais un message d'erreur.
+  const suspended = me?.companySuspended === true;
+  React.useEffect(() => {
+    if (!me || !suspended) return;
+    showSuspension({ name: me.companyName, kind: me.companySuspendKind, reason: me.companySuspendReason, endsAt: me.companySubscriptionEndsAt });
+    applyTheme('light');
+    setLanguage('fr');
+    void signOut();
+  }, [me, suspended, signOut]);
+
+  if (me === undefined || suspended) return <StateBox loading variant="app" title="Chargement…" />;
   if (me === null) return <AccessDenied />;
-  if (me.companySuspended) return <CompanySuspended name={me.companyName} />;
   if (me.role === 'superadmin') return me.mustChangePassword ? <SetPassword /> : <PlatformApp me={me} />;
   return <AppInner />;
 }
@@ -156,6 +154,12 @@ function AppInner() {
     <div className="app">
       <Sidebar current={view} onNavigate={goTo} pendingCount={pendingCount} updatedCount={updatedCount} me={me} />
       <main className="main">
+        {me.role === 'admin' && me.companySubscriptionEndsAt !== null && me.companySubscriptionEndsAt - Date.now() <= 7 * 86_400_000 && (
+          <div className="card card-pad" style={{ marginBottom: 16, borderColor: '#f59e0b' }} role="status">
+            L'abonnement de votre entreprise expire le <strong>{longDate(me.companySubscriptionEndsAt)}</strong>. Passé cette date, plus aucun
+            compte ne pourra se connecter : contactez l'administrateur de la plateforme pour le renouveler.
+          </div>
+        )}
         {view === 'dashboard' && (
           <Dashboard
             quotations={quotations}

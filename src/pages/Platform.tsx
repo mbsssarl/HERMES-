@@ -1,7 +1,7 @@
 import React from 'react';
 import { useMutation, useQuery } from 'convex/react';
 import { useAuthActions } from '@convex-dev/auth/react';
-import { Building2, Copy, KeyRound, LogOut, Palette, Pencil, PauseCircle, PlayCircle, Plus, Settings as SettingsIcon } from 'lucide-react';
+import { Building2, CalendarPlus, Copy, KeyRound, LogOut, Palette, Pencil, PauseCircle, PlayCircle, Plus, Settings as SettingsIcon } from 'lucide-react';
 import { api, type Id } from '../lib/convex';
 import { applyTheme } from '../lib/theme';
 import { setLanguage } from '../lib/i18n';
@@ -10,10 +10,13 @@ import { formatDate } from '../lib/format';
 import { Modal, StateBox } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { BrandingTab } from './BrandingTab';
+import { SubscriptionCountdown } from '../components/SubscriptionCountdown';
 import { Settings } from './Settings';
 import type { AppUser } from '../types';
 
 type PlatformView = 'companies' | 'branding' | 'settings';
+
+const longDate = (ms: number) => new Intl.DateTimeFormat('fr-FR', { dateStyle: 'long' }).format(new Date(ms));
 
 const errMsg = (err: unknown) => (err instanceof Error ? err.message.replace(/^.*Uncaught Error:\s*/s, '').split('\n')[0] : String(err));
 
@@ -111,6 +114,7 @@ function CompaniesView() {
   const renameCompany = useMutation(api.platform.renameCompany);
   const setStatus = useMutation(api.platform.setCompanyStatus);
   const resetAdmin = useMutation(api.platform.resetCompanyAdminPassword);
+  const renew = useMutation(api.platform.renewSubscription);
 
   type Company = NonNullable<typeof companies>[number];
   const [showCreate, setShowCreate] = React.useState(false);
@@ -177,6 +181,11 @@ function CompaniesView() {
     setSecret({ title: 'Mot de passe réinitialisé', email: res.email, password: res.tempPassword, intro: 'Mot de passe à usage unique pour' });
   });
 
+  const renewOne = (c: Company) => run(async () => {
+    const res = await renew({ companyId: c.id as Id<'companies'> });
+    toast(`Abonnement de ${c.name} renouvelé jusqu'au ${longDate(res.subscriptionEndsAt)}${res.reactivated ? ' : entreprise réactivée.' : '.'}`, 'success');
+  });
+
   const adminPreview = `admin@${(code || 'code').trim().toLowerCase()}.dev`;
 
   return (
@@ -202,6 +211,7 @@ function CompaniesView() {
                   <th>Entreprise</th>
                   <th>Administrateur</th>
                   <th>Statut</th>
+                  <th>Abonnement</th>
                   <th className="text-right">Comptes</th>
                   <th className="text-right">Quotations</th>
                   <th>Dernière connexion</th>
@@ -217,15 +227,28 @@ function CompaniesView() {
                     </td>
                     <td className="text-muted">{c.adminEmail ?? '·'}</td>
                     <td>
-                      <span className={`tag ${c.status === 'active' ? 'tag-new' : 'tag-warn'}`}>{c.status === 'active' ? 'Active' : 'Suspendue'}</span>
+                      <span className={`tag ${c.status === 'active' ? 'tag-new' : 'tag-warn'}`}>{c.status === 'active' ? 'Active' : c.suspendKind === 'subscription' ? 'Abonnement expiré' : 'Suspendue'}</span>
                       {c.status === 'suspended' && c.suspendReason && (
                         <div className="text-muted" style={{ fontSize: 12, marginTop: 4, maxWidth: 220 }}>{c.suspendReason}</div>
+                      )}
+                    </td>
+                    <td className="nowrap">
+                      {c.subscriptionEndsAt === null ? (
+                        <span className="text-muted">Sans échéance</span>
+                      ) : (
+                        <>
+                          <div>{longDate(c.subscriptionEndsAt)}</div>
+                          <div style={{ fontSize: 12 }}><SubscriptionCountdown endsAt={c.subscriptionEndsAt} /></div>
+                        </>
                       )}
                     </td>
                     <td className="text-right mono">{c.activeUsers}/{c.users}</td>
                     <td className="text-right mono">{c.orders}{c.ordersCapped ? '+' : ''}</td>
                     <td className="text-muted nowrap">{c.lastLoginAt ? formatDate(new Date(c.lastLoginAt).toISOString()) : 'Jamais'}</td>
                     <td className="text-right nowrap">
+                      <button className="btn btn-ghost btn-sm" title="Renouveler l'abonnement de 30 jours" onClick={() => void renewOne(c)} disabled={busy}>
+                        <CalendarPlus size={14} /> Renouveler
+                      </button>
                       <button className="btn btn-ghost btn-sm" title="Renommer" onClick={() => { setToRename(c); setNewName(c.name); }}>
                         <Pencil size={14} />
                       </button>
@@ -312,18 +335,19 @@ function CompaniesView() {
           onClose={() => !busy && setToSuspend(null)}
           footer={<>
             <button className="btn" onClick={() => setToSuspend(null)} disabled={busy}>Annuler</button>
-            <button className="btn btn-primary" style={{ background: '#dc2626', borderColor: '#dc2626' }} onClick={() => void submitSuspend()} disabled={busy}>
+            <button className="btn btn-primary" style={{ background: '#dc2626', borderColor: '#dc2626' }} onClick={() => void submitSuspend()} disabled={busy || reason.trim().length < 3}>
               {busy ? 'Suspension…' : 'Suspendre'}
             </button>
           </>}
         >
           <p>
             Les {toSuspend.activeUsers} compte(s) actif(s) de cette entreprise seront refusés à la connexion et ceux qui sont
-            connectés seront bloqués immédiatement. Aucune donnée n'est supprimée : la réactivation rétablit tout.
+            connectés seront renvoyés à la page de connexion aussitôt. Aucune donnée n'est supprimée : la réactivation rétablit tout.
           </p>
           <div className="form-field" style={{ marginTop: 12, marginBottom: 0 }}>
-            <label>Motif (optionnel, visible par vous seul)</label>
-            <input className="input" value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} />
+            <label>Motif de la suspension</label>
+            <input className="input" value={reason} maxLength={300} autoFocus placeholder="Ex. : paiement non reçu, demande du client…" onChange={(e) => setReason(e.target.value)} />
+            <span className="text-muted" style={{ fontSize: 12 }}>Obligatoire. Ce texte sera montré aux personnes qui tentent de se connecter à cette entreprise.</span>
           </div>
         </Modal>
       )}

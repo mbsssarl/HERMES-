@@ -4,6 +4,8 @@ import { useAuthActions } from '@convex-dev/auth/react';
 import { useMutation } from 'convex/react';
 import { Eye, EyeOff, Lock, Mail } from 'lucide-react';
 import { api } from '../lib/convex';
+import { clearSuspension, useSuspension } from '../lib/suspension';
+import { Modal } from '../components/ui';
 
 // ---------------------------------------------------------------------------
 // Textes FR / EN des écrans d'authentification
@@ -40,6 +42,16 @@ const TEXTS = {
     setSubmit: 'Enregistrer le mot de passe',
     show: 'Afficher le mot de passe',
     rights: 'Tous droits réservés',
+    suspExpiredTitle: 'Abonnement expiré',
+    suspExpiredBody: "L'abonnement de {name} a pris fin{date}. L'accès à l'application est suspendu pour tous les comptes de l'entreprise, sans aucune perte de données.",
+    suspExpiredHint: "Contactez l'administrateur de la plateforme pour renouveler l'abonnement : tout redevient disponible dès le renouvellement.",
+    suspTitle: 'Accès suspendu',
+    suspBody: "L'accès de {name} à l'application a été suspendu par l'administrateur de la plateforme.",
+    suspReason: 'Motif',
+    suspHint: "Aucune donnée n'est perdue. Contactez l'administrateur de la plateforme pour rétablir l'accès.",
+    suspOn: ' le {date}',
+    thisCompany: 'votre entreprise',
+    understood: 'Compris',
   },
   EN: {
     welcome: 'Welcome back on board,',
@@ -69,6 +81,16 @@ const TEXTS = {
     setSubmit: 'Save the password',
     show: 'Show password',
     rights: 'All rights reserved',
+    suspExpiredTitle: 'Subscription expired',
+    suspExpiredBody: 'The subscription of {name} ended{date}. Access to the application is suspended for every account of the company, with no data loss.',
+    suspExpiredHint: 'Contact the platform administrator to renew the subscription: everything is available again as soon as it is renewed.',
+    suspTitle: 'Access suspended',
+    suspBody: 'Access to the application for {name} has been suspended by the platform administrator.',
+    suspReason: 'Reason',
+    suspHint: 'No data is lost. Contact the platform administrator to restore access.',
+    suspOn: ' on {date}',
+    thisCompany: 'your company',
+    understood: 'Understood',
   },
 } as const;
 
@@ -220,6 +242,7 @@ export function Login() {
   const [password, setPassword] = React.useState('');
   const [message, setMessage] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
+  const suspension = useSuspension();
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -265,6 +288,30 @@ export function Login() {
         {message && <p className="form-message error" role="status">{message}</p>}
       </form>
       <p className="code-hint">{t.forgotHelp}</p>
+      {suspension && (() => {
+        // Identifiants valides mais entreprise suspendue (ou suspendue pendant la session) : on explique pourquoi.
+        const who = suspension.name ? <strong>{suspension.name}</strong> : t.thisCompany;
+        const date = suspension.endsAt ? new Intl.DateTimeFormat(lang === 'FR' ? 'fr-FR' : 'en-GB', { dateStyle: 'long' }).format(new Date(suspension.endsAt)) : null;
+        const expired = suspension.kind === 'subscription';
+        const [before, after] = (expired ? t.suspExpiredBody : t.suspBody).split('{name}');
+        const withDate = (s: string) => s.replace('{date}', date ? t.suspOn.replace('{date}', date) : '');
+        return (
+          <Modal
+            title={expired ? t.suspExpiredTitle : t.suspTitle}
+            onClose={clearSuspension}
+            footer={<button className="btn btn-primary" onClick={clearSuspension}>{t.understood}</button>}
+          >
+            <p>{withDate(before)}{who}{withDate(after)}</p>
+            {!expired && suspension.reason && (
+              <div className="form-field" style={{ marginTop: 12, marginBottom: 0 }}>
+                <label>{t.suspReason}</label>
+                <p style={{ margin: 0, fontWeight: 600 }}>{suspension.reason}</p>
+              </div>
+            )}
+            <p className="text-muted" style={{ fontSize: 13, marginTop: 12 }}>{expired ? t.suspExpiredHint : t.suspHint}</p>
+          </Modal>
+        );
+      })()}
     </AuthShell>
   );
 }

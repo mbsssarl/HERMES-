@@ -29,7 +29,17 @@ export const getCurrentUser = query({
     // L'entreprise suspendue est signalée à l'interface (écran « Entreprise suspendue ») ; toutes les autres
     // fonctions refusent alors ce compte (voir lib/permissions.ts).
     const { company, suspended } = await companyStateOf(ctx, user);
-    return { ...user, companySuspended: suspended, companyName: company?.name ?? null };
+    return {
+      ...user,
+      companySuspended: suspended,
+      companyName: company?.name ?? null,
+      // Pourquoi (abonnement échu ou décision du super admin) et quand : sert au message de l'écran de suspension
+      // et à l'alerte « abonnement bientôt échu » de l'administrateur.
+      companySuspendKind: company?.suspendKind ?? null,
+      companySubscriptionEndsAt: company?.subscriptionEndsAt ?? null,
+      // Motif donné par le super admin, affiché à quiconque se connecte à l'entreprise suspendue.
+      companySuspendReason: suspended ? (company?.suspendReason ?? null) : null,
+    };
   },
 });
 

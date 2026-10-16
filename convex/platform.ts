@@ -1,7 +1,9 @@
 import { createAccount, invalidateSessions, modifyAccountCredentials } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
-import { mutation, type MutationCtx, query } from "./_generated/server";
+import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
+import { internalMutation, mutation, type MutationCtx, query } from "./_generated/server";
 import { logActivity } from "./lib/audit";
 import { requireSuperadmin } from "./lib/permissions";
 import { generateTempPassword } from "./lib/tokens";
@@ -20,6 +22,20 @@ function asAuthCtx(ctx: MutationCtx): Parameters<typeof createAccount>[0] {
 const CODE_RE = /^[a-z0-9][a-z0-9-]{1,29}$/;
 const MAX_NAME = 80;
 const ORDER_COUNT_CAP = 5000;
+/** Durée d'un abonnement : 30 jours. */
+const SUBSCRIPTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Planifie la suspension automatique à l'échéance exacte (ignorée si l'abonnement a été renouvelé entre-temps). */
+async function scheduleExpiry(ctx: MutationCtx, companyId: Id<"companies">, endsAt: number): Promise<void> {
+  await ctx.scheduler.runAt(endsAt, internal.platform.expireCompany, { companyId, endsAt });
+}
+
+/** Suspend l'entreprise parce que son abonnement est échu ; sans effet si elle est déjà suspendue. */
+async function suspendForExpiry(ctx: MutationCtx, company: Doc<"companies">): Promise<void> {
+  if (company.status !== "active") return;
+  await ctx.db.patch(company._id, { status: "suspended", suspendKind: "subscription", suspendedAt: Date.now(), suspendedBy: undefined, suspendReason: undefined });
+  await logActivity(ctx, { userId: null, action: "company.subscription_expired", entityType: "company", entityId: company._id, metadata: { name: company.name, endedAt: company.subscriptionEndsAt ?? null } });
+}
 
 /** Les entreprises avec leurs compteurs (comptes, commandes, dernière connexion). */
 export const listCompanies = query({
@@ -40,6 +56,8 @@ export const listCompanies = query({
           createdAt: company.createdAt,
           suspendedAt: company.suspendedAt ?? null,
           suspendReason: company.suspendReason ?? null,
+          suspendKind: company.suspendKind ?? null,
+          subscriptionEndsAt: company.subscriptionEndsAt ?? null,
           adminEmail: admin?.email ?? null,
           users: users.length,
           activeUsers: users.filter((u) => u.status === "active").length,
@@ -74,13 +92,16 @@ export const createCompany = mutation({
     }
 
     const template = await ctx.db.query("companies").order("asc").first();
+    const subscriptionEndsAt = Date.now() + SUBSCRIPTION_MS;
     const companyId = await ctx.db.insert("companies", {
       name: cleanName,
       code: cleanCode,
       status: "active",
+      subscriptionEndsAt,
       createdAt: Date.now(),
       createdBy: root._id,
     });
+    await scheduleExpiry(ctx, companyId, subscriptionEndsAt);
 
     // Référentiels de départ copiés de la première entreprise (le super admin n'y lit rien d'autre que des listes).
     if (template) {
@@ -111,7 +132,7 @@ export const createCompany = mutation({
     });
 
     await logActivity(ctx, { userId: root._id, action: "company.created", entityType: "company", entityId: companyId, metadata: { name: cleanName, code: cleanCode } });
-    return { companyId, adminEmail, tempPassword, adminUserId: user._id };
+    return { companyId, adminEmail, tempPassword, adminUserId: user._id, subscriptionEndsAt };
   },
 });
 
@@ -141,8 +162,16 @@ export const setCompanyStatus = mutation({
     const company = await ctx.db.get(companyId);
     if (!company) throw new Error("Entreprise introuvable.");
     const cleanReason = reason?.trim().slice(0, 300) || undefined;
+    // Le motif est montré aux personnes qui tentent de se connecter : obligatoire pour une suspension.
+    if (status === "suspended" && (!cleanReason || cleanReason.length < 3)) {
+      throw new Error("Indiquez le motif de la suspension : il sera communiqué aux utilisateurs de l'entreprise.");
+    }
+    if (status === "active" && company.subscriptionEndsAt !== undefined && company.subscriptionEndsAt <= Date.now()) {
+      throw new Error("L'abonnement de cette entreprise est expiré : renouvelez-le pour la réactiver.");
+    }
     await ctx.db.patch(companyId, {
       status,
+      suspendKind: status === "suspended" ? "manual" : undefined,
       suspendedAt: status === "suspended" ? Date.now() : undefined,
       suspendedBy: status === "suspended" ? root._id : undefined,
       suspendReason: status === "suspended" ? cleanReason : undefined,
@@ -175,5 +204,55 @@ export const resetCompanyAdminPassword = mutation({
     await invalidateSessions(asAuthCtx(ctx), { userId: admin._id });
     await logActivity(ctx, { userId: root._id, action: "company.admin_password_reset", entityType: "company", entityId: companyId, metadata: { email: admin.email } });
     return { email: admin.email, tempPassword };
+  },
+});
+
+/**
+ * Renouvelle l'abonnement de 30 jours : à partir de l'échéance actuelle si elle n'est pas dépassée (aucun jour
+ * perdu en cas de renouvellement anticipé), sinon à partir d'aujourd'hui. Lève la suspension si c'est
+ * l'abonnement qui l'avait causée ; une suspension décidée par le super admin reste en place.
+ */
+export const renewSubscription = mutation({
+  args: { companyId: v.id("companies") },
+  handler: async (ctx, { companyId }) => {
+    const root = await requireSuperadmin(ctx);
+    const company = await ctx.db.get(companyId);
+    if (!company) throw new Error("Entreprise introuvable.");
+    const now = Date.now();
+    const base = company.subscriptionEndsAt !== undefined && company.subscriptionEndsAt > now ? company.subscriptionEndsAt : now;
+    const subscriptionEndsAt = base + SUBSCRIPTION_MS;
+    const reactivate = company.status === "suspended" && company.suspendKind === "subscription";
+    await ctx.db.patch(companyId, {
+      subscriptionEndsAt,
+      ...(reactivate ? { status: "active" as const, suspendKind: undefined, suspendedAt: undefined, suspendedBy: undefined, suspendReason: undefined } : {}),
+    });
+    await scheduleExpiry(ctx, companyId, subscriptionEndsAt);
+    await logActivity(ctx, { userId: root._id, action: "company.subscription_renewed", entityType: "company", entityId: companyId, metadata: { name: company.name, endsAt: subscriptionEndsAt, reactivated: reactivate } });
+    return { subscriptionEndsAt, reactivated: reactivate };
+  },
+});
+
+/** Exécutée à l'échéance exacte (planifiée) : suspend l'entreprise sauf si l'abonnement a été renouvelé depuis. */
+export const expireCompany = internalMutation({
+  args: { companyId: v.id("companies"), endsAt: v.number() },
+  handler: async (ctx, { companyId, endsAt }) => {
+    const company = await ctx.db.get(companyId);
+    if (!company || company.subscriptionEndsAt !== endsAt) return null;
+    await suspendForExpiry(ctx, company);
+    return null;
+  },
+});
+
+/** Filet de sécurité (tâche horaire) : suspend toute entreprise active dont l'échéance est dépassée. */
+export const expireDue = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    for (const company of await ctx.db.query("companies").take(500)) {
+      if (company.status === "active" && company.subscriptionEndsAt !== undefined && company.subscriptionEndsAt <= now) {
+        await suspendForExpiry(ctx, company);
+      }
+    }
+    return null;
   },
 });

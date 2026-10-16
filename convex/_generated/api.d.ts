@@ -15,6 +15,7 @@ import type * as branding from "../branding.js";
 import type * as catalogImport from "../catalogImport.js";
 import type * as clients from "../clients.js";
 import type * as countries from "../countries.js";
+import type * as crons from "../crons.js";
 import type * as currencies from "../currencies.js";
 import type * as debugAuth from "../debugAuth.js";
 import type * as emails from "../emails.js";
@@ -84,6 +85,7 @@ declare const fullApi: ApiFromModules<{
   catalogImport: typeof catalogImport;
   clients: typeof clients;
   countries: typeof countries;
+  crons: typeof crons;
   currencies: typeof currencies;
   debugAuth: typeof debugAuth;
   emails: typeof emails;
