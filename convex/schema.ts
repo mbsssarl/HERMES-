@@ -87,7 +87,9 @@ const schema = defineSchema({
   })
     // Index requis par @convex-dev/auth pour retrouver un compte par email
     // lors de la connexion (le nom "email" n'est pas arbitraire).
-    .index("email", ["email"]),
+    .index("email", ["email"])
+    // Comptes d'une entreprise (liste des utilisateurs de l'admin) - le super admin, sans entreprise, n'y figure jamais.
+    .index("by_company", ["companyId"]),
 
   // ------------------------------------------------------------------
   // QUOTATIONS VUES

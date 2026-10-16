@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation, mutation, type MutationCtx, query } from "./_generated/server";
 import { logActivity } from "./lib/audit";
-import { requireAdmin, requireUser } from "./lib/permissions";
+import { assertSameCompany, companyIdOf, requireAdmin, requireUser } from "./lib/permissions";
 import { generateTempPassword } from "./lib/tokens";
 
 
@@ -33,8 +33,9 @@ export const getCurrentUser = query({
 export const listUsers = query({
   args: {},
   handler: async (ctx) => {
-    await requireAdmin(ctx);
-    return await ctx.db.query("users").order("desc").collect();
+    const admin = await requireAdmin(ctx);
+    // Uniquement les comptes de SON entreprise : le super admin et les autres entreprises n'apparaissent jamais.
+    return await ctx.db.query("users").withIndex("by_company", (q) => q.eq("companyId", companyIdOf(admin))).order("desc").collect();
   },
 });
 
@@ -104,6 +105,7 @@ export const createUser = mutation({
         mustChangePassword: true,
         createdAt: Date.now(),
         createdBy: admin._id,
+        companyId: companyIdOf(admin),
       },
     });
 
@@ -133,6 +135,7 @@ export const toggleUserStatus = mutation({
     if (userId === admin._id && status === "disabled") {
       throw new Error("Vous ne pouvez pas désactiver votre propre compte.");
     }
+    assertSameCompany(admin, await ctx.db.get(userId), "Utilisateur introuvable.");
 
     await ctx.db.patch(userId, {
       status,
@@ -210,6 +213,7 @@ export const adminResetPassword = mutation({
       throw new Error("Pour votre propre compte, utilisez la page Réglages.");
     }
     const user = await ctx.db.get(userId);
+    assertSameCompany(admin, user, "Utilisateur introuvable.");
     if (!user || !user.email) throw new Error("Utilisateur introuvable.");
 
     const tempPassword = generateTempPassword();
