@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { action, query } from "./_generated/server";
+import { KNOWN_CURRENCIES } from "./lib/currencyCodes";
 
 // Franc CFA (zones CEMAC/UEMOA) : parité fixe avec l'euro, garantie par traité - ce n'est PAS un taux de
 // marché flottant, donc jamais interrogé en ligne (aucune API de change ne le publie de toute façon).
@@ -42,18 +43,51 @@ async function fetchFrankfurter(from: string, to: string): Promise<RateResult> {
   return { rate, asOf: data.date ?? new Date().toISOString().slice(0, 10), source: "Banque centrale européenne (api Frankfurter)" };
 }
 
+const errText = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+// Source de secours (et seule source pour les devises hors BCE) : ExchangeRate-API, endpoint ouvert sans clé,
+// ~160 devises, mise à jour quotidienne. Attribution obligatoire : voir le lien affiché dans l'application.
+async function fetchOpenEr(from: string, to: string): Promise<RateResult> {
+  const response = await fetch(`https://open.er-api.com/v6/latest/${from}`);
+  if (!response.ok) throw new Error(`ExchangeRate-API a répondu ${response.status}`);
+  const data = (await response.json()) as { result?: string; rates?: Record<string, number>; time_last_update_utc?: string; "error-type"?: string };
+  if (data.result !== "success") throw new Error(`ExchangeRate-API : ${data["error-type"] ?? "réponse invalide"}`);
+  const rate = data.rates?.[to];
+  if (typeof rate !== "number" || !(rate > 0)) throw new Error(`ExchangeRate-API ne publie pas de taux ${from}/${to}`);
+  const day = data.time_last_update_utc ? new Date(data.time_last_update_utc) : new Date();
+  return { rate, asOf: (Number.isNaN(day.getTime()) ? new Date() : day).toISOString().slice(0, 10), source: "ExchangeRate-API (open.er-api.com)" };
+}
+
+/** Taux du marché : BCE (Frankfurter) quand les deux devises y sont, sinon/échec -> ExchangeRate-API. */
+async function fetchMarketRate(from: string, to: string): Promise<RateResult> {
+  const errors: string[] = [];
+  if (FRANKFURTER_CURRENCIES.has(from) && FRANKFURTER_CURRENCIES.has(to)) {
+    try {
+      return await fetchFrankfurter(from, to);
+    } catch (err) {
+      errors.push(errText(err));
+    }
+  }
+  try {
+    return await fetchOpenEr(from, to);
+  } catch (err) {
+    errors.push(errText(err));
+  }
+  throw new Error(`Taux en ligne indisponible pour ${from}/${to} (${errors.join(" ; ")}). Saisissez le taux manuellement.`);
+}
+
 /** Taux d'une devise vers l'euro (marché pour les devises Frankfurter, parité fixe pour XAF/XOF). */
 async function rateToEur(currency: string): Promise<RateResult> {
   if (currency === "EUR") return { rate: 1, asOf: "identique", source: "Même devise" };
   if (EUR_PEGGED[currency]) return { rate: 1 / EUR_PEGGED[currency], asOf: "parité fixe", source: PEG_SOURCE };
-  return fetchFrankfurter(currency, "EUR");
+  return fetchMarketRate(currency, "EUR");
 }
 
 /** Taux de l'euro vers une devise (marché pour les devises Frankfurter, parité fixe pour XAF/XOF). */
 async function rateFromEur(currency: string): Promise<RateResult> {
   if (currency === "EUR") return { rate: 1, asOf: "identique", source: "Même devise" };
   if (EUR_PEGGED[currency]) return { rate: EUR_PEGGED[currency], asOf: "parité fixe", source: PEG_SOURCE };
-  return fetchFrankfurter("EUR", currency);
+  return fetchMarketRate("EUR", currency);
 }
 
 /**
@@ -69,6 +103,9 @@ export async function fetchExchangeRate(from: string, to: string): Promise<RateR
   if (t === "EUR") return rateToEur(f);
   if (EUR_PEGGED[f] && EUR_PEGGED[t]) return { rate: 1, asOf: "parité fixe", source: PEG_SOURCE };
 
+  // Aucune des deux devises n'est pégée : un seul appel direct suffit.
+  if (!EUR_PEGGED[f] && !EUR_PEGGED[t]) return fetchMarketRate(f, t);
+
   const toEur = await rateToEur(f);
   const fromEur = await rateFromEur(t);
   return { rate: toEur.rate * fromEur.rate, asOf: fromEur.asOf, source: fromEur.source };
@@ -83,5 +120,7 @@ export const getRate = action({
 /** Devises pour lesquelles la conversion en direct est réellement disponible (à filtrer côté écran). */
 export const listSupportedTargets = query({
   args: {},
-  handler: async (): Promise<string[]> => SUPPORTED_CONVERSION_CURRENCIES,
+  // Toutes les devises connues de l'app : un taux en ligne est tenté pour chacune (BCE puis ExchangeRate-API) ;
+  // si aucun n'est publié, l'écran bascule sur la saisie manuelle du taux.
+  handler: async (): Promise<string[]> => [...new Set([...SUPPORTED_CONVERSION_CURRENCIES, ...Object.keys(KNOWN_CURRENCIES)])].sort(),
 });

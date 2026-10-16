@@ -120,7 +120,10 @@ export interface QuotationWithRelations {
   export_currency: string | null;
   // Un taux par devise d'origine réellement présente parmi les lignes (voir QuotationItem.price_currency) -
   // plusieurs lignes d'une même quotation peuvent avoir été tarifées dans des devises différentes.
-  export_rates: { currency: string; rate: number; asOf: string; source: string }[];
+  export_rates: { currency: string; rate: number; ratePercent?: number; asOf: string; source: string }[];
+  // Étape 1 : taux choisis devise de prix -> USD ; étape 2 : taux USD -> export_currency (voir convex/orders.ts).
+  base_rates: { currency: string; rate: number; ratePercent?: number; asOf: string; source: string }[];
+  usd_rate: { rate: number; ratePercent?: number; asOf: string; source: string } | null;
   catalog_update: { at: number; lines: number; by: string | null } | null; // mise à jour auto après un ajout au catalogue, non vue
   document_info: DocumentInfo;
   vessel: string | null;

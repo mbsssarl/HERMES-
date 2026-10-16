@@ -34,7 +34,17 @@ Cette commande va :
 
 Laissez cette commande tourner dans un terminal pendant le développement.
 
-### 3. Variables d'environnement Convex (Brevo, URL de l'app)
+### 3. Authentification : clés de session (obligatoire)
+
+Convex Auth signe les sessions avec une paire de clés qui doit exister sur **chaque** déploiement
+(dev, prod, ou nouveau projet après un import). Sans elles, la connexion échoue avec « Server Error » :
+
+```bash
+npm run auth:setup            # déploiement de dev
+npm run auth:setup -- --prod  # déploiement de production
+```
+
+### 4. Variables d'environnement Convex (Brevo, URL de l'app)
 
 Ces variables vivent côté Convex (pas dans `.env.local`), à définir avec :
 
@@ -48,16 +58,23 @@ npx convex env set APP_URL "http://localhost:5173"
 `APP_URL` doit pointer vers l'URL publique de l'application en production
 (utilisée dans les liens des emails de bienvenue / réinitialisation de mot de passe).
 
-### 4. Premier compte administrateur
+### 5. Premier compte administrateur / compte inaccessible
 
-Aucune inscription publique n'existe (les comptes sont créés par un
-administrateur, cf. cahier des charges). Pour créer le tout premier compte
-admin, ouvrez le tableau de bord Convex (`npx convex dashboard`) et, dans
-l'onglet Functions, exécutez manuellement `users:createUser` avec un email -
-puis, toujours dans le dashboard (table `users`), passez son `role` à `"admin"`
-(la mutation `createUser` crée des comptes avec le rôle `"user"` par défaut).
+Aucune inscription publique n'existe. Base vide : créez le premier admin depuis un terminal
+(identifiants affichés ; mot de passe à changer dès la première connexion) :
 
-### 5. Lancer le frontend
+```bash
+npx convex run users:bootstrapFirstAdmin
+```
+
+Compte existant mais connexion impossible (ex. après un import de backup) :
+
+```bash
+npx convex run debugAuth:checkAccount '{"email":"admin@hermes.local"}'                        # diagnostic
+npx convex run debugAuth:recoverLogin '{"email":"admin@hermes.local","newPassword":"..."}'   # mot de passe à usage unique
+```
+
+### 6. Lancer le frontend
 
 Dans un second terminal :
 

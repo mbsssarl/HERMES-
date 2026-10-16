@@ -2,8 +2,13 @@
 
 import ExcelJS from "exceljs";
 import { locateClientColumns, mapRowsToClientItems } from "../extraction/columnMapping";
-import { locateTable } from "../extraction/excel";
+import { loadWorkbookTolerant, locateTable } from "../extraction/excel";
 import { normalizeName } from "../normalize";
+import { adaptiveNumFmt, roundMoney } from "../pricing";
+
+// Format adapté à la valeur : décimales seulement quand elles existent (« 1 » et non « 1,00 »).
+const numFmtFor = (existing: string | undefined, value: number) =>
+  adaptiveNumFmt(!existing || existing === "General" ? "#,##0.00" : existing, value);
 import { recalculateWorkbook } from "./recalc";
 
 export interface ClientFooter {
@@ -24,7 +29,6 @@ export interface ClientFillItem {
   unitPrice?: number;
 }
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
 const isEmptyCell = (value: ExcelJS.CellValue) => value === null || value === undefined || value === "";
 
 /** Texte d'une cellule (chaîne ou texte riche), sinon undefined. */
@@ -82,8 +86,7 @@ export async function fillClientWorkbook(
   items: ClientFillItem[],
   opts: { currencyLabel?: string; footer?: ClientFooter } = {},
 ): Promise<{ buffer: Buffer; filled: number; unplaced: number }> {
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(source);
+  const workbook = await loadWorkbookTolerant(source);
   const ws = workbook.worksheets[0];
   if (!ws) throw new Error("Le fichier d'origine ne contient aucune feuille.");
 
@@ -137,24 +140,41 @@ export async function fillClientWorkbook(
 
     const row = ws.getRow(rowNumber);
     const cell = row.getCell(priceCol);
-    const price = round2(item.unitPrice);
+    const price = roundMoney(item.unitPrice);
     cell.value = price;
     if (columns.unitPrice === -1) cell.style = clone(row.getCell(styleFromCol).style);
-    if (!cell.numFmt || cell.numFmt === "General") cell.numFmt = "#,##0.00";
+    cell.numFmt = numFmtFor(cell.numFmt, price);
 
     if (columns.total !== -1) {
       const totalCell = row.getCell(columns.total + 1);
       if (isEmptyCell(totalCell.value)) {
-        totalCell.value = round2(price * item.quantity);
-        if (!totalCell.numFmt || totalCell.numFmt === "General") totalCell.numFmt = "#,##0.00";
+        const lineTotal = roundMoney(price * item.quantity);
+        totalCell.value = lineTotal;
+        totalCell.numFmt = numFmtFor(totalCell.numFmt, lineTotal);
       }
     }
     filled++;
   }
 
+  // Préparation impression : la feuille d'origine est ramenée à la largeur d'une page A4.
+  ws.pageSetup = {
+    ...ws.pageSetup,
+    paperSize: 9,
+    orientation: "landscape",
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 0,
+    margins: { left: 0.25, right: 0.25, top: 0.35, bottom: 0.35, header: 0.15, footer: 0.15 },
+    printArea: `A1:${ws.getColumn(Math.max(ws.columnCount, priceCol)).letter}${Math.max(ws.rowCount, headerRowNumber)}`,
+  };
+  ws.pageSetup.scale = undefined;
+  workbook.calcProperties.fullCalcOnLoad = true;
+  // Propriétés absentes des typings d'ExcelJS (types incomplets) : on les pose via un cast.
+  Object.assign(workbook.calcProperties as object, { forceFullCalc: true, calcMode: "auto" });
+
   if (opts.footer) {
     const { discountPercent, transportFee, currency } = opts.footer;
-    const fee = transportFee && transportFee > 0 ? round2(transportFee) : 0;
+    const fee = transportFee && transportFee > 0 ? roundMoney(transportFee) : 0;
     const hasPrices = items.some((it) => it.unitPrice !== undefined);
 
     // 1) Champs prévus par le fichier du client : remise, frais de livraison, devise. Les formules du fichier
@@ -169,7 +189,7 @@ export async function fillClientWorkbook(
       }
       if (fields.delivery && fee > 0) {
         fields.delivery.value = fee;
-        if (!fields.delivery.numFmt || fields.delivery.numFmt === "General") fields.delivery.numFmt = "#,##0.00";
+        fields.delivery.numFmt = numFmtFor(fields.delivery.numFmt, fee);
         feeDone = true;
       }
       if (fields.currency && currency) fields.currency.value = currency.toUpperCase();
@@ -177,11 +197,11 @@ export async function fillClientWorkbook(
 
     // 2) Sinon (fichier sans ces champs) : récapitulatif sous le tableau.
     if (hasPrices && (!discountDone || !feeDone)) {
-      const gross = round2(
-        items.reduce((sum, it) => (it.unitPrice === undefined ? sum : sum + round2(round2(it.unitPrice) * it.quantity)), 0),
+      const gross = roundMoney(
+        items.reduce((sum, it) => (it.unitPrice === undefined ? sum : sum + roundMoney(roundMoney(it.unitPrice) * it.quantity)), 0),
       );
-      const discount = discountDone ? 0 : round2((gross * discountPercent) / 100);
-      const net = round2(gross - discount + (feeDone ? 0 : fee));
+      const discount = discountDone ? 0 : roundMoney((gross * discountPercent) / 100);
+      const net = roundMoney(gross - discount + (feeDone ? 0 : fee));
       const cur = currency ? ` ${currency}` : "";
 
       const lines: [string, number][] = [[`GROSS TOTAL${cur}`, gross]];
@@ -211,7 +231,7 @@ export async function fillClientWorkbook(
         labelCell.alignment = { horizontal: "right" };
         const amountCell = row.getCell(amountCol);
         amountCell.value = amount;
-        amountCell.numFmt = "#,##0.00";
+        amountCell.numFmt = numFmtFor(undefined, amount);
         amountCell.font = { bold: true };
         if (isNet) {
           labelCell.border = { top: { style: "thin" } };

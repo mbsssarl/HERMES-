@@ -1,7 +1,7 @@
 import { createAccount, getAuthUserId, invalidateSessions, modifyAccountCredentials, retrieveAccount } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { mutation, type MutationCtx, query } from "./_generated/server";
+import { internalMutation, mutation, type MutationCtx, query } from "./_generated/server";
 import { logActivity } from "./lib/audit";
 import { requireAdmin, requireUser } from "./lib/permissions";
 import { generateTempPassword } from "./lib/tokens";
@@ -42,12 +42,12 @@ const DEFAULT_ADMIN_EMAIL = "admin@hermes.local";
 const DEFAULT_ADMIN_PASSWORD = "Hermes-Admin-2026!";
 
 /**
- * One-time bootstrap: creates the very first admin account with fixed
- * credentials, bypassing the Brevo welcome email. Only runs while the users
- * table is empty, so it cannot be used once real accounts exist - run it
- * once, log in, change the password, then rely on `createUser` normally.
+ * One-time bootstrap: creates the very first admin account, bypassing the Brevo welcome email. Only runs
+ * while the users table is empty. INTERNAL: not callable from the browser, only from the CLI:
+ *   npx convex run users:bootstrapFirstAdmin
+ * (credentials par défaut ci-dessus, à changer dès la première connexion - le compte est forcé de le faire).
  */
-export const bootstrapFirstAdmin = mutation({
+export const bootstrapFirstAdmin = internalMutation({
   args: {},
   handler: async (ctx) => {
     const anyUser = await ctx.db.query("users").first();

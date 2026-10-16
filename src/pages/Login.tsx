@@ -30,6 +30,7 @@ const TEXTS = {
     submit: 'Se connecter',
     loading: 'Chargement...',
     badLogin: 'Email ou mot de passe incorrect.',
+    serverRefused: "Connexion refusée : email ou mot de passe incorrect, ou configuration du serveur à vérifier (logs Convex).",
     generic: 'Une erreur est survenue. Réessayez.',
     mismatch: 'Les mots de passe ne correspondent pas.',
     tooShort: '8 caractères minimum',
@@ -60,6 +61,7 @@ const TEXTS = {
     submit: 'Sign in',
     loading: 'Loading...',
     badLogin: 'Incorrect email or password.',
+    serverRefused: 'Sign-in refused: wrong email or password, or server configuration to check (Convex logs).',
     generic: 'An error occurred. Please try again.',
     mismatch: 'Passwords do not match.',
     tooShort: '8 characters minimum',
@@ -239,9 +241,15 @@ export function Login() {
     } catch (err) {
       // "InvalidAccountId" / "InvalidSecret" = identifiants réellement erronés ; tout le reste (déploiement mal
       // configuré, clé JWT manquante, etc.) doit remonter tel quel pour rester diagnosticable.
+      // En production Convex masque le détail des erreurs serveur : seul "Server Error" arrive au navigateur.
+      // Ici, la cause quasi unique est un mauvais email / mot de passe ; la vraie raison est dans les logs Convex.
       const raw = err instanceof Error ? err.message : '';
-      const message = /InvalidAccountId|InvalidSecret/.test(raw) ? t.badLogin : errText(err, t.generic);
-      setMessage(message);
+      console.error('Connexion impossible :', err);
+      setMessage(
+        /InvalidAccountId|InvalidSecret/.test(raw) ? t.badLogin
+        : /Server Error/i.test(raw) ? t.serverRefused
+        : errText(err, t.generic),
+      );
     } finally {
       setLoading(false);
     }
@@ -262,7 +270,7 @@ export function Login() {
         <label className="field-label">{t.email}</label>
         <Field icon="mail" type="email" value={email} onChange={setEmail} placeholder="prenom.nom@entreprise.com" autoComplete="email" autoFocus />
         <label className="field-label">{t.password}</label>
-        <Field icon="lock" password required={false} showLabel={t.show} value={password} onChange={setPassword} placeholder="(laisser vide si vous n'en avez pas encore)" autoComplete="current-password" />
+        <Field icon="lock" password showLabel={t.show} value={password} onChange={setPassword} placeholder="••••••••" autoComplete="current-password" />
         <button className="submit-button" type="submit" disabled={loading}>{loading ? t.loading : t.submit}</button>
         {message && <p className="form-message error" role="status">{message}</p>}
       </form>

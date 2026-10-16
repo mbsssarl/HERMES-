@@ -1,22 +1,27 @@
 import React from 'react';
 import { RefreshCw } from 'lucide-react';
-import { useQuery } from 'convex/react';
+import { useAction } from 'convex/react';
 import type { Currency, QuotationWithRelations } from '../types';
 import { api } from '../lib/convex';
+import { BaseRatesPanel } from './BaseRatesPanel';
+import { RateInputs, cleanServerError, parseRate } from './RateInputs';
 
 /**
  * Tarification globale : cotation (majoration sur les prix catalogue) et remise à appliquer d'un
  * coup à tous les articles. Chaque ligne reste ensuite modifiable individuellement.
  * (Les autres informations de l'en-tête du document client restent conservées sur la commande.)
  */
+const MANUAL_SOURCE = 'Taux saisi manuellement'; // doit rester identique à convex/orders.ts
+// Étape 2 : le total de la quotation est déjà en USD (étape 1, voir BaseRatesPanel) ; on convertit USD -> devise cible.
+
 export function RequestInfoCard({
   quotation,
   currencies,
-  pricingCurrency,
   applying,
   onApply,
   convertingCurrency,
   onApplyExportCurrency,
+  onApplyBaseRates,
   onSaveTransportFee,
   cotationMode,
   onCotationModeChange,
@@ -26,10 +31,10 @@ export function RequestInfoCard({
 }: {
   quotation: QuotationWithRelations;
   currencies: Currency[];
-  /** Devise de repli (pays de cotation) pour les lignes sans devise propre enregistrée. */
-  pricingCurrency: string;
   /** undefined = annule la conversion (chaque ligne du fichier ressort dans sa propre devise d'origine). */
-  onApplyExportCurrency: (targetCurrency: string | undefined, applyRate: boolean) => void;
+  onApplyExportCurrency: (targetCurrency: string | undefined, applyRate: boolean, ratePercent?: number, manualRates?: { currency: string; rate: number }[]) => void;
+  /** Étape 1 : taux de chaque devise de prix vers l'USD (ajustement en % et/ou taux saisis). */
+  onApplyBaseRates: (ratePercent: number | undefined, manualRates: { currency: string; rate: number }[]) => void;
   /** Frais de livraison + mise à l'eau (devise du fichier) ; undefined = les retirer. */
   onSaveTransportFee: (fee: number | undefined) => void;
   /** Saisie de la cotation des lignes du tableau : en % ou en montant par unité. */
@@ -45,35 +50,43 @@ export function RequestInfoCard({
 }) {
   const [cotation, setCotation] = React.useState(String(quotation.quotation_percent_override ?? ''));
   const [discount, setDiscount] = React.useState(String(quotation.global_discount_percent ?? ''));
-  const [target, setTarget] = React.useState(quotation.export_currency ?? '');
+  // « USD » = pas de conversion supplémentaire : le sélecteur reste alors vide.
+  const currentTarget = quotation.export_currency && quotation.export_currency !== 'USD' ? quotation.export_currency : '';
+  const [target, setTarget] = React.useState(currentTarget);
   const [applyRate, setApplyRate] = React.useState(true);
+  // Étape 2 : deux cases « 1 USD = [valeur exacte] devise cible ». `rateText` vide = taux du jour.
+  const [rateText, setRateText] = React.useState('');
+  const [live, setLive] = React.useState<number | undefined>(undefined);
+  const [liveError, setLiveError] = React.useState<string | undefined>(undefined);
+  const getRate = useAction(api.exchangeRates.getRate);
   const [fee, setFee] = React.useState(quotation.transport_fee ? String(quotation.transport_fee) : '');
 
-  // Chaque ligne a été tarifée avec la devise enregistrée sur son prix catalogue au moment du matching
-  // (productPrices.currency, choisie indépendamment du pays à l'import - voir CatalogImportModal) : des
-  // lignes d'une même quotation peuvent donc être dans des devises différentes. C'est cet ensemble réel,
-  // pas la seule devise du pays, qui détermine le(s) taux de change à appliquer.
-  const sourceCurrencies = React.useMemo(() => {
-    const set = new Set<string>();
-    for (const it of quotation.quotation_items) {
-      if (it.excluded || it.total_price == null) continue;
-      set.add(it.price_currency ?? pricingCurrency);
-    }
-    return [...set].sort();
-  }, [quotation.quotation_items, pricingCurrency]);
-  const displayCurrency = sourceCurrencies.length > 0 ? sourceCurrencies.join(', ') : pricingCurrency;
+  const displayCurrency = 'USD';
 
-  // Devises pour lesquelles un taux en direct existe réellement (source BCE + parité fixe CFA) - beaucoup
-  // de codes ISO valides (ex. AWG, GNF...) ne sont pas couverts par ce service gratuit, ce n'est pas un
-  // code erroné, juste une devise trop peu échangée pour avoir un taux de référence quotidien publié.
-  const supportedTargets = useQuery(api.exchangeRates.listSupportedTargets, {});
-  const bases = sourceCurrencies.length > 0 ? sourceCurrencies : [pricingCurrency];
-  const unsupportedBases = supportedTargets ? bases.filter((c) => !supportedTargets.includes(c)) : [];
-  const conversionAvailable = supportedTargets !== undefined && unsupportedBases.length === 0;
+  const usdManual = quotation.usd_rate?.source === MANUAL_SOURCE ? quotation.usd_rate.rate : undefined;
+  // Les cases reprennent le taux saisi déjà enregistré si la devise cible est inchangée, sinon repartent du taux du jour.
+  React.useEffect(() => {
+    setRateText(target === currentTarget && usdManual !== undefined ? String(usdManual) : '');
+  }, [target, currentTarget, usdManual]);
+  // Taux du jour USD -> devise cible (aperçu ; rien n'est enregistré avant « Appliquer le taux »).
+  React.useEffect(() => {
+    setLive(undefined);
+    setLiveError(undefined);
+    if (!target || !applyRate) return;
+    let cancelled = false;
+    getRate({ from: 'USD', to: target })
+      .then((r) => { if (!cancelled) setLive(r.rate); })
+      .catch((err) => { if (!cancelled) setLiveError(cleanServerError(err)); });
+    return () => { cancelled = true; };
+  }, [target, applyRate, getRate]);
+  const overridden = rateText.trim() !== '';
+  const typedRate = parseRate(rateText);
+  const rateInvalid = applyRate && Boolean(target) && (overridden ? !(typedRate > 0) : liveError !== undefined);
+  const rateUnchanged = overridden ? usdManual === typedRate : usdManual === undefined;
 
   // Si la commande change (conversion appliquée/annulée depuis ailleurs, ou navigation vers une autre
   // quotation), le sélecteur suit la valeur réellement enregistrée plutôt que de garder une saisie périmée.
-  React.useEffect(() => { setTarget(quotation.export_currency ?? ''); }, [quotation.export_currency]);
+  React.useEffect(() => { setTarget(currentTarget); }, [currentTarget]);
   React.useEffect(() => { setFee(quotation.transport_fee ? String(quotation.transport_fee) : ''); }, [quotation.transport_fee]);
 
   const parse = (raw: string) => {
@@ -85,7 +98,7 @@ export function RequestInfoCard({
   const invalid = (cot !== undefined && !Number.isFinite(cot)) || (dis !== undefined && !Number.isFinite(dis));
 
   // Changement de devise « sans conversion » : taux 1 enregistré pour chaque devise d'origine (étiquette seule).
-  const relabelOnly = Boolean(quotation.export_currency && quotation.export_rates.length > 0 && quotation.export_rates.every((r) => r.source === 'sans conversion'));
+  const relabelOnly = Boolean(currentTarget && quotation.usd_rate?.source === 'sans conversion');
   const feeValue = parse(fee);
   const feeInvalid = feeValue !== undefined && (!Number.isFinite(feeValue) || feeValue < 0);
   const feeCurrency = quotation.export_currency ?? displayCurrency;
@@ -146,9 +159,11 @@ export function RequestInfoCard({
           </div>
         </section>
 
+        <BaseRatesPanel quotation={quotation} busy={convertingCurrency} onApply={onApplyBaseRates} />
+
         <section className="panel panel-wide">
           <div className="panel-head">
-            <div className="panel-title">Devise du fichier exporté</div>
+            <div className="panel-title">Convertir vers une autre devise (depuis l'USD)</div>
             <label className="switch">
               <input type="checkbox" role="switch" checked={applyRate} onChange={(e) => setApplyRate(e.target.checked)} />
               <span className="switch-track"><span className="switch-thumb" /></span>
@@ -166,25 +181,37 @@ export function RequestInfoCard({
             </div>
             <div className="form-field">
               <label>Convertir vers</label>
-              <select className="select" value={target} onChange={(e) => setTarget(e.target.value)} disabled={applyRate && !conversionAvailable}>
+              <select className="select" value={target} onChange={(e) => setTarget(e.target.value)}>
                 <option value="">Aucune conversion ({displayCurrency})</option>
                 {currencies
-                  .filter((c) => c.active && !bases.includes(c.code) && (!applyRate || (supportedTargets?.includes(c.code) ?? false)))
+                  .filter((c) => c.active && c.code !== 'USD')
                   .map((c) => (
                     <option key={c.id} value={c.code}>{c.code} · {c.name}</option>
                   ))}
               </select>
             </div>
           </div>
+          {applyRate && target && (
+            <div style={{ marginTop: 12 }}>
+              <RateInputs from="USD" to={target} live={live} value={rateText} onChange={setRateText} error={liveError} />
+            </div>
+          )}
           <div className="panel-foot">
             <button
               className="btn"
               disabled={
-                (applyRate && !conversionAvailable) ||
                 convertingCurrency ||
-                ((target || '') === (quotation.export_currency ?? '') && (!target || relabelOnly === !applyRate))
+                rateInvalid ||
+                ((target || '') === currentTarget && (!target || (relabelOnly === !applyRate && (!applyRate || rateUnchanged))))
               }
-              onClick={() => onApplyExportCurrency(target || undefined, applyRate)}
+              onClick={() =>
+                onApplyExportCurrency(
+                  target || undefined,
+                  applyRate,
+                  undefined,
+                  applyRate && target && overridden ? [{ currency: 'USD', rate: typedRate }] : undefined,
+                )
+              }
             >
               {convertingCurrency ? (applyRate ? 'Récupération du taux…' : 'Application…') : applyRate ? 'Appliquer le taux' : 'Changer la devise'}
             </button>
@@ -192,9 +219,9 @@ export function RequestInfoCard({
         </section>
       </div>
 
-      {applyRate && !conversionAvailable && supportedTargets !== undefined && (
-        <div className="text-muted" style={{ fontSize: 13, marginTop: 8 }}>
-          Conversion en direct indisponible depuis {unsupportedBases.join(', ')} : {unsupportedBases.length > 1 ? 'ces devises n\'ont' : 'cette devise n\'a'} pas de taux de référence publié par la Banque centrale européenne (source du service utilisé).
+      {quotation.export_rates.some((r) => r.source.includes('ExchangeRate-API')) && (
+        <div className="text-muted" style={{ fontSize: 12, marginTop: 8 }}>
+          <a href="https://www.exchangerate-api.com" target="_blank" rel="noreferrer">Rates By Exchange Rate API</a>
         </div>
       )}
     </div>

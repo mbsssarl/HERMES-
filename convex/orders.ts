@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import type { MutationCtx } from "./_generated/server";
+import type { ActionCtx, MutationCtx } from "./_generated/server";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { logActivity } from "./lib/audit";
 import { computeItemPricing } from "./lib/matching";
@@ -344,94 +344,240 @@ export const applyGlobalPricing = mutation({
   },
 });
 
+// ---------------------------------------------------------------------------------------------------------
+// Conversion de devises d'une quotation, en deux étapes indépendantes du pays de cotation :
+//   1) CHAQUE ligne est d'abord convertie en USD (devise de base), avec un taux choisi (taux du jour, ajusté en %
+//      comme à l'import du catalogue, ou saisi à la main) : orders.baseRates (devise du prix -> USD).
+//   2) Au traitement de la quotation, le total peut être converti vers une autre devise, toujours de la même
+//      façon : orders.usdRate (USD -> orders.exportCurrency).
+// orders.exportRates en est le résultat composé, une entrée par devise d'origine des lignes : c'est elle que
+// lisent l'écran, l'export Excel et le PDF (taux effectif devise du prix -> devise affichée).
+// ---------------------------------------------------------------------------------------------------------
+const BASE_CURRENCY = "USD";
+const MANUAL_SOURCE = "Taux saisi manuellement";
+const rateEntryValidator = v.object({ currency: v.string(), rate: v.number(), ratePercent: v.optional(v.number()), asOf: v.string(), source: v.string() });
+const usdRateValidator = v.object({ rate: v.number(), ratePercent: v.optional(v.number()), asOf: v.string(), source: v.string() });
+type RateEntry = { currency: string; rate: number; ratePercent?: number; asOf: string; source: string };
+type UsdRate = { rate: number; ratePercent?: number; asOf: string; source: string };
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
+function assertPercent(ratePercent: number) {
+  if (!Number.isFinite(ratePercent) || ratePercent <= 0 || ratePercent > 1000) {
+    throw new Error("Le pourcentage du taux doit être supérieur à 0 et inférieur ou égal à 1000 %.");
+  }
+}
+
+/** Taux `from` -> `to` : saisi à la main, sinon taux du jour ajusté par `ratePercent` (100 = taux du jour). */
+async function resolveRate(ctx: ActionCtx, from: string, to: string, ratePercent: number, manual?: number): Promise<UsdRate> {
+  if (manual !== undefined) {
+    if (!Number.isFinite(manual) || manual <= 0) throw new Error(`Taux invalide pour ${from} : il doit être strictement positif.`);
+    return { rate: manual, asOf: todayIso(), source: MANUAL_SOURCE };
+  }
+  const live = await ctx.runAction(api.exchangeRates.getRate, { from, to });
+  // Même devise ou pas d'ajustement : jamais de facteur artificiel (comme à l'import du catalogue).
+  if (from === to || ratePercent === 100) return { rate: live.rate, asOf: live.asOf, source: live.source };
+  return { rate: live.rate * (ratePercent / 100), ratePercent, asOf: live.asOf, source: `${live.source} - ajusté à ${ratePercent} %` };
+}
+
 /**
- * Internal : ensemble des devises réellement enregistrées sur les lignes chiffrées de cette commande
- * (orderItems.priceCurrency, propre à chaque prix - voir productPrices.currency). C'est CET ensemble qui
- * détermine quels taux de change il faut récupérer, pas une devise unique par pays.
+ * Internal : devises réellement présentes sur les lignes chiffrées (orderItems.priceCurrency ; une ligne sans
+ * devise propre, ex. prix saisi à la main, est en USD) + état actuel de la conversion.
  */
 export const getExportCurrencyBasis = internalQuery({
   args: { orderId: v.id("orders") },
   handler: async (ctx, { orderId }) => {
     const order = await ctx.db.get(orderId);
     if (!order) return null;
-    const country = await ctx.db.get(order.countryId);
-    const fallback = country?.currency ?? "";
     const items = await ctx.db.query("orderItems").withIndex("by_order", (q) => q.eq("orderId", orderId)).collect();
     const currencies = new Set<string>();
     for (const item of items) {
       if (item.priceAfterQuotation === undefined) continue; // pas de prix -> rien à convertir
-      currencies.add(item.priceCurrency ?? fallback);
+      currencies.add(item.priceCurrency ?? BASE_CURRENCY);
     }
-    return { fallback, currencies: [...currencies] };
+    // Quotation figée (envoyée, PO, archivée, validée, supprimée) : on ne lui recalcule jamais ses montants en tâche de fond.
+    const frozen = order.deletedAt !== undefined || order.validatedAt !== undefined || ["po", "sent", "archived"].includes(order.status);
+    return {
+      frozen,
+      currencies: [...currencies],
+      baseRates: order.baseRates as RateEntry[] | undefined,
+      usdRate: order.usdRate as UsdRate | undefined,
+      exportCurrency: order.exportCurrency,
+      exportRates: order.exportRates as RateEntry[] | undefined,
+    };
   },
 });
 
-/** Internal: writes the export currency / frozen rates decided by applyExportCurrency. */
-export const persistExportRates = internalMutation({
+/** Internal: enregistre l'état de conversion et recalcule exportRates (taux composé par devise d'origine). */
+export const persistPipeline = internalMutation({
   args: {
     orderId: v.id("orders"),
     userId: v.id("users"),
-    exportCurrency: v.optional(v.string()),
-    exportRates: v.optional(v.array(v.object({ currency: v.string(), rate: v.number(), asOf: v.string(), source: v.string() }))),
+    baseRates: v.optional(v.array(rateEntryValidator)),
+    usdRate: v.optional(usdRateValidator),
+    exportCurrency: v.string(),
   },
-  handler: async (ctx, { orderId, userId, exportCurrency, exportRates }) => {
-    await ctx.db.patch(orderId, { exportCurrency, exportRates, updatedAt: Date.now() });
+  handler: async (ctx, { orderId, userId, baseRates, usdRate, exportCurrency }) => {
+    const items = await ctx.db.query("orderItems").withIndex("by_order", (q) => q.eq("orderId", orderId)).collect();
+    const currencies = new Set<string>();
+    for (const item of items) {
+      if (item.priceAfterQuotation !== undefined) currencies.add(item.priceCurrency ?? BASE_CURRENCY);
+    }
+    const toOther = exportCurrency !== BASE_CURRENCY;
+    const factor = toOther ? (usdRate?.rate ?? 1) : 1;
+    const exportRates = [...currencies].map((currency) => {
+      const base = currency === BASE_CURRENCY ? undefined : baseRates?.find((r) => r.currency === currency);
+      const stage2 = toOther ? usdRate : undefined;
+      return {
+        currency,
+        rate: (base?.rate ?? 1) * factor,
+        asOf: base?.asOf ?? stage2?.asOf ?? todayIso(),
+        source: base && stage2 ? `${base.source} puis ${stage2.source}` : (base ?? stage2)?.source ?? "USD",
+      };
+    });
+    await ctx.db.patch(orderId, {
+      baseRates,
+      usdRate: toOther ? usdRate : undefined,
+      exportCurrency,
+      exportRates,
+      updatedAt: Date.now(),
+    });
     await logActivity(ctx, {
       userId,
       action: "order.export_currency_changed",
       entityType: "order",
       entityId: orderId,
-      metadata: { exportCurrency, exportRates },
+      metadata: { exportCurrency, baseRates, usdRate },
     });
   },
 });
 
 /**
- * Choisit la devise cible du fichier exporté et convertit réellement les montants. Chaque ligne de la
- * commande peut avoir été tarifée dans une devise différente (import catalogue avec une devise choisie
- * indépendamment du pays - voir products.importCatalog) : on récupère donc un taux par devise d'origine
- * réellement présente parmi les lignes chiffrées, pas un seul taux global. Sans devise cible, annule la
- * conversion : chaque ligne du fichier ressort dans SA propre devise d'origine, sans facteur.
+ * Garantit que toutes les devises des lignes ont un taux vers l'USD (taux du jour, 100 %) et que exportRates est à
+ * jour. Ne touche pas aux taux déjà choisis. Une quotation « ancienne » (conversion directe, sans étape USD) n'est
+ * migrée que sur demande explicite (migrate), jamais en tâche de fond.
  */
-export const applyExportCurrency = action({
-  args: { orderId: v.id("orders"), targetCurrency: v.optional(v.string()), applyRate: v.optional(v.boolean()) },
-  handler: async (ctx, { orderId, targetCurrency, applyRate }): Promise<{ currency: string; rate: number; asOf: string; source: string }[] | null> => {
+async function ensureBase(ctx: ActionCtx, orderId: Id<"orders">, userId: Id<"users">, migrate: boolean) {
+  const basis = await ctx.runQuery(internal.orders.getExportCurrencyBasis, { orderId });
+  if (!basis) throw new Error("Commande introuvable.");
+  const legacy = basis.baseRates === undefined && basis.exportCurrency !== undefined;
+  if ((legacy || basis.frozen) && !migrate) return basis;
+
+  const needed = basis.currencies.filter((c) => c !== BASE_CURRENCY);
+  const existing = (basis.baseRates ?? []).filter((r) => needed.includes(r.currency));
+  const missing = needed.filter((c) => !existing.some((r) => r.currency === c));
+  const exportUpToDate = basis.currencies.every((c) => basis.exportRates?.some((r) => r.currency === c));
+  if (!legacy && missing.length === 0 && basis.exportCurrency !== undefined && exportUpToDate) return basis;
+
+  const settled = await Promise.allSettled(missing.map((c) => resolveRate(ctx, c, BASE_CURRENCY, 100)));
+  const fresh: RateEntry[] = [];
+  const failed: string[] = [];
+  settled.forEach((res, i) => {
+    if (res.status === "fulfilled") fresh.push({ currency: missing[i], ...res.value });
+    else failed.push(`${missing[i]} (${res.reason instanceof Error ? res.reason.message : String(res.reason)})`);
+  });
+  await ctx.runMutation(internal.orders.persistPipeline, {
+    orderId,
+    userId,
+    baseRates: [...existing, ...fresh],
+    usdRate: legacy ? undefined : basis.usdRate,
+    exportCurrency: legacy ? BASE_CURRENCY : (basis.exportCurrency ?? BASE_CURRENCY),
+  });
+  if (failed.length > 0) {
+    throw new Error(`Taux en ligne indisponible pour ${failed.join(" ; ")}. Saisissez le taux dans « Conversion en USD ».`);
+  }
+  return await ctx.runQuery(internal.orders.getExportCurrencyBasis, { orderId });
+}
+
+/** Appelée à l'ouverture/export d'une quotation : complète les taux manquants vers l'USD (étape 1) au taux du jour. */
+export const ensureBaseRates = action({
+  args: { orderId: v.id("orders") },
+  handler: async (ctx, { orderId }): Promise<null> => {
     const user = await ctx.runQuery(api.users.getCurrentUser, {});
     if (!user) throw new Error("Authentification requise.");
+    await ensureBase(ctx, orderId, user._id, false);
+    return null;
+  },
+});
+
+/**
+ * Étape 1 : choisit les taux de conversion de chaque devise des lignes vers l'USD. `ratePercent` ajuste le taux du
+ * jour (100 = taux du jour, comme à l'import du catalogue) ; `manualRates` impose un taux précis par devise
+ * (1 unité de `currency` = `rate` USD, ex. 1 EUR = 1,1 USD).
+ */
+export const applyBaseRates = action({
+  args: {
+    orderId: v.id("orders"),
+    ratePercent: v.optional(v.number()),
+    manualRates: v.optional(v.array(v.object({ currency: v.string(), rate: v.number() }))),
+  },
+  handler: async (ctx, { orderId, ratePercent = 100, manualRates }): Promise<RateEntry[]> => {
+    const user = await ctx.runQuery(api.users.getCurrentUser, {});
+    if (!user) throw new Error("Authentification requise.");
+    assertPercent(ratePercent);
     const basis = await ctx.runQuery(internal.orders.getExportCurrencyBasis, { orderId });
     if (!basis) throw new Error("Commande introuvable.");
+    const legacy = basis.baseRates === undefined && basis.exportCurrency !== undefined;
 
-    if (!targetCurrency) {
-      await ctx.runMutation(internal.orders.persistExportRates, {
-        orderId,
-        userId: user._id,
-        exportCurrency: undefined,
-        exportRates: undefined,
+    const needed = basis.currencies.filter((c) => c !== BASE_CURRENCY);
+    const baseRates: RateEntry[] = await Promise.all(
+      needed.map(async (currency) => ({
+        currency,
+        ...(await resolveRate(ctx, currency, BASE_CURRENCY, ratePercent, manualRates?.find((m) => m.currency === currency)?.rate)),
+      })),
+    );
+    await ctx.runMutation(internal.orders.persistPipeline, {
+      orderId,
+      userId: user._id,
+      baseRates,
+      usdRate: legacy ? undefined : basis.usdRate,
+      exportCurrency: legacy ? BASE_CURRENCY : (basis.exportCurrency ?? BASE_CURRENCY),
+    });
+    return baseRates;
+  },
+});
+
+/**
+ * Étape 2 : convertit le total de la quotation (en USD après l'étape 1) vers une autre devise, avec un taux choisi
+ * de la même façon (taux du jour ajusté en %, ou saisi à la main : `manualRates` = [{ currency: "USD", rate }]).
+ * Sans devise cible (ou « USD »), la quotation reste en USD.
+ */
+export const applyExportCurrency = action({
+  args: {
+    orderId: v.id("orders"),
+    targetCurrency: v.optional(v.string()),
+    // false = changement d'étiquette seulement : les montants restent tels quels (taux 1).
+    applyRate: v.optional(v.boolean()),
+    ratePercent: v.optional(v.number()),
+    manualRates: v.optional(v.array(v.object({ currency: v.string(), rate: v.number() }))),
+  },
+  handler: async (ctx, { orderId, targetCurrency, applyRate, ratePercent = 100, manualRates }): Promise<{ currency: string; rate: number; ratePercent?: number; asOf: string; source: string }[] | null> => {
+    const user = await ctx.runQuery(api.users.getCurrentUser, {});
+    if (!user) throw new Error("Authentification requise.");
+
+    // L'étape 1 (vers l'USD) doit exister avant de convertir plus loin (y compris pour une quotation ancienne).
+    const basis = await ensureBase(ctx, orderId, user._id, true);
+    if (!basis) throw new Error("Commande introuvable.");
+
+    if (!targetCurrency || targetCurrency === BASE_CURRENCY) {
+      await ctx.runMutation(internal.orders.persistPipeline, {
+        orderId, userId: user._id, baseRates: basis.baseRates, usdRate: undefined, exportCurrency: BASE_CURRENCY,
       });
       return null;
     }
 
+    assertPercent(ratePercent);
     const known = await ctx.runQuery(api.currencies.list, {});
     if (!known.some((c) => c.code === targetCurrency)) throw new Error("Devise inconnue.");
 
-    const sourceCurrencies = basis.currencies.length > 0 ? basis.currencies : [basis.fallback];
-    const rates = await Promise.all(
-      sourceCurrencies.map(async (currency) => {
-        // Changement d'étiquette seulement : les montants restent tels quels (taux 1), sans appel au service de change.
-        if (applyRate === false) return { currency, rate: 1, asOf: new Date().toISOString().slice(0, 10), source: "sans conversion" };
-        const { rate, asOf, source } = await ctx.runAction(api.exchangeRates.getRate, { from: currency, to: targetCurrency });
-        return { currency, rate, asOf, source };
-      }),
-    );
+    const usdRate: UsdRate =
+      applyRate === false
+        ? { rate: 1, asOf: todayIso(), source: "sans conversion" }
+        : await resolveRate(ctx, BASE_CURRENCY, targetCurrency, ratePercent, manualRates?.find((m) => m.currency === BASE_CURRENCY)?.rate);
 
-    await ctx.runMutation(internal.orders.persistExportRates, {
-      orderId,
-      userId: user._id,
-      exportCurrency: targetCurrency,
-      exportRates: rates,
+    await ctx.runMutation(internal.orders.persistPipeline, {
+      orderId, userId: user._id, baseRates: basis.baseRates, usdRate, exportCurrency: targetCurrency,
     });
-
-    return rates;
+    return [{ currency: BASE_CURRENCY, ...usdRate }];
   },
 });
 

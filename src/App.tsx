@@ -8,6 +8,7 @@ import { NewQuotation } from './pages/NewQuotation';
 import { QuotationDetail } from './pages/QuotationDetail';
 import { Products } from './pages/Products';
 import { Login, SetPassword } from './pages/Login';
+import { useAuthActions } from '@convex-dev/auth/react';
 import { Admin } from './pages/Admin';
 import { Settings } from './pages/Settings';
 import { applyTheme } from './lib/theme';
@@ -15,6 +16,19 @@ import { setLanguage, useLanguage } from './lib/i18n';
 import { api } from './lib/convex';
 import { StateBox } from './components/ui';
 import { useCountries, useCurrencies, useMe, useProductCategories, useProducts, useQuotation, useQuotations } from './lib/hooks';
+
+function AccessDenied() {
+  const { signOut } = useAuthActions();
+  return (
+    <div style={{ display: 'grid', placeItems: 'center', minHeight: '100vh', padding: 24, textAlign: 'center' }}>
+      <div>
+        <h2>Accès indisponible</h2>
+        <p>Votre compte est désactivé ou introuvable. Contactez votre administrateur.</p>
+        <button className="submit-button" type="button" onClick={() => void signOut()}>Se déconnecter</button>
+      </div>
+    </div>
+  );
+}
 
 function AppInner() {
   const me = useMe();
@@ -82,7 +96,10 @@ function AppInner() {
     knownUpdates.current = new Map(quotations.filter((q) => q.catalog_update).map((q) => [q.id, q.catalog_update!.at]));
   }, [quotations, loadingQuotations, toast]);
 
-  if (me === undefined || me === null) return <StateBox loading variant="app" title="Chargement…" />;
+  if (me === undefined) return <StateBox loading variant="app" title="Chargement…" />;
+  // Session valide mais aucun profil actif (compte désactivé, ou fiche supprimée) : on ne reste pas bloqué sur
+  // « Chargement… », on propose de se déconnecter.
+  if (me === null) return <AccessDenied />;
   if (me.mustChangePassword) return <SetPassword />;
 
   const openQuotation = (id: string) => {

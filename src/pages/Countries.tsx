@@ -7,7 +7,7 @@ import { Modal, StateBox } from '../components/ui';
 import { TextCell } from '../components/EditableCells';
 import { useToast } from '../components/Toast';
 
-export function Countries({ countries, currencies, loading, isAdmin }: { countries: Country[]; currencies: Currency[]; loading: boolean; isAdmin: boolean }) {
+export function Countries({ countries, loading, isAdmin }: { countries: Country[]; currencies: Currency[]; loading: boolean; isAdmin: boolean }) {
   const toast = useToast();
   const createCountry = useMutation(api.countries.create);
   const updateCountry = useMutation(api.countries.update);
@@ -15,19 +15,18 @@ export function Countries({ countries, currencies, loading, isAdmin }: { countri
   const [code, setCode] = React.useState('');
   const [name, setName] = React.useState('');
   const [city, setCity] = React.useState('');
-  const [currency, setCurrency] = React.useState('');
   const [saving, setSaving] = React.useState(false);
 
   if (loading) return <StateBox loading title="Chargement…" />;
 
   const submit = async () => {
-    if (!code.trim() || !name.trim() || !currency.trim()) { toast('Code, nom et devise sont requis.', 'error'); return; }
+    if (!code.trim() || !name.trim()) { toast('Code et nom sont requis.', 'error'); return; }
     setSaving(true);
     try {
-      await createCountry({ code: code.trim().toUpperCase(), name: name.trim(), city: city.trim() || undefined, currency: currency.trim().toUpperCase() });
+      await createCountry({ code: code.trim().toUpperCase(), name: name.trim(), city: city.trim() || undefined });
       toast('Région ajoutée.', 'success');
       setShowAdd(false);
-      setCode(''); setName(''); setCity(''); setCurrency('');
+      setCode(''); setName(''); setCity('');
     } catch (err) {
       toast('Erreur: ' + (err instanceof Error ? err.message : String(err)), 'error');
     } finally {
@@ -61,7 +60,6 @@ export function Countries({ countries, currencies, loading, isAdmin }: { countri
                 <th>Code</th>
                 <th>Pays</th>
                 <th>Ville</th>
-                <th>Devise</th>
                 <th>Statut</th>
                 {isAdmin && <th></th>}
               </tr>
@@ -72,12 +70,6 @@ export function Countries({ countries, currencies, loading, isAdmin }: { countri
                   <td><TextCell mono width={80} disabled={!isAdmin} value={c.code} onCommit={(v) => void edit(c, { code: v })} /></td>
                   <td style={{ minWidth: 220 }}><TextCell width="100%" disabled={!isAdmin} value={c.name} onCommit={(v) => void edit(c, { name: v })} /></td>
                   <td style={{ minWidth: 160 }}><TextCell width="100%" disabled={!isAdmin} value={c.city ?? ''} placeholder="·" onCommit={(v) => void edit(c, { city: v })} /></td>
-                  <td>
-                    <select className="select cell-input" style={{ width: 110 }} disabled={!isAdmin} value={c.currency} onChange={(e) => void edit(c, { currency: e.target.value })}>
-                      {!currencies.some((cur) => cur.code === c.currency) && <option value={c.currency}>{c.currency}</option>}
-                      {currencies.filter((cur) => cur.active || cur.code === c.currency).map((cur) => <option key={cur.id} value={cur.code}>{cur.code}</option>)}
-                    </select>
-                  </td>
                   <td>
                     <span className={`tag ${c.active ? 'tag-new' : 'tag-same'}`}>{c.active ? 'Actif' : 'Inactif'}</span>
                   </td>
@@ -108,14 +100,6 @@ export function Countries({ countries, currencies, loading, isAdmin }: { countri
           <div className="form-field"><label>Code (unique, ex. CM-DLA)</label><input className="input" value={code} onChange={(e) => setCode(e.target.value)} maxLength={8} /></div>
           <div className="form-field"><label>Nom</label><input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Cameroun" /></div>
           <div className="form-field"><label>Ville de cotation</label><input className="input" value={city} onChange={(e) => setCity(e.target.value)} placeholder="Douala" /></div>
-          <div className="form-field">
-            <label>Devise</label>
-            <select className="select" value={currency} onChange={(e) => setCurrency(e.target.value)}>
-              <option value="" disabled>Choisir une devise…</option>
-              {currencies.filter((cur) => cur.active).map((cur) => <option key={cur.id} value={cur.code}>{cur.code} · {cur.name}</option>)}
-            </select>
-            {currencies.length === 0 && <div style={{ fontSize: 12, marginTop: 4, color: 'var(--color-error)' }}>Ajoutez d'abord une devise dans l'onglet Devises.</div>}
-          </div>
         </Modal>
       )}
     </div>

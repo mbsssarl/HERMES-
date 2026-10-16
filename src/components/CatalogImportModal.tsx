@@ -1,10 +1,11 @@
 import React from 'react';
-import { useAction, useConvex, useMutation } from 'convex/react';
+import { useAction, useConvex, useMutation, useQuery } from 'convex/react';
 import { Check, ChevronDown, ChevronUp, Eraser, PlusCircle, RefreshCw, TriangleAlert, UploadCloud } from 'lucide-react';
 import type { Country } from '../types';
 import { api, type Id } from '../lib/convex';
 import { formatPrice, regionLabel } from '../lib/format';
 import { Modal } from './ui';
+import { RateInputs, cleanServerError, parseRate } from './RateInputs';
 import { useToast } from './Toast';
 
 interface Suggestion {
@@ -61,9 +62,24 @@ export function CatalogImportModal({
   const convex = useConvex();
   const generateUploadUrl = useMutation(api.files.generateUploadUrl);
   const analyze = useAction(api.catalogImport.analyzeCatalogFile);
+  const getExchangeRate = useAction(api.exchangeRates.getRate);
   const importCatalog = useMutation(api.products.importCatalog);
 
   const [countryId, setCountryId] = React.useState(countries[0]?.id ?? '');
+  const [sourceCurrency, setSourceCurrency] = React.useState('USD');
+  // La devise d'enregistrement est choisie ici, indépendamment du pays (région) sélectionné.
+  const [targetCurrency, setTargetCurrency] = React.useState('USD');
+  const [appliedRate, setAppliedRate] = React.useState<number | undefined>(undefined);
+  // Taux exact saisi (vide = taux du jour) : « 1 devise du catalogue = valeur devise d'enregistrement ».
+  const [rateText, setRateText] = React.useState('');
+  const [rateError, setRateError] = React.useState<string | undefined>(undefined);
+  const currencyList = useQuery(api.currencies.list, {});
+  const currencyCodes = React.useMemo(() => {
+    const codes = (currencyList ?? []).filter((c) => c.active).map((c) => c.code);
+    return codes.length > 0 ? codes : ['USD', 'EUR', 'XAF', 'XOF', 'GBP', 'CAD'];
+  }, [currencyList]);
+  const [currentRate, setCurrentRate] = React.useState<number | null>(null);
+  const [rateLoading, setRateLoading] = React.useState(false);
   const [fileName, setFileName] = React.useState('');
   const [rows, setRows] = React.useState<Row[] | null>(null);
   const [stats, setStats] = React.useState<{ sheets: number; read: number; ignored: number; duplicates: number } | null>(null);
@@ -81,7 +97,25 @@ export function CatalogImportModal({
   const [dragging, setDragging] = React.useState(false);
   const fileInput = React.useRef<HTMLInputElement>(null);
 
-  const country = countries.find((c) => c.id === countryId);
+  React.useEffect(() => {
+    let cancelled = false;
+    if (sourceCurrency === targetCurrency) {
+      setCurrentRate(1);
+      setRateLoading(false);
+      setRateText('');
+      setRateError(undefined);
+      return () => { cancelled = true; };
+    }
+    setRateLoading(true);
+    setRateText('');
+    setRateError(undefined);
+    setCurrentRate(null);
+    void getExchangeRate({ from: sourceCurrency, to: targetCurrency })
+      .then((result) => { if (!cancelled) setCurrentRate(result.rate); })
+      .catch((err) => { if (!cancelled) { setCurrentRate(null); setRateError(cleanServerError(err)); } })
+      .finally(() => { if (!cancelled) setRateLoading(false); });
+    return () => { cancelled = true; };
+  }, [sourceCurrency, targetCurrency, getExchangeRate]);
 
   const readFile = async (file: File) => {
     setBusy(true);
@@ -91,8 +125,9 @@ export function CatalogImportModal({
       const response = await fetch(uploadUrl, { method: 'POST', headers: { 'Content-Type': file.type }, body: file });
       if (!response.ok) throw new Error("Échec de l'upload du fichier.");
       const { storageId } = (await response.json()) as { storageId: Id<'_storage'> };
-      const result = await analyze({ storageId, mimeType: file.type, countryId: countryId ? (countryId as Id<'countries'>) : undefined });
+      const result = await analyze({ storageId, mimeType: file.type, countryId: countryId ? (countryId as Id<'countries'>) : undefined, sourceCurrency, targetCurrency, manualRate: sourceCurrency !== targetCurrency && rateText.trim() !== '' ? parseRate(rateText) : undefined });
       setRows(result.rows);
+      setAppliedRate(result.conversion.rate);
       setStats(result.stats);
       setPick({});
       setLink({});
@@ -129,7 +164,8 @@ export function CatalogImportModal({
   const kindOf = (i: number): 'code' | 'unknown' | 'none' => {
     const r = rows![i];
     if (r.matchedBy === 'code') return 'code';
-    return r.code ? 'unknown' : 'none';
+    // Un code fournisseur inconnu peut être une référence étrangère, pas forcément un IMPA : autoriser sa création.
+    return 'none';
   };
   const linkedSuggestion = (i: number) => rows![i].suggestions?.find((s) => s.productId === link[i]);
 
@@ -237,6 +273,9 @@ export function CatalogImportModal({
       for (let i = 0; i < toImport.length; i += BATCH) {
         const res = await importCatalog({
           countryId: countryId ? (countryId as Id<'countries'>) : undefined,
+          targetCurrency,
+          sourceCurrency,
+          sourceRate: appliedRate,
           rows: toImport.slice(i, i + BATCH).map(({ code, name, description, unit, price, linkProductId }) => ({ code, name, description, unit, price, linkProductId })),
         });
         created += res.created;
@@ -260,7 +299,7 @@ export function CatalogImportModal({
         <>
           <button className="btn" onClick={onClose}>Annuler</button>
           {rows && (
-            <button className="btn btn-primary" onClick={confirm} disabled={busy || selected.size === 0 || unknownSelected > 0} title={unknownSelected > 0 ? "Videz d'abord le code des éléments inconnus (ou décochez-les)." : undefined}>
+            <button className="btn btn-primary" onClick={confirm} disabled={busy || selected.size === 0} title={undefined}>
               {busy ? <><span className="spinner-inline" /> Import en cours…</> : `Importer ${selected.size} produit(s) (${newCount} nouveau(x), ${priceCount} prix)`}
             </button>
           )}
@@ -270,12 +309,38 @@ export function CatalogImportModal({
       <div className="form-field">
         <label>Région des prix du fichier</label>
         <select className="select" value={countryId} disabled={!!rows || busy} onChange={(e) => setCountryId(e.target.value)}>
-          {countries.filter((c) => c.active).map((c) => <option key={c.id} value={c.id}>{regionLabel(c)} ({c.currency})</option>)}
+          {countries.filter((c) => c.active).map((c) => <option key={c.id} value={c.id}>{regionLabel(c)}</option>)}
         </select>
-        <div className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>
-          Les colonnes reconnues : code/IMPA, nom, unité, prix (les intitulés peuvent varier). Les prix importés prennent
-          automatiquement la devise de cette région.
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+        <div className="form-field">
+          <label>Devise du catalogue importé</label>
+          <select className="select" value={sourceCurrency} disabled={!!rows || busy} onChange={(e) => setSourceCurrency(e.target.value)}>
+            {currencyCodes.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
         </div>
+        <div className="form-field">
+          <label>Devise cible des prix enregistrés</label>
+          <select className="select" value={targetCurrency} disabled={!!rows || busy} onChange={(e) => setTargetCurrency(e.target.value)}>
+            {currencyCodes.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+      </div>
+      {sourceCurrency !== targetCurrency && (
+        <div style={{ marginTop: 8 }}>
+          <RateInputs
+            from={sourceCurrency}
+            to={targetCurrency}
+            live={currentRate ?? undefined}
+            value={rateText}
+            onChange={setRateText}
+            error={rateLoading ? undefined : rateError}
+            disabled={!!rows || busy}
+          />
+        </div>
+      )}
+      <div className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>
+        Les prix convertis sont enregistrés dans la devise cible choisie. Les colonnes reconnues comprennent notamment Item Name, Product Name, Description, SKU, Qty, Unit Price et de nombreux autres intitulés.
       </div>
 
       {!rows && (

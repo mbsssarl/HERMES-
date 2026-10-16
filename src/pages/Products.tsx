@@ -123,7 +123,8 @@ export function Products({
 
       const productId = await createProduct({ impaId: ref.trim() || undefined, name: name.trim(), unit: unit.trim() || 'PCS', category: newCategory || undefined });
       if (price !== undefined && country) {
-        await setPrice({ productId, countryId: country.id as Id<'countries'>, price, currency: country.currency });
+        // La devise n'est plus liée à la région : un prix saisi à la main est enregistré en USD (devise de base).
+        await setPrice({ productId, countryId: country.id as Id<'countries'>, price, currency: 'USD' });
       }
       toast('Produit ajouté.', 'success');
       setShowAdd(false);
@@ -152,15 +153,18 @@ export function Products({
     }
   };
 
-  const savePrice = (p: ProductWithPrices, c: Country, price: number) =>
-    setPrice({
+  // La devise n'est plus liée à la région : on garde celle déjà enregistrée sur ce prix, sinon l'USD (devise de base).
+  const savePrice = (p: ProductWithPrices, c: Country, price: number) => {
+    const currency = p.product_prices.find((pr) => pr.country_id === c.id)?.currency ?? 'USD';
+    return setPrice({
       productId: p.id as Id<'products'>,
       countryId: c.id as Id<'countries'>,
       price,
-      currency: c.currency,
+      currency,
     })
-      .then(() => toast(`Prix ${c.code} enregistré : ${formatPrice(price, c.currency)}.`, 'success'))
+      .then(() => toast(`Prix ${c.code} enregistré : ${formatPrice(price, currency)}.`, 'success'))
       .catch((err) => toast('Erreur: ' + errMsg(err), 'error'));
+  };
 
   const exitSelection = () => { setSelectMode(false); setSelected(new Set()); };
   const openCategory = (value: string) => { setCategoryFilter(value); setInList(true); };
@@ -301,7 +305,7 @@ export function Products({
             <div>
               <span style={{ fontSize: 14, fontWeight: 600 }}>
                 {visible.length} produit(s) · {countryFilter
-                  ? `${shownCountries[0]?.name ?? ''} (${shownCountries[0]?.currency ?? ''})`
+                  ? `${shownCountries[0]?.name ?? ''}`
                   : `${priceCountries.length} région(s)`}
               </span>
             </div>
@@ -542,7 +546,7 @@ export function Products({
               <label>Region</label>
               <select className="select" value={newCountryId} onChange={(e) => setNewCountryId(e.target.value)}>
                 <option value="">Aucun</option>
-                {priceCountries.map((c) => <option key={c.id} value={c.id}>{c.code}{c.active ? '' : ' (inactif)'} ({c.currency})</option>)}
+                {priceCountries.map((c) => <option key={c.id} value={c.id}>{c.code}{c.active ? '' : ' (inactif)'}</option>)}
               </select>
             </div>
             <div className="form-field">

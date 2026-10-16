@@ -24,24 +24,24 @@ export interface NormalizedSupplierItem {
 type CellValue = string | number | null | undefined;
 
 const CLIENT_FIELD_ALIASES: Record<Exclude<keyof NormalizedClientItem, "sourceRow">, string[]> = {
-  rawCode: ["code", "impa", "impa id", "id", "article no", "article number", "ref", "reference"],
-  rawDescription: ["description", "nom", "name", "designation", "article", "article name", "libelle"],
-  rawQuantity: ["quantity", "qty", "quantite", "qte"],
-  rawUnit: ["unit", "unite", "uom", "u/m"],
-  rawOrigin: ["origin", "origine"],
-  quotedQuantity: ["quoted qty", "quoted quantity", "qte cotee"],
-  unitPrice: ["unit price", "prix unitaire", "price", "prix"],
-  discountPercent: ["discount (%)", "discount", "remise (%)", "remise"],
-  reqNotes: ["req notes", "requirement notes", "notes demande", "req note"],
-  enqNotes: ["enq notes", "enquiry notes", "notes enquete", "enq note"],
+  rawCode: ["product code", "item code", "impa code", "impa id", "part number", "article number", "article no", "sku", "stock code", "material code", "reference no", "reference", "ref", "code", "impa", "id", "item no", "item number", "product no"],
+  rawDescription: ["item name", "product name", "material name", "goods name", "article name", "item description", "product description", "material description", "description", "designation", "libelle", "name", "nom", "article", "item", "product", "goods"],
+  rawQuantity: ["requested quantity", "order quantity", "ordered qty", "item quantity", "quantity", "qty", "qnty", "quantite", "qte", "count"],
+  rawUnit: ["unit of measure", "measurement unit", "unit measure", "uom", "u/m", "units", "unit", "unite", "measure"],
+  rawOrigin: ["country of origin", "product origin", "origin country", "origin", "origine", "made in"],
+  quotedQuantity: ["quoted quantity", "quoted qty", "supplier quantity", "qte cotee"],
+  unitPrice: ["unit price (usd)", "unit price (eur)", "unit price (xaf)", "price per unit", "selling price", "purchase price", "quoted price", "unit cost", "rate per unit", "unit price", "prix unitaire", "price", "cost", "amount", "prix"],
+  discountPercent: ["discount percentage", "discount percent", "discount (%)", "discount %", "discount", "rebate (%)", "remise (%)", "remise %", "remise"],
+  reqNotes: ["request notes", "requirement notes", "requirements", "req notes", "req note", "notes demande", "remarks from client"],
+  enqNotes: ["enquiry notes", "inquiry notes", "enq notes", "enq note", "notes enquete", "supplier remarks"],
 };
 
 const SUPPLIER_FIELD_ALIASES: Record<keyof NormalizedSupplierItem, string[]> = {
-  rawCode: ["code", "impa", "impa id", "id", "article no", "reference"],
-  rawName: ["name", "nom", "description", "designation", "article"],
-  rawDescription: ["description", "details", "detail"],
-  rawUnit: ["unit", "unite", "uom", "u/m"],
-  rawPrice: ["unit price", "price", "prix", "prix unitaire", "unit price (eur)"],
+  rawCode: ["product code", "item code", "impa code", "impa id", "part number", "material code", "stock code", "sku", "article number", "article no", "reference no", "reference", "ref", "code", "impa", "id", "item no", "product no"],
+  rawName: ["item name", "product name", "material name", "goods name", "article name", "designation", "product", "item", "name", "nom", "description", "article", "libelle"],
+  rawDescription: ["product description", "item description", "technical description", "specification", "specifications", "product details", "details", "detail", "description", "size", "model"],
+  rawUnit: ["unit of measure", "measurement unit", "unit measure", "uom", "u/m", "units", "unit", "unite", "measure"],
+  rawPrice: ["unit price (usd)", "unit price (eur)", "unit price (xaf)", "price per unit", "selling price", "purchase price", "quoted price", "unit cost", "rate per unit", "unit price", "price", "cost per unit", "cost", "prix unitaire", "prix", "amount"],
 };
 
 // Real enquiry documents (letterhead, enquiry ref, vessel/IMO, port,
@@ -50,19 +50,11 @@ const SUPPLIER_FIELD_ALIASES: Record<keyof NormalizedSupplierItem, string[]> = {
 // specific enough that requiring 3+ matches reliably tells a real header
 // row apart from those preamble rows.
 const HEADER_ROW_KEYWORDS = [
-  "impa",
-  "code",
-  "description",
-  "designation",
-  "quantity",
-  "qty",
-  "unit",
-  "origin",
-  "article",
-  "req notes",
-  "enq notes",
-  "unit price",
-  "final price",
+  "impa", "sku", "part number", "product code", "item code", "code",
+  "item name", "product name", "material name", "goods name", "name",
+  "description", "designation", "quantity", "qty", "qnty", "unit", "uom",
+  "origin", "article", "item", "product", "req notes", "enq notes",
+  "unit price", "price per unit", "price", "cost", "amount", "final price",
 ];
 
 /**
@@ -341,7 +333,7 @@ export function mapRowsToSupplierItems(
     if (!name) continue;
 
     const codeText = columns.rawCode !== -1 ? toCodeOrUndefined(row[columns.rawCode]) : undefined;
-    const rawCode = columns.rawCode !== -1 ? toImpaCode(row[columns.rawCode]) : undefined;
+    const rawCode = columns.rawCode !== -1 ? toStringOrUndefined(row[columns.rawCode]) : undefined;
     const rawUnit = columns.rawUnit !== -1 ? toStringOrUndefined(row[columns.rawUnit]) : undefined;
 
     // Merged banner / footer cells: the same text sits in the code (and/or unit) column as in the name.

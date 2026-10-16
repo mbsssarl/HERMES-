@@ -174,10 +174,9 @@ export async function computeItemPricing(
 
   if (item.unitPriceManual !== undefined) {
     base = item.unitPriceManual;
-    // Un prix saisi à la main ne référence aucune ligne de productPrices : on retient la devise du pays
-    // de cotation de la commande.
-    const country = order ? await ctx.db.get(order.countryId) : null;
-    priceCurrency = country?.currency;
+    // Un prix saisi à la main ne référence aucune ligne de productPrices : il est saisi dans la devise de base
+    // des quotations (USD), indépendamment du pays.
+    priceCurrency = "USD";
   } else if (item.productId && order) {
     const current = await getCurrentPrice(ctx, item.productId, order.countryId);
     if (current) {

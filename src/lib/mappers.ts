@@ -44,7 +44,7 @@ const MATCH_TO_UI: Record<Doc<'orderItems'>['matchStatus'], MatchStatus> = {
 };
 
 export function mapCountry(c: Doc<'countries'>): Country {
-  return { id: c._id, code: c.code, name: c.name, city: c.city ?? null, currency: c.currency, active: c.active };
+  return { id: c._id, code: c.code, name: c.name, city: c.city ?? null, currency: c.currency ?? '', active: c.active };
 }
 
 export function mapProduct(p: Doc<'products'>): Product {
@@ -109,6 +109,8 @@ export function mapOrder(
     owner_email: o.ownerEmail ?? null,
     export_currency: o.exportCurrency ?? null,
     export_rates: o.exportRates ?? [],
+    base_rates: o.baseRates ?? [],
+    usd_rate: o.usdRate ?? null,
     catalog_update: o.catalogUpdate ?? null,
     document_info: o.documentInfo ?? {},
     vessel: o.vessel ?? null,
@@ -121,7 +123,7 @@ export function mapOrder(
     item_count: items.length > 0 ? included.length : (o.itemCount ?? 0),
     unresolved_count: items.length > 0 ? included.filter((it) => it.match_status !== 'MATCHED').length : (o.unresolvedCount ?? 0),
     countries: o.country
-      ? { id: o.country._id, code: o.country.code, name: o.country.name, city: o.country.city ?? null, currency: o.country.currency }
+      ? { id: o.country._id, code: o.country.code, name: o.country.name, city: o.country.city ?? null, currency: o.country.currency ?? '' }
       : null,
     quotation_items: items,
   };

@@ -28,6 +28,8 @@ export const exportQuotationXlsx = action({
     const user = await ctx.runQuery(api.users.getCurrentUser, {});
     if (!user) throw new Error("Authentification requise.");
 
+    // Étape 1 de la conversion (devises des lignes -> USD) : complète les taux manquants avant de lire les montants.
+    await ctx.runAction(api.orders.ensureBaseRates, { orderId });
     const data = await ctx.runQuery(internal.exportData.getForExport, { orderId });
     const brand = await ctx.runQuery(api.branding.get, {});
     const brandFile = brand.name.replace(/[\\/:*?"<>|]/g, " ").trim() || "export";
@@ -38,7 +40,7 @@ export const exportQuotationXlsx = action({
     // manuel ancien) retombe sur la devise du pays de cotation.
     const rateFor = (itemCurrency: string | undefined): number => {
       if (!order.exportRates) return 1;
-      const match = order.exportRates.find((r) => r.currency === (itemCurrency ?? country?.currency));
+      const match = order.exportRates.find((r) => r.currency === (itemCurrency ?? "USD"));
       return match?.rate ?? 1;
     };
 

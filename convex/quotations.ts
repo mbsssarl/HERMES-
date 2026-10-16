@@ -22,7 +22,6 @@ export const getQuotationBuildDataInternal = internalQuery({
     const order = await ctx.db.get(orderId);
     if (!order) return null;
     const client = await ctx.db.get(order.clientId);
-    const country = await ctx.db.get(order.countryId);
 
     // Only lines with an actual price are included: a matched-but-no-price
     // line ("prix manquant") can't sensibly appear on a priced quotation.
@@ -53,7 +52,7 @@ export const getQuotationBuildDataInternal = internalQuery({
       companyInfo: companyInfoSetting?.value as
         | { name?: string; address?: string; email?: string }
         | undefined,
-      currency: country?.currency ?? "XAF",
+      currency: order.exportCurrency ?? "USD",
     };
   },
 });

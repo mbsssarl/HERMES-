@@ -19,6 +19,9 @@ export interface SetPriceInput {
   countryId: Id<"countries">;
   price: number;
   currency: string;
+  /** Devise d'origine du catalogue importé et taux appliqué (1 sourceCurrency = sourceRate currency), pour la traçabilité. */
+  sourceCurrency?: string;
+  sourceRate?: number;
   actorId: Id<"users">;
 }
 
@@ -35,6 +38,8 @@ export async function setCurrentPrice(ctx: MutationCtx, input: SetPriceInput): P
     countryId: input.countryId,
     price: input.price,
     currency: input.currency,
+    sourceCurrency: input.sourceCurrency,
+    sourceRate: input.sourceRate,
     validFrom: now,
     validTo: undefined,
     createdBy: input.actorId,

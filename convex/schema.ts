@@ -94,7 +94,9 @@ const schema = defineSchema({
     code: v.string(), // ex: "CM", "CI" - libre, pas forcément ISO strict
     name: v.string(),
     city: v.optional(v.string()), // ville/port principal, informatif
-    currency: v.string(),
+    // Hérité : la devise n'est plus liée au pays. Chaque prix porte sa propre devise (productPrices.currency, choisie à
+    // l'import du catalogue) et les quotations se convertissent en USD (orders.baseRates). Ignoré par le calcul.
+    currency: v.optional(v.string()),
     active: v.boolean(),
   }).index("by_code", ["code"]),
 
@@ -212,7 +214,10 @@ const schema = defineSchema({
     productId: v.id("products"),
     countryId: v.id("countries"),
     price: v.number(), // prix interne, AVANT application de la cotation (%)
-    currency: v.string(),
+    currency: v.string(), // devise dans laquelle ce prix est ENREGISTRÉ (choisie à l'import, indépendante du pays)
+    // Traçabilité de l'import : devise d'origine du catalogue et taux appliqué (1 sourceCurrency = sourceRate currency).
+    sourceCurrency: v.optional(v.string()),
+    sourceRate: v.optional(v.number()),
     validFrom: v.number(),
     validTo: v.optional(v.number()), // vide = prix actuellement en vigueur
     createdBy: v.id("users"),
@@ -250,13 +255,20 @@ const schema = defineSchema({
     // peuvent avoir été importées/tarifées dans des devises différentes) - taux figés au moment où l'admin
     // a cliqué « Appliquer », récupérés en ligne sauf parité fixe EUR/CFA - voir convex/exchangeRates.ts.
     exportCurrency: v.optional(v.string()),
+    // Conversion en deux étapes (voir convex/orders.ts) : 1) chaque devise de prix -> USD (taux choisis, ajustables en %
+    // ou saisis à la main) ; 2) USD -> exportCurrency (usdRate). Indépendant du pays de cotation.
+    baseRates: v.optional(
+      v.array(v.object({ currency: v.string(), rate: v.number(), ratePercent: v.optional(v.number()), asOf: v.string(), source: v.string() })),
+    ),
+    usdRate: v.optional(v.object({ rate: v.number(), ratePercent: v.optional(v.number()), asOf: v.string(), source: v.string() })),
     // Frais de livraison / mise à l'eau, dans la devise du fichier exporté (ajoutés après le discount) ; absent ou 0 = aucun.
     transportFee: v.optional(v.number()),
     exportRates: v.optional(
       v.array(
         v.object({
           currency: v.string(), // devise d'origine d'une ou plusieurs lignes (orderItems.priceCurrency)
-          rate: v.number(), // 1 unité de `currency` = `rate` unité de exportCurrency
+          rate: v.number(), // 1 unité de `currency` = `rate` unité de exportCurrency (taux du marché × ratePercent / 100)
+          ratePercent: v.optional(v.number()), // ajustement du taux : 100 = taux du jour, 50 = moitié, etc. Absent = 100
           asOf: v.string(), // date de la source ("2026-09-29"), "parité fixe" ou "identique"
           source: v.string(),
         }),

@@ -1,5 +1,5 @@
 import React from 'react';
-import { useMutation, useQuery } from 'convex/react';
+import { useAction, useMutation, useQuery } from 'convex/react';
 import { UploadCloud } from 'lucide-react';
 import type { Country } from '../types';
 import { api, type Id } from '../lib/convex';
@@ -27,6 +27,10 @@ export function NewQuotation({
   const createOrder = useMutation(api.orders.create);
   const generateUploadUrl = useMutation(api.files.generateUploadUrl);
   const registerUploadedFile = useMutation(api.files.registerUploadedFile);
+  const applyExportCurrency = useAction(api.orders.applyExportCurrency);
+  const getRate = useAction(api.exchangeRates.getRate);
+  const currencies = useQuery(api.currencies.list, {});
+  const supportedTargets = useQuery(api.exchangeRates.listSupportedTargets, {});
 
   const activeCountries = countries.filter((c) => c.active);
   const [countryId, setCountryId] = React.useState('');
@@ -37,12 +41,37 @@ export function NewQuotation({
   const [dragging, setDragging] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
   const fileInput = React.useRef<HTMLInputElement>(null);
+  // Conversion de devise (facultative) : devise cible du fichier exporté + aperçu du taux du jour.
+  const [targetCurrency, setTargetCurrency] = React.useState('');
+  const [ratePreview, setRatePreview] = React.useState<{ rate: number; asOf: string; source: string } | null>(null);
+  const [rateError, setRateError] = React.useState<string | null>(null);
+  const [rateLoading, setRateLoading] = React.useState(false);
 
   React.useEffect(() => {
     if (!countryId && activeCountries[0]) setCountryId(activeCountries[0].id);
   }, [countryId, activeCountries]);
 
   const country = countries.find((c) => c.id === countryId);
+  // Toutes les quotations sont d'abord converties en USD (indépendamment du pays) : la conversion choisie ici part de l'USD.
+  const sourceCurrency = 'USD';
+  const sourceSupported = supportedTargets?.includes(sourceCurrency) ?? false;
+  const targetOptions = (currencies ?? []).filter(
+    (c) => c.active && c.code !== sourceCurrency && (supportedTargets?.includes(c.code) ?? false),
+  );
+
+  // Aperçu du taux (rien n'est enregistré ici ; le taux est figé à la création de la quotation).
+  React.useEffect(() => {
+    setRatePreview(null);
+    setRateError(null);
+    if (!targetCurrency || !sourceCurrency) return;
+    let cancelled = false;
+    setRateLoading(true);
+    getRate({ from: sourceCurrency, to: targetCurrency })
+      .then((r) => { if (!cancelled) setRatePreview(r); })
+      .catch((err) => { if (!cancelled) setRateError(err instanceof Error ? err.message : String(err)); })
+      .finally(() => { if (!cancelled) setRateLoading(false); });
+    return () => { cancelled = true; };
+  }, [targetCurrency, sourceCurrency, getRate]);
 
   const knownClient = clients?.find((c) => c.name.toLowerCase() === customerName.trim().toLowerCase());
   React.useEffect(() => {
@@ -68,6 +97,20 @@ export function NewQuotation({
       if (existing && email && email !== existing.contactEmail) await updateClient({ clientId: existing._id, contactEmail: email });
 
       const orderId = await createOrder({ clientId, countryId: countryId as Id<'countries'> });
+
+      // Conversion de devise choisie à la création : taux figé sur la quotation (modifiable ensuite depuis sa fiche).
+      if (targetCurrency) {
+        try {
+          await applyExportCurrency({ orderId, targetCurrency, applyRate: true });
+        } catch (err) {
+          toast(
+            'Quotation créée, mais le taux de change n\'a pas pu être appliqué (' +
+              (err instanceof Error ? err.message : String(err)) +
+              '). Vous pourrez le faire depuis la fiche de la quotation.',
+            'error',
+          );
+        }
+      }
 
       const uploadUrl = await generateUploadUrl();
       const response = await fetch(uploadUrl, { method: 'POST', headers: { 'Content-Type': file.type }, body: file });
@@ -147,8 +190,32 @@ export function NewQuotation({
             </div>
           )}
           <div className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>
-            Les prix appliqués sont ceux de cette région{country ? ` (${country.currency})` : ''}.
+            Les prix appliqués sont ceux de cette région.
           </div>
+        </div>
+
+        <div className="form-field">
+          <label>Convertir le total en (depuis l'USD) <span className="text-muted" style={{ fontWeight: 400 }}>(facultatif)</span></label>
+          <select
+            className="select"
+            value={targetCurrency}
+            onChange={(e) => setTargetCurrency(e.target.value)}
+            disabled={!sourceSupported || targetOptions.length === 0}
+          >
+            <option value="">Aucune conversion{sourceCurrency ? ` (${sourceCurrency})` : ''}</option>
+            {targetOptions.map((c) => <option key={c._id} value={c.code}>{c.code} · {c.name}</option>)}
+          </select>
+          <div className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>
+            {!targetCurrency && 'Les montants du fichier exporté seront convertis avec le taux du jour, figé à la création.'}
+            {targetCurrency && rateLoading && 'Récupération du taux…'}
+            {targetCurrency && ratePreview && `1 USD = ${ratePreview.rate.toFixed(6)} ${targetCurrency} · ${ratePreview.source} (${ratePreview.asOf})`}
+          </div>
+          {rateError && <div style={{ fontSize: 12, marginTop: 4, color: 'var(--color-error)' }}>{rateError}</div>}
+          {country && supportedTargets !== undefined && !sourceSupported && (
+            <div className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>
+              Conversion en direct indisponible depuis {sourceCurrency} (pas de taux de référence publié).
+            </div>
+          )}
         </div>
 
         </div>

@@ -406,6 +406,7 @@ async function suggestByName(ctx: QueryCtx, name: string, countryId: Id<"countri
 export const previewCatalogRows = query({
   args: {
     countryId: v.optional(v.id("countries")),
+    targetCurrency: v.optional(v.string()),
     rows: v.array(v.object({ code: v.optional(v.string()), name: v.string() })),
   },
   handler: async (ctx, { countryId, rows }) => {
@@ -440,6 +441,11 @@ export const previewCatalogRows = query({
 export const importCatalog = mutation({
   args: {
     countryId: v.optional(v.id("countries")),
+    // Devise dans laquelle les prix sont ENREGISTRÉS (choisie à l'import, indépendante de la devise du pays), et
+    // devise/taux d'origine du catalogue, conservés avec chaque prix pour la traçabilité.
+    targetCurrency: v.optional(v.string()),
+    sourceCurrency: v.optional(v.string()),
+    sourceRate: v.optional(v.number()),
     rows: v.array(
       v.object({
         code: v.optional(v.string()),
@@ -451,27 +457,23 @@ export const importCatalog = mutation({
       }),
     ),
   },
-  handler: async (ctx, { countryId, rows }) => {
+  handler: async (ctx, { countryId, targetCurrency, sourceCurrency, sourceRate, rows }) => {
     const admin = await requireAdmin(ctx);
     const country = countryId ? await ctx.db.get(countryId) : null;
     if (countryId && !country) throw new Error("Région introuvable.");
-    // Tout article ajouté à cette région hérite automatiquement de sa devise (plus besoin de la redéfinir).
-    const priceCurrency = country?.currency;
+    // La devise des prix n'est plus celle du pays : elle est choisie explicitement à l'import.
+    const priceCurrency = targetCurrency?.trim().toUpperCase();
+    const catalogCurrency = sourceCurrency?.trim().toUpperCase();
 
+    if (rows.some((r) => r.price !== undefined) && (!country || !countryId || !priceCurrency)) {
+      throw new Error("Sélectionnez une région et la devise d'enregistrement avant d'enregistrer les prix du catalogue.");
+    }
     // Validation de tout le lot AVANT la moindre écriture : un code inconnu bloque l'enregistrement.
     const resolved: Array<{ row: (typeof rows)[number]; existing: Doc<"products"> | null }> = [];
-    const unknownCodes: string[] = [];
     for (const row of rows) {
       const code = row.code?.trim();
       const existing = code ? await findProductByCode(ctx, code) : null;
-      if (code && !existing) unknownCodes.push(code);
       resolved.push({ row, existing });
-    }
-    if (unknownCodes.length > 0) {
-      const shown = unknownCodes.slice(0, 5).join(", ");
-      throw new Error(
-        `Code IMPA non reconnu (${unknownCodes.length}) : ${shown}${unknownCodes.length > 5 ? "…" : ""}. Videz d'abord le code des éléments inconnus.`,
-      );
     }
 
     let created = 0;
@@ -504,7 +506,9 @@ export const importCatalog = mutation({
         if (sameName) {
           productId = sameName._id;
         } else {
-          productId = await insertProduct(ctx, { name, description: row.description, unit: row.unit ?? "PCS" }, admin._id, "manual");
+          // Un code inconnu dans un catalogue fournisseur n'est pas forcément un IMPA : le conserver comme code
+          // interne permet d'importer les catalogues étrangers sans perdre leur référence d'origine.
+          productId = await insertProduct(ctx, { code: row.code?.trim() || undefined, name, description: row.description, unit: row.unit ?? "PCS" }, admin._id, "manual");
           created++;
           wasCreated = true;
         }
@@ -515,7 +519,7 @@ export const importCatalog = mutation({
         const current = await getCurrentPrice(ctx, productId, countryId);
         const price = Math.round(row.price * 100) / 100;
         if (!current || current.price !== price || current.currency !== priceCurrency) {
-          await setCurrentPrice(ctx, { productId, countryId, price, currency: priceCurrency, actorId: admin._id });
+          await setCurrentPrice(ctx, { productId, countryId, price, currency: priceCurrency, sourceCurrency: catalogCurrency, sourceRate, actorId: admin._id });
           pricesSet++;
         }
       }
@@ -526,7 +530,7 @@ export const importCatalog = mutation({
       action: "product.catalog_imported",
       entityType: "product",
       entityId: "catalog",
-      metadata: { rows: rows.length, created, pricesSet, countryId, currency: priceCurrency },
+      metadata: { rows: rows.length, created, pricesSet, countryId, currency: priceCurrency, sourceCurrency: catalogCurrency, sourceRate },
     });
     if (created > 0 || pricesSet > 0) {
       await ctx.scheduler.runAfter(0, internal.orderItems.rematchPendingInternal, { actorEmail: admin.email ?? undefined });

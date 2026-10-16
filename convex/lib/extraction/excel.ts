@@ -1,8 +1,67 @@
 "use node";
 
 import ExcelJS from "exceljs";
+import JSZip from "jszip";
 
 import { findHeaderRowIndex } from "./columnMapping";
+
+/**
+ * Copie du .xlsx sans les parties « annexes » qui font planter ExcelJS sur certains fichiers (commentaires,
+ * dessins, liens, tableaux structurés : « Cannot read properties of undefined (reading 'comments') »).
+ * Les valeurs des cellules ne sont pas touchées ; seules ces annexes disparaissent.
+ */
+async function stripWorkbookExtras(buffer: ArrayBuffer): Promise<ArrayBuffer> {
+  const zip = await JSZip.loadAsync(buffer);
+  const removed = /^xl\/(comments[^/]*\.xml|threadedComments\/|persons\/|drawings\/|tables\/|worksheets\/_rels\/)/i;
+  for (const name of Object.keys(zip.files)) {
+    if (removed.test(name)) zip.remove(name);
+  }
+  for (const name of Object.keys(zip.files)) {
+    if (/^xl\/worksheets\/[^/]+\.xml$/i.test(name)) {
+      const xml = await zip.file(name)!.async("string");
+      zip.file(
+        name,
+        xml
+          .replace(/<legacyDrawing\b[^>]*\/>/g, "")
+          .replace(/<drawing\b[^>]*\/>/g, "")
+          .replace(/<hyperlinks>[\s\S]*?<\/hyperlinks>/g, "")
+          .replace(/<tableParts\b[\s\S]*?<\/tableParts>/g, ""),
+      );
+    }
+  }
+  const types = zip.file("[Content_Types].xml");
+  if (types) {
+    const xml = await types.async("string");
+    zip.file(
+      "[Content_Types].xml",
+      xml.replace(/<Override\b[^>]*PartName="\/xl\/(comments|threadedComments|persons|drawings|tables)[^"]*"[^>]*\/>/gi, ""),
+    );
+  }
+  return await zip.generateAsync({ type: "arraybuffer" });
+}
+
+/**
+ * Charge un classeur Excel. Si ExcelJS échoue (fichier produit par un autre logiciel, annexes atypiques...),
+ * on réessaie sur une copie nettoyée avant d'abandonner avec un message exploitable.
+ */
+export async function loadWorkbookTolerant(buffer: ArrayBuffer): Promise<ExcelJS.Workbook> {
+  try {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer);
+    return workbook;
+  } catch (firstError) {
+    try {
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(await stripWorkbookExtras(buffer));
+      return workbook;
+    } catch {
+      const reason = firstError instanceof Error ? firstError.message : String(firstError);
+      throw new Error(
+        `Fichier Excel illisible (${reason}). Ouvrez-le dans Excel, enregistrez-le de nouveau au format .xlsx (Enregistrer sous), puis réessayez.`,
+      );
+    }
+  }
+}
 
 export interface RawTable {
   headerRow: string[];
@@ -70,8 +129,7 @@ function tableFromRows(rows: (string | number | null)[][], numbers?: number[]): 
 
 /** First sheet only: a client enquiry document is a single table. */
 export async function parseExcelToTable(buffer: ArrayBuffer): Promise<RawTable> {
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer);
+  const workbook = await loadWorkbookTolerant(buffer);
   const worksheet = workbook.worksheets[0];
   if (!worksheet) throw new Error("Le fichier Excel ne contient aucune feuille.");
 
@@ -90,8 +148,7 @@ export async function parseExcelToTable(buffer: ArrayBuffer): Promise<RawTable> 
 
 /** Every sheet that holds a recognisable table (catalogues are often split by category, one sheet each). */
 export async function parseExcelToTables(buffer: ArrayBuffer): Promise<RawTable[]> {
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer);
+  const workbook = await loadWorkbookTolerant(buffer);
   const tables: RawTable[] = [];
   for (const worksheet of workbook.worksheets) {
     const table = tableFromRows(sheetRows(worksheet));

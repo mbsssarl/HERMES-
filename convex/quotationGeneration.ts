@@ -17,25 +17,37 @@ export const generateQuotation = action({
     const user = await ctx.runQuery(api.users.getCurrentUser, {});
     if (!user) throw new Error("Authentification requise.");
 
+    await ctx.runAction(api.orders.ensureBaseRates, { orderId });
     const data = await ctx.runQuery(internal.quotations.getQuotationBuildDataInternal, { orderId });
     if (!data) throw new Error("Commande introuvable.");
     if (data.matchedItems.length === 0) {
       throw new Error("Aucun article répertorié à inclure dans la quotation.");
     }
 
+    // Conversion de devise appliquée sur la quotation (taux figés, un par devise d'origine - voir
+    // orders.applyExportCurrency) : le PDF doit ressortir dans la même devise que le fichier exporté.
+    // Une devise sans taux enregistré (ligne ajoutée après) reste inchangée, comme dans l'export Excel.
+    const exportRates = data.order.exportRates;
+    const rateFor = (itemCurrency: string | undefined): number => {
+      if (!exportRates) return 1;
+      return exportRates.find((r) => r.currency === (itemCurrency ?? data.currency))?.rate ?? 1;
+    };
+    const outputCurrency = data.order.exportCurrency ?? data.currency;
+
     const lines = data.matchedItems.map((item) => {
       const quantity = item.quotedQuantity ?? item.rawQuantity ?? 1;
+      const rate = rateFor(item.priceCurrency);
       // Line total already computed without intermediate rounding (lib/pricing.ts). The global discount
       // applies to the whole total below, not to lines.
-      const total = round2(item.total ?? 0);
-      const finalPrice = round2(item.finalUnitPrice ?? 0);
+      const total = round2((item.total ?? 0) * rate);
+      const finalPrice = round2((item.finalUnitPrice ?? 0) * rate);
 
       return {
         code: item.rawCode ?? item.product?.impaId,
         description: item.rawDescription,
         unit: item.rawUnit ?? item.product?.unit ?? "",
         quantity,
-        unitPrice: item.finalUnitPrice ?? 0,
+        unitPrice: (item.finalUnitPrice ?? 0) * rate,
         discountPercent: 0,
         finalPrice,
         total,
@@ -62,7 +74,7 @@ export const generateQuotation = action({
       discountPercent,
       discountAmount,
       grandTotal,
-      currency: data.currency,
+      currency: outputCurrency,
     });
 
     const blob = new Blob([Uint8Array.from(pdfBuffer)], { type: "application/pdf" });

@@ -155,7 +155,7 @@ arguments, retour.
 | `users.requestPasswordReset` | mutation | public | `{ email: string }` → envoie un email avec un lien de réinitialisation si le compte existe (répond toujours pareil, même si l'email n'existe pas - pas d'énumération de comptes). |
 | `users.resetPasswordWithToken` | mutation | public | `{ token: string, newPassword: string }` → `token` vient du lien reçu par email (query param `?token=...`). Le lien expire après 1h et n'est utilisable qu'une fois. |
 
-Note : `users.bootstrapFirstAdmin` existe aussi mais est un utilitaire
+Note : `users.bootstrapFirstAdmin` existe aussi (fonction interne, CLI uniquement : `npx convex run users:bootstrapFirstAdmin`), utilitaire
 d'amorçage à usage unique (crée le tout premier admin), pas destiné à être
 appelé depuis un frontend applicatif.
 

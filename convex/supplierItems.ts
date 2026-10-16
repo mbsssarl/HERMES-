@@ -86,7 +86,7 @@ export const saveToCatalog = mutation({
         productId,
         countryId: order.countryId,
         price: item.rawPrice,
-        currency: country.currency,
+        currency: country.currency ?? "USD",
         actorId: user._id,
       });
 

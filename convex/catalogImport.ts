@@ -15,8 +15,8 @@ import { parseFileToTables } from "./lib/extraction/parseFile";
  * `products.importCatalog`. The temporary upload is deleted once parsed.
  */
 export const analyzeCatalogFile = action({
-  args: { storageId: v.id("_storage"), mimeType: v.string(), countryId: v.optional(v.id("countries")) },
-  handler: async (ctx, { storageId, mimeType, countryId }) => {
+  args: { storageId: v.id("_storage"), mimeType: v.string(), countryId: v.optional(v.id("countries")), sourceCurrency: v.optional(v.string()), targetCurrency: v.optional(v.string()), ratePercent: v.optional(v.number()), manualRate: v.optional(v.number()) },
+  handler: async (ctx, { storageId, mimeType, countryId, sourceCurrency = "USD", targetCurrency, ratePercent = 100, manualRate }) => {
     const user = await ctx.runQuery(api.users.getCurrentUser, {});
     if (!user || user.role !== "admin") {
       await ctx.storage.delete(storageId);
@@ -39,12 +39,29 @@ export const analyzeCatalogFile = action({
       });
       if (productRows.length === 0) throw new Error("Aucun produit n'a pu être extrait de ce fichier.");
 
+      // La devise d'enregistrement est choisie à l'import (indépendante du pays) : à défaut, celle du catalogue.
+      const target = (targetCurrency || sourceCurrency).toUpperCase();
+      const source = sourceCurrency.toUpperCase();
+      if (!Number.isFinite(ratePercent) || ratePercent <= 0 || ratePercent > 1000) throw new Error("Le pourcentage du taux doit être supérieur à 0 et inférieur ou égal à 1000 %.");
+      let effectiveRate = 1;
+      if (source !== target) {
+        if (manualRate !== undefined) {
+          // Taux exact saisi par l'administrateur (1 devise du catalogue = manualRate devise d'enregistrement).
+          if (!Number.isFinite(manualRate) || manualRate <= 0) throw new Error("Le taux saisi doit être strictement positif.");
+          effectiveRate = manualRate;
+        } else {
+          const live = await ctx.runAction(api.exchangeRates.getRate, { from: source, to: target });
+          effectiveRate = live.rate * (ratePercent / 100);
+        }
+      } else {
+        effectiveRate = 1; // Même devise : ne jamais modifier le prix avec un taux artificiel.
+      }
       const cleaned = productRows.map((r) => ({
         code: r.rawCode,
         name: r.rawName,
         description: r.rawDescription,
         unit: r.rawUnit,
-        price: r.rawPrice === undefined ? undefined : Math.round(r.rawPrice * 100) / 100,
+        price: r.rawPrice === undefined ? undefined : Math.round(r.rawPrice * effectiveRate * 100) / 100,
       }));
 
       // Même rapprochement (par code IMPA) que l'import réel, plus des suggestions par nom pour les lignes sans produit trouvé.
@@ -75,6 +92,8 @@ export const analyzeCatalogFile = action({
       });
       return {
         rows: flagged,
+        // Devise du catalogue, devise d'enregistrement et taux effectivement appliqué (à transmettre à l'import).
+        conversion: { source, target, rate: effectiveRate },
         stats: {
           sheets: tables.length,
           read: rows.length,

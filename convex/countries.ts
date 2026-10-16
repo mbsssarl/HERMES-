@@ -27,7 +27,7 @@ export const get = query({
 });
 
 export const create = mutation({
-  args: { code: v.string(), name: v.string(), city: v.optional(v.string()), currency: v.string() },
+  args: { code: v.string(), name: v.string(), city: v.optional(v.string()), currency: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const admin = await requireAdmin(ctx);
 
@@ -36,8 +36,9 @@ export const create = mutation({
       .withIndex("by_code", (q) => q.eq("code", args.code))
       .unique();
     if (existing) throw new Error("Un pays avec ce code existe déjà.");
-    const currency = args.currency.trim().toUpperCase();
-    await assertKnownCurrency(ctx, currency);
+    // La devise n'est plus liée au pays (elle est choisie à l'import du catalogue) : champ facultatif et hérité.
+    const currency = args.currency?.trim() ? args.currency.trim().toUpperCase() : undefined;
+    if (currency) await assertKnownCurrency(ctx, currency);
 
     const countryId = await ctx.db.insert("countries", { ...args, currency, active: true });
     await logActivity(ctx, {

@@ -33,3 +33,20 @@ export function computeLinePricing(input: LinePricingInput): LinePricingResult {
 export function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
+
+/** Arrondi monétaire à 2 décimales (les valeurs des fichiers Excel exportés). */
+export function roundMoney(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+/**
+ * Format de nombre Excel adapté à la valeur : aucun zéro inutile (« 1 » et non « 1,00 », « 12,5 » et non « 12,50 »),
+ * mais les décimales réellement présentes sont affichées. `format` est le format du gabarit (« #,##0.00 [$USD] »...) :
+ * on n'en change que la partie décimale. « General » (déjà adaptatif) est laissé tel quel.
+ */
+export function adaptiveNumFmt(format: string, value: number | undefined): string {
+  if (!format || format === "General") return format;
+  const cents = value === undefined || !Number.isFinite(value) ? 1 : Math.round(Math.abs(value) * 100);
+  const decimals = cents % 100 === 0 ? 0 : cents % 10 === 0 ? 1 : 2;
+  return format.replace(/\.0+/g, decimals === 0 ? "" : "." + "0".repeat(decimals));
+}
