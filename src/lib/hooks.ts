@@ -3,8 +3,6 @@
 import { useQuery } from 'convex/react';
 import React from 'react';
 import { api, type Id } from './convex';
-import { storedTheme } from './theme';
-import { storedLanguage } from './i18n';
 import { mapCountry, mapOrder, mapOrderItem, mapProductWithPrices, type OrderItemRow, type OrderRow } from './mappers';
 import type { AppUser, Country, Currency, OrderValidation, PendingEdit, ProductCategory, ProductWithPrices, QuotationWithRelations } from '../types';
 
@@ -12,7 +10,7 @@ export function useMe(): AppUser | null | undefined {
   const me = useQuery(api.users.getCurrentUser);
   return React.useMemo(() => {
     if (me === undefined || me === null) return me;
-    return { id: me._id, email: me.email ?? '', role: me.role, mustChangePassword: !!me.mustChangePassword, theme: me.theme ?? storedTheme(), language: me.language ?? storedLanguage() };
+    return { id: me._id, email: me.email ?? '', role: me.role, mustChangePassword: !!me.mustChangePassword, theme: me.theme ?? 'light', language: me.language ?? 'fr' };
   }, [me]);
 }
 
