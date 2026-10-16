@@ -1035,3 +1035,30 @@ table.data.list tbody tr:hover td { background: var(--color-surface-2); }
   table.data.list tbody tr:hover td { background: transparent; }
   table.data.list .cell-ellipsis { text-overflow: clip; white-space: normal; }
 }
+
+/* ====================================================================================
+   Panneau de conversion de devise (fiche de la quotation) : correctif d'affichage + responsive
+   ==================================================================================== */
+
+/* BUG CORRIGÉ : `.panel-wide` est une grille à 2 colonnes prévue pour 3 éléments (titre, champs, bouton). Quand on choisit
+   une devise, les cases du taux (« 1 EUR = 1,12 USD ») s'ajoutent : sans consigne, la grille les posait dans la colonne libre,
+   à côté des champs, et elles les recouvraient. On leur donne donc toute la largeur, sur leur propre ligne. */
+.panel-wide .panel-rate { grid-column: 1 / -1; margin-top: 4px; }
+/* Avec le taux affiché, le bouton passe aussi sur sa propre ligne, aligné à droite (sinon il serait seul dans la colonne de droite). */
+.panel-wide.has-rate .panel-foot { grid-column: 1 / -1; justify-content: flex-end; }
+
+/* Petit champ à largeur fixe (devise « Actuelle »). Sélecteur renforcé (.panel-fields .form-field.field-narrow) : sinon la règle
+   générique `.panel-fields .form-field { flex: 1 }` l'emporte et « Actuelle » s'étire autant que la liste de devises. */
+.panel-fields .form-field.field-narrow { flex: 0 0 112px; }
+
+/* Téléphone : les champs passent à la ligne au lieu de se serrer, le bouton prend toute la largeur. */
+@media (max-width: 640px) {
+  /* Le titre ne doit pas être écrasé par l'interrupteur : celui-ci passe sous le titre quand la place manque. */
+  .panel-head { flex-wrap: wrap; }
+  .panel-fields { flex-wrap: wrap; }
+  .panel-fields .form-field,
+  .panel-fields .form-field.field-narrow { flex: 1 1 140px; }
+  .panel-wide.has-rate .panel-foot,
+  .panel-wide .panel-foot { justify-content: stretch; }
+  .panel-wide .panel-foot .btn { flex: 1; }
+}
