@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
-import { requireUser } from "./lib/permissions";
+import { getAnyUser, requireUser } from "./lib/permissions";
 
 const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = new Set([
@@ -14,7 +14,9 @@ const ALLOWED_MIME_TYPES = new Set([
 export const generateUploadUrl = mutation({
   args: {},
   handler: async (ctx) => {
-    await requireUser(ctx);
+    // Le super admin envoie le logo de la plateforme ; les autres comptes doivent appartenir à une entreprise active.
+    const user = await getAnyUser(ctx);
+    if (user?.role !== "superadmin") await requireUser(ctx);
     return await ctx.storage.generateUploadUrl();
   },
 });
