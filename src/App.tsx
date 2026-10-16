@@ -127,6 +127,7 @@ function AppInner() {
             onOpen={(q) => openQuotation(q.id)}
             onNew={() => setView('new')}
             onSeeAll={() => setView('quotations')}
+            isAdmin={me.role === 'admin'}
           />
         )}
         {view === 'quotations' && (
