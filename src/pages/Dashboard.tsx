@@ -7,6 +7,7 @@ import { UpdateBadge } from '../components/UpdateBadge';
 import { ClientCell } from '../components/ClientCell';
 import { TableSkeleton } from '../components/ui';
 import { useT } from '../lib/i18n';
+import { DeleteQuotationButton } from '../components/DeleteQuotationButton';
 
 export function Dashboard({
   quotations,
@@ -14,6 +15,7 @@ export function Dashboard({
   onOpen,
   onNew,
   onSeeAll,
+  isAdmin,
 }: {
   quotations: QuotationWithRelations[];
   loading: boolean;
@@ -21,6 +23,8 @@ export function Dashboard({
   onNew: () => void;
   /** Ouvre l'onglet Quotations, où elles sont toutes. */
   onSeeAll: () => void;
+  /** Affiche le bouton de suppression (réservé aux administrateurs). */
+  isAdmin: boolean;
 }) {
   const t = useT();
   const today = new Date().toDateString();
@@ -87,6 +91,7 @@ export function Dashboard({
                   <th style={{ width: 160 }}>{t('common.status')}</th>
                   <th className="text-right" style={{ width: 110 }}>{t('common.total')}</th>
                   <th style={{ width: 170 }}>{t('common.date')}</th>
+                  {isAdmin && <th style={{ width: 56 }} />}
                 </tr>
               </thead>
               <tbody>
@@ -98,6 +103,7 @@ export function Dashboard({
                     <td><StatusTag status={q.status} /></td>
                     <td className="text-right mono">{formatAmount(q.total)}</td>
                     <td className="text-muted nowrap">{formatDate(q.created_at)}</td>
+                    {isAdmin && <td className="text-right"><DeleteQuotationButton quotation={q} /></td>}
                   </tr>
                 ))}
               </tbody>
