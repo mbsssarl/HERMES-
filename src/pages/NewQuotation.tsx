@@ -4,9 +4,10 @@ import { UploadCloud } from 'lucide-react';
 import type { Country } from '../types';
 import { api, type Id } from '../lib/convex';
 import { useToast } from '../components/Toast';
+import { ACCEPT_ATTRIBUTE } from '../../convex/lib/extraction/fileKinds';
 import { capitalizeWords, regionLabel } from '../lib/format';
 
-const ACCEPTED = '.pdf,.docx,.xlsx,.xls';
+const ACCEPTED = ACCEPT_ATTRIBUTE;
 
 /**
  * Création d'une quotation = petit formulaire (client + région de cotation) puis import du
@@ -237,11 +238,12 @@ export function NewQuotation({
         >
           <div className="upload-icon"><UploadCloud size={28} /></div>
           <h3>{file?.name.toLowerCase() || 'Glissez un fichier ici'}</h3>
-          <p>Cliquez ou déposez un fichier PDF, Word ou Excel</p>
+          <p>Cliquez ou déposez un fichier PDF, Word ou Excel (ancien ou nouveau format)</p>
           <div className="upload-formats">
             <span className="format-chip">PDF</span>
             <span className="format-chip">DOCX</span>
             <span className="format-chip">XLSX</span>
+            <span className="format-chip">XLS</span>
           </div>
           <input ref={fileInput} type="file" accept={ACCEPTED} style={{ display: 'none' }}
             onChange={(e) => { const f = e.target.files?.[0]; if (f) setFile(f); }} />

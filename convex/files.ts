@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { requireUser } from "./lib/permissions";
+import { isSupportedUpload, normalizedMimeType } from "./lib/extraction/fileKinds";
 
 const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = new Set([
@@ -47,9 +48,9 @@ export const registerUploadedFile = mutation({
       await ctx.storage.delete(args.storageId);
       throw new Error("Fichier trop volumineux (15 Mo max).");
     }
-    if (!ALLOWED_MIME_TYPES.has(args.mimeType)) {
+    if (!isSupportedUpload(args.fileName, args.mimeType)) {
       await ctx.storage.delete(args.storageId);
-      throw new Error("Type de fichier non autorisé (PDF, Excel ou Word uniquement).");
+      throw new Error("Type de fichier non autorisé (PDF, Excel, Word, CSV ou scan/image).");
     }
 
     const uploadedFileId = await ctx.db.insert("uploadedFiles", {

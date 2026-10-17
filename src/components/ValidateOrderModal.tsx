@@ -4,6 +4,7 @@ import { UploadCloud } from 'lucide-react';
 import { api, type Id } from '../lib/convex';
 import { Modal } from './ui';
 import { useToast } from './Toast';
+import { ACCEPT_ATTRIBUTE } from '../../convex/lib/extraction/fileKinds';
 
 const errMsg = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -73,7 +74,7 @@ export function ValidateOrderModal({
         {busy ? <div className="spinner" /> : <div className="upload-icon"><UploadCloud size={28} /></div>}
         <h3>{file?.name || 'Glissez le fichier ici'}</h3>
         <p>Cliquez ou déposez un fichier Excel, PDF ou Word</p>
-        <input ref={input} type="file" accept=".xlsx,.xls,.pdf,.docx" style={{ display: 'none' }}
+        <input ref={input} type="file" accept={ACCEPT_ATTRIBUTE} style={{ display: 'none' }}
           onChange={(e) => { const f = e.target.files?.[0]; if (f) setFile(f); e.target.value = ''; }} />
       </div>
       {replacing && (

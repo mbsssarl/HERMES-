@@ -5,8 +5,10 @@ import { api, internal } from "./_generated/api";
 import { action } from "./_generated/server";
 import { buildQuotationWorkbook } from "./lib/export/buildQuotationWorkbook";
 import { fillClientWorkbook } from "./lib/export/fillClientWorkbook";
+import * as XLSX from "xlsx";
+import { XLSX_MIME } from "./lib/extraction/fileKinds";
 
-const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const SPREADSHEET_MIMES = new Set([XLSX_MIME, "application/vnd.ms-excel"]);
 
 /**
  * Exports the quotation (after cotation and discounts) as an Excel file that reproduces the MBSS
@@ -63,14 +65,20 @@ export const exportQuotationXlsx = action({
       const original = data.clientFile;
       if (!original) {
         notice = "Aucun fichier d'origine pour cette quotation : le format standard a été utilisé.";
-      } else if (original.mimeType !== XLSX_MIME) {
+      } else if (!SPREADSHEET_MIMES.has(original.mimeType)) {
         notice = "Le fichier d'origine n'est pas un classeur Excel (.xlsx) et ne peut pas être complété : le format standard a été utilisé.";
       } else {
         try {
           const blob = await ctx.storage.get(original.storageId);
           if (!blob) throw new Error("Fichier d'origine introuvable dans le stockage.");
+          let source = await blob.arrayBuffer();
+          if (original.mimeType !== XLSX_MIME) {
+            // Ancien Excel (.xls) : converti en .xlsx pour pouvoir y écrire les prix.
+            const converted = XLSX.write(XLSX.read(Buffer.from(source), { type: "buffer", cellDates: true }), { type: "buffer", bookType: "xlsx" }) as Buffer;
+            source = converted.buffer.slice(converted.byteOffset, converted.byteOffset + converted.byteLength) as ArrayBuffer;
+          }
           const { buffer, filled, unplaced } = await fillClientWorkbook(
-            await blob.arrayBuffer(),
+            source,
             items.map((item) => ({
               sourceRow: item.sourceRow,
               lineNo: item.lineNo,
@@ -99,7 +107,8 @@ export const exportQuotationXlsx = action({
                 .join(" ") || undefined,
           };
         } catch (err) {
-          notice = `Impossible de compléter le fichier d'origine (${err instanceof Error ? err.message : String(err)}) : le format standard a été utilisé.`;
+          // Un client ne doit jamais recevoir le gabarit fournisseur par erreur : on signale l'échec.
+          throw new Error(`Impossible de compléter le fichier d'origine du client (${err instanceof Error ? err.message : String(err)}).`);
         }
       }
     }

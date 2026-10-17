@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { action } from "./_generated/server";
 import { mapRowsToValidationItems } from "./lib/extraction/columnMapping";
+import { isSupportedUpload, normalizedMimeType } from "./lib/extraction/fileKinds";
 import { parseFileToTable } from "./lib/extraction/parseFile";
 
 const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
@@ -29,7 +30,7 @@ export const importValidationFile = action({
     }
 
     try {
-      if (!ALLOWED_MIME_TYPES.has(mimeType)) throw new Error("Type de fichier non autorisé (PDF, Excel ou Word uniquement).");
+      if (!isSupportedUpload(fileName, mimeType)) throw new Error("Type de fichier non autorisé (PDF, Excel, Word, CSV ou scan/image).");
       const blob = await ctx.storage.get(storageId);
       if (!blob) throw new Error("Fichier introuvable dans le stockage.");
       if (blob.size > MAX_FILE_SIZE_BYTES) throw new Error("Fichier trop volumineux (15 Mo max).");

@@ -4,6 +4,7 @@ import { Download, Upload } from 'lucide-react';
 import { api, type Doc, type Id } from '../lib/convex';
 import { Badge } from './ui';
 import { useToast } from './Toast';
+import { ACCEPT_ATTRIBUTE } from '../../convex/lib/extraction/fileKinds';
 
 const SUPPLIER_STATUS: Record<Doc<'supplierItems'>['status'], { label: string; color: string }> = {
   pending_validation: { label: 'À valider', color: 'var(--badge-warning)' },
@@ -88,7 +89,7 @@ export function SupplierPanel({ orderId, unknownCount }: { orderId: Id<'orders'>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn btn-sm" onClick={download} disabled={busy || unknownCount === 0}><Download size={14} /> Fichier fournisseur</button>
           <button className="btn btn-sm" onClick={() => fileInput.current?.click()} disabled={busy}><Upload size={14} /> Importer la réponse</button>
-          <input ref={fileInput} type="file" accept=".xlsx,.xls,.pdf,.docx" style={{ display: 'none' }}
+          <input ref={fileInput} type="file" accept={ACCEPT_ATTRIBUTE} style={{ display: 'none' }}
             onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); e.target.value = ''; }} />
         </div>
       </div>
