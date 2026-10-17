@@ -474,7 +474,7 @@ export function CatalogImportModal({
                         </td>
                         <td className="text-right">
                           <input key={`p${i}${row.price ?? ''}`} className="input cell-input mono" style={{ width: 110, textAlign: 'right' }} inputMode="decimal"
-                            defaultValue={row.price !== undefined ? row.price.toFixed(2) : ''} placeholder={row.currentPrice !== undefined ? `actuel ${row.currentPrice}` : ''}
+                            defaultValue={row.price !== undefined ? row.price.toFixed(2) : ''} placeholder={row.currentPrice !== undefined ? `actuel ${row.currentPrice.toFixed(2)}` : ''}
                             onBlur={(e) => {
                               const raw = e.target.value.trim().replace(',', '.');
                               const v = raw === '' ? undefined : Number(raw);

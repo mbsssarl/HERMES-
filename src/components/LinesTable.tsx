@@ -184,8 +184,9 @@ export function LinesTable({
                   <NumberCell
                     width={92}
                     resetKey={resetKey}
+                    decimals={2}
                     value={it.unit_price_manual}
-                    placeholder={priceMissing || it.base_price === null ? 'Prix manquant' : String(it.base_price)}
+                    placeholder={priceMissing || it.base_price === null ? 'Prix manquant' : it.base_price.toFixed(2)}
                     onCommit={(v) => onEdit(it, { unitPrice: v })}
                     onClear={() => onEdit(it, { unitPrice: null })}
                   />
