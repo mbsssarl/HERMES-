@@ -3,7 +3,8 @@ import { adaptiveNumFmt } from "../pricing";
 
 /**
  * Dernier passage avant l'écriture du fichier : chaque nombre (valeur ou résultat de formule) s'affiche avec au plus
- * 2 décimales, et sans décimales inutiles (« 12 » et non « 12,00 »). Les dates, pourcentages et textes sont laissés tels quels.
+ * 2 décimales, et sans décimales inutiles (« 12 » et non « 12,00 ») - sauf les montants, dont le format affiche déjà
+ * 2 décimales : ils les gardent toujours (« 20,00 »). Les dates, pourcentages et textes sont laissés tels quels.
  *
  * Le format de base garde 2 décimales, et une mise en forme conditionnelle retire celles qui sont inutiles : l'affichage
  * suit donc la valeur même quand elle change dans Excel (prix unitaire saisi à la main -> total recalculé décimal).
@@ -35,6 +36,8 @@ export function adaptNumberFormats(ws: ExcelJS.Worksheet): void {
           .join(";")
           .replace(/\[[^\]]*\]|"[^"]*"|\\.|_.|\*./g, "");
         if (/[dmyhs%e]/i.test(bare) || !/0/.test(bare)) return;
+        // Format déjà à 2 décimales (montant) : conservé tel quel, sans mise en forme conditionnelle.
+        if (/.00/.test(bare)) return;
       }
 
       const base = adaptiveNumFmt(fmt, 0.01); // 2 décimales

@@ -3,7 +3,7 @@
 import ExcelJS from "exceljs";
 import { QUOTATION_TEMPLATE_BASE64 } from "./templateData";
 import { QUOTATION_LOGO_PNG_BASE64 } from "./logoData";
-import { adaptiveNumFmt, roundMoney } from "../pricing";
+import { moneyNumFmt, roundMoney } from "../pricing";
 import { adaptNumberFormats } from "./numberFormats";
 
 export interface ExportItem {
@@ -267,9 +267,8 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
       cell.value = values[c];
       const style = clone(itemModel[c].style);
       if (style.numFmt) style.numFmt = currencyFormat(style.numFmt, currency);
-      // Décimales seulement quand elles existent (pas de « 1,00 ») : prix unitaire (F) et total de ligne (G).
-      if (c === 5 && style.numFmt) style.numFmt = adaptiveNumFmt(style.numFmt, unitPrice);
-      if (c === 6 && style.numFmt) style.numFmt = adaptiveNumFmt(style.numFmt, lineGross);
+      // Montants (prix unitaire F, total de ligne G) : toujours 2 décimales.
+      if ((c === 5 || c === 6) && style.numFmt) style.numFmt = moneyNumFmt(style.numFmt);
       cell.style = style;
     }
     // La hauteur du gabarit (une seule ligne) coupait les noms longs : elle s'adapte au texte le plus long de la ligne
@@ -324,15 +323,11 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
     formula: `G${at(F_GROSS)}-G${at(F_DISCOUNT)}+G${at(F_TRANSPORT)}`,
     result: roundMoney(gross - discountAmount + fee),
   };
-  // Montants du pied de page : décimales seulement quand elles existent.
-  const adaptG = (rowNumber: number, amount: number) => {
+  // Montants du pied de page : toujours 2 décimales.
+  for (const rowNumber of [at(F_GROSS), discountRow, at(F_TRANSPORT), at(F_NET)]) {
     const cell = ws.getCell(`G${rowNumber}`);
-    if (cell.numFmt) cell.numFmt = adaptiveNumFmt(cell.numFmt, amount);
-  };
-  adaptG(at(F_GROSS), gross);
-  adaptG(discountRow, discountAmount);
-  adaptG(at(F_TRANSPORT), fee);
-  adaptG(at(F_NET), roundMoney(gross - discountAmount + fee));
+    if (cell.numFmt) cell.numFmt = moneyNumFmt(cell.numFmt);
+  }
 
   for (const m of footerMerges) {
     // La ligne de remise doit garder E = libellé et F = cellule de pourcentage modifiable.

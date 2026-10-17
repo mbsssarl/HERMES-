@@ -4,11 +4,10 @@ import ExcelJS from "exceljs";
 import { locateClientColumns, mapRowsToClientItems } from "../extraction/columnMapping";
 import { loadWorkbookTolerant, locateTable } from "../extraction/excel";
 import { normalizeName } from "../normalize";
-import { adaptiveNumFmt, roundMoney } from "../pricing";
+import { moneyNumFmt, roundMoney } from "../pricing";
 
-// Format adapté à la valeur : décimales seulement quand elles existent (« 1 » et non « 1,00 »).
-const numFmtFor = (existing: string | undefined, value: number) =>
-  adaptiveNumFmt(!existing || existing === "General" ? "#,##0.00" : existing, value);
+// Montants : toujours 2 décimales (« 20,00 », « 62,50 »), en gardant le reste du format du fichier du client.
+const numFmtFor = (existing: string | undefined, _value: number) => moneyNumFmt(!existing || existing === "General" ? "#,##0.00" : existing);
 import { recalculateWorkbook } from "./recalc";
 import { adaptNumberFormats } from "./numberFormats";
 

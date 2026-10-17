@@ -53,3 +53,11 @@ export function adaptiveNumFmt(format: string, value: number | undefined): strin
   // sans décimales (« #,##0 ») en reçoit si la valeur en a (2 au maximum).
   return format.replace(/(\[[^\]]*\]|"[^"]*"|\\.|_.|\*.)|([#0,]*0)(\.[0#]+)?/g, (m, literal, int) => (literal ? m : int + frac));
 }
+
+/**
+ * Format d'un MONTANT dans un fichier Excel exporté : toujours 2 décimales (« 62,50 », « 20,00 »), quelle que soit la
+ * valeur. Même logique que adaptiveNumFmt pour le reste du format (devise entre crochets, sections, etc.).
+ */
+export function moneyNumFmt(format: string): string {
+  return adaptiveNumFmt(format, 0.01);
+}
