@@ -264,10 +264,32 @@ html, body { overflow-x: clip; }
   transition: transform 0.18s, box-shadow 0.18s;
 }
 /* Le graphique occupe la place restée libre à droite des cartes (2 colonnes), pleine largeur sur petit écran. */
-.stats-chart { grid-column: 3; grid-row: 1 / span 2; min-width: 0; }
+.stats-chart { grid-column: 3; grid-row: 1 / span 2; min-width: 0; overflow: hidden; display: flex; flex-direction: column; }
+.chart-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px 16px; flex-wrap: wrap; padding: 16px 20px 6px; }
+.chart-periods { display: flex; gap: 6px; flex-shrink: 0; }
+.chart-body { padding: 0 20px 14px; min-width: 0; flex: 1; position: relative; }
+.chart-body svg { overflow: visible; }
+.chart-col { cursor: default; }
+.chart-col:hover rect:not([fill="transparent"]) { filter: brightness(1.12); }
+.chart-empty { position: absolute; left: 20px; right: 20px; top: 38%; text-align: center; font-size: 13px; pointer-events: none; }
+.chart-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; margin-top: 4px; min-height: 18px; }
+.chart-key { display: inline-flex; align-items: center; gap: 6px; }
+.chart-key i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--color-primary); }
+.chart-detail { margin-left: auto; font-weight: 600; color: var(--color-text); text-align: right; }
 @media (max-width: 900px) {
   .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .stats-chart { grid-column: 1 / -1; grid-row: auto; }
+}
+/* Téléphone : cartes en 2 colonnes plus serrées, sélecteur de période sur toute la largeur du graphique. */
+@media (max-width: 520px) {
+  .stats-grid { gap: 10px; margin-bottom: 18px; }
+  .stat-card { padding: 12px 14px; }
+  .stat-value { font-size: 20px; }
+  .chart-head { padding: 14px 14px 4px; }
+  .chart-body { padding: 0 14px 12px; }
+  .chart-periods { width: 100%; }
+  .chart-periods .btn { flex: 1; justify-content: center; }
+  .chart-detail { margin-left: 0; width: 100%; text-align: left; }
 }
 .stat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
 .stat-label { font-size: 13px; color: var(--color-text-muted); font-weight: 500; }

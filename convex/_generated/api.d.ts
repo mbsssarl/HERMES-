@@ -39,10 +39,10 @@ import type * as lib_extraction_columnMapping from "../lib/extraction/columnMapp
 import type * as lib_extraction_documentMetadata from "../lib/extraction/documentMetadata.js";
 import type * as lib_extraction_excel from "../lib/extraction/excel.js";
 import type * as lib_extraction_fileKinds from "../lib/extraction/fileKinds.js";
-import type * as lib_extraction_ocr from "../lib/extraction/ocr.js";
 import type * as lib_extraction_parseFile from "../lib/extraction/parseFile.js";
 import type * as lib_extraction_pdf from "../lib/extraction/pdf.js";
 import type * as lib_extraction_pdfLayout from "../lib/extraction/pdfLayout.js";
+import type * as lib_extraction_tableFromText from "../lib/extraction/tableFromText.js";
 import type * as lib_extraction_word from "../lib/extraction/word.js";
 import type * as lib_impaCategories from "../lib/impaCategories.js";
 import type * as lib_lineEdits from "../lib/lineEdits.js";
@@ -112,10 +112,10 @@ declare const fullApi: ApiFromModules<{
   "lib/extraction/documentMetadata": typeof lib_extraction_documentMetadata;
   "lib/extraction/excel": typeof lib_extraction_excel;
   "lib/extraction/fileKinds": typeof lib_extraction_fileKinds;
-  "lib/extraction/ocr": typeof lib_extraction_ocr;
   "lib/extraction/parseFile": typeof lib_extraction_parseFile;
   "lib/extraction/pdf": typeof lib_extraction_pdf;
   "lib/extraction/pdfLayout": typeof lib_extraction_pdfLayout;
+  "lib/extraction/tableFromText": typeof lib_extraction_tableFromText;
   "lib/extraction/word": typeof lib_extraction_word;
   "lib/impaCategories": typeof lib_impaCategories;
   "lib/lineEdits": typeof lib_lineEdits;

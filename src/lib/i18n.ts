@@ -97,6 +97,7 @@ const fr = {
   'dashboard.chart12m': '12 mois',
   'dashboard.chartOther': 'Quotations',
   'dashboard.chartPo': 'PO reçus',
+  'dashboard.chartEmpty': 'Aucune quotation sur cette période.',
 
   'list.emptyFilter': 'Aucune quotation ne correspond à ce filtre.',
   'list.filterAll': 'Tout',
@@ -181,6 +182,7 @@ const en: Partial<Record<TextKey, string>> = {
   'dashboard.chart12m': '12 months',
   'dashboard.chartOther': 'Quotations',
   'dashboard.chartPo': 'POs received',
+  'dashboard.chartEmpty': 'No quotation in this period.',
 
   'list.emptyFilter': 'No quotation matches this filter.',
   'list.filterAll': 'All',
