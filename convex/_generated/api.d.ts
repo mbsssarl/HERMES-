@@ -32,6 +32,7 @@ import type * as lib_catalogUpdates from "../lib/catalogUpdates.js";
 import type * as lib_currencyCodes from "../lib/currencyCodes.js";
 import type * as lib_export_buildQuotationWorkbook from "../lib/export/buildQuotationWorkbook.js";
 import type * as lib_export_fillClientWorkbook from "../lib/export/fillClientWorkbook.js";
+import type * as lib_export_logoData from "../lib/export/logoData.js";
 import type * as lib_export_numberFormats from "../lib/export/numberFormats.js";
 import type * as lib_export_recalc from "../lib/export/recalc.js";
 import type * as lib_export_templateData from "../lib/export/templateData.js";
@@ -102,6 +103,7 @@ declare const fullApi: ApiFromModules<{
   "lib/currencyCodes": typeof lib_currencyCodes;
   "lib/export/buildQuotationWorkbook": typeof lib_export_buildQuotationWorkbook;
   "lib/export/fillClientWorkbook": typeof lib_export_fillClientWorkbook;
+  "lib/export/logoData": typeof lib_export_logoData;
   "lib/export/numberFormats": typeof lib_export_numberFormats;
   "lib/export/recalc": typeof lib_export_recalc;
   "lib/export/templateData": typeof lib_export_templateData;

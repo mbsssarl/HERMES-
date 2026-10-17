@@ -2,6 +2,7 @@
 
 import ExcelJS from "exceljs";
 import { QUOTATION_TEMPLATE_BASE64 } from "./templateData";
+import { QUOTATION_LOGO_PNG_BASE64 } from "./logoData";
 import { adaptiveNumFmt, roundMoney } from "../pricing";
 import { adaptNumberFormats } from "./numberFormats";
 
@@ -38,15 +39,19 @@ export interface ExportData {
 // Layout of the embedded template (see templateData.ts): header rows 1-16, one model item row (17),
 // then the totals block on rows 18-21 and, in the template, the conditions/contacts boxes on rows 22-29.
 // Columns: A N°, B CODE, C DESCRIPTION, D UNIT, E QUANTITY, F PRICE UNIT, G TOTAL AMOUNT, H REMARKS.
-// Ces deux encadrés du bas (Payment Time / Delivery time / Offer Validity et Contacts) sont repris en EN-TÊTE,
-// à gauche du logo : seuls les totaux restent sous le tableau.
+// Ces deux encadrés du bas (Payment Time / Delivery time / Offer Validity et Contacts) sont repris en EN-TÊTE :
+// le logo à gauche, les 6 lignes à sa droite ; seuls les totaux restent sous le tableau.
 const FIRST_ITEM_ROW = 17;
 const FOOTER_FIRST = 18;
 const FOOTER_LAST = 21;
 const TEMPLATE_LAST = 29;
 const COLS = 8;
-// En-tête : une ligne par élément, de la ligne 2 à la ligne 7, dans les colonnes B à D.
+// En-tête : une ligne par élément, de la ligne 2 à la ligne 7, dans les colonnes C à F (à droite du logo).
 const HEADER_FIRST_LINE = 2;
+// Logo : carré, posé à gauche (colonnes A-B), à hauteur des 6 lignes.
+const LOGO_SIZE_PX = 150;
+const LOGO_LEFT_PX = 16;
+const LOGO_TOP_PX = 6;
 
 // Footer rows, relative to FOOTER_FIRST.
 const F_GROSS = 0;
@@ -96,17 +101,6 @@ function wrappedLines(text: string, width: number): number {
     return total + lines;
   }, 0);
 }
-
-/** Largeur et hauteur d'un PNG, lues dans son en-tête (octets 16 à 23) ; undefined si ce n'est pas un PNG. */
-function pngSize(buffer: Uint8Array | undefined): { width: number; height: number } | undefined {
-  if (!buffer || buffer.length < 24) return undefined;
-  const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-  if (view.getUint32(0) !== 0x89504e47) return undefined;
-  return { width: view.getUint32(16), height: view.getUint32(20) };
-}
-
-/** Largeur d'une colonne Excel en pixels (police par défaut : 7 px par unité + 5 px de marge). */
-const columnPx = (width: number | undefined) => Math.round((width ?? 8.43) * 7 + 5);
 
 function currencyFormat(format: string | undefined, currency: string): string | undefined {
   if (!format) return format;
@@ -200,8 +194,8 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
   ];
   headerLines.forEach((value, i) => {
     const r = HEADER_FIRST_LINE + i;
-    ws.mergeCells(`B${r}:D${r}`);
-    const cell = ws.getCell(`B${r}`);
+    ws.mergeCells(`C${r}:F${r}`);
+    const cell = ws.getCell(`C${r}`);
     cell.value = value;
     const isLink = typeof value === "object" && value !== null && "hyperlink" in value;
     // Courriel : libellé en gras (déjà dans le texte riche) ; lien : bleu souligné ; téléphone : tout en gras.
@@ -209,23 +203,13 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
     cell.alignment = { horizontal: "left", vertical: "middle" };
   });
 
-  // --- logo : même image, reculée à droite (alignée sur le bord droit du tableau) ; elle était centrée sur C-G
-  const letterhead = ws.getImages()[0];
-  if (letterhead) {
-    const size = pngSize(workbook.getImage(Number(letterhead.imageId))?.buffer as Uint8Array | undefined);
-    const height = 128; // hauteur d'origine (lignes 3 à 9)
-    const width = size ? Math.round((height * size.width) / size.height) : 384;
-    const widths = Array.from({ length: COLS }, (_, i) => columnPx(ws.getColumn(i + 1).width));
-    const total = widths.reduce((a, b) => a + b, 0);
-    let x = Math.max(total - width - 8, 0); // position horizontale du coin haut-gauche, en pixels
-    let col = 0;
-    while (col < COLS - 1 && x >= widths[col]) { x -= widths[col]; col++; }
-    // L'image du gabarit est ré-ancrée : on retire l'ancienne puis on pose la même image à sa nouvelle place.
-    (ws as unknown as { _media: unknown[] })._media = [];
-    // Ancrage exact (colonne + décalage en EMU, 9525 EMU par pixel) : une position fractionnaire serait approximative.
-    const anchor = { nativeCol: col, nativeColOff: Math.round(x * 9525), nativeRow: 2, nativeRowOff: 0 };
-    ws.addImage(Number(letterhead.imageId), { tl: anchor as unknown as ExcelJS.Anchor, ext: { width, height }, editAs: "oneCell" });
-  }
+  // --- logo : l'image du gabarit (slogan + logo) est remplacée par le logo seul, à gauche des 6 lignes
+  (ws as unknown as { _media: unknown[] })._media = [];
+  (workbook as unknown as { media: unknown[] }).media = [];
+  const logoId = workbook.addImage({ base64: QUOTATION_LOGO_PNG_BASE64, extension: "png" });
+  // Ancrage exact (colonne A + décalage en EMU, 9525 EMU par pixel), taille fixe en pixels.
+  const logoAnchor = { nativeCol: 0, nativeColOff: LOGO_LEFT_PX * 9525, nativeRow: 0, nativeRowOff: LOGO_TOP_PX * 9525 };
+  ws.addImage(logoId, { tl: logoAnchor as unknown as ExcelJS.Anchor, ext: { width: LOGO_SIZE_PX, height: LOGO_SIZE_PX }, editAs: "oneCell" });
 
   // --- article rows
   const currency = data.currency;
