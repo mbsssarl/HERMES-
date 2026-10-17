@@ -134,7 +134,9 @@ export const exportQuotationXlsx = action({
       })),
     });
 
-    const safeClient = (client?.name ?? "").replace(/[\\/:*?"<>|]/g, " ").trim();
+    // Le nom du client n'apparaît que pour un envoi au client : un fichier à destination d'un fournisseur ne
+    // doit pas révéler l'identité du client final.
+    const safeClient = clientFormat ? (client?.name ?? "").replace(/[\\/:*?"<>|]/g, " ").trim() : "";
     return {
       fileName: `${brandFile} RFQ ${order.reference}${safeClient ? ` ${safeClient}` : ""}${suffix}.xlsx`,
       base64: buffer.toString("base64"),
