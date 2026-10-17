@@ -33,19 +33,23 @@ export interface ExportData {
 }
 
 // Layout of the embedded template (see templateData.ts): header rows 1-16, one model item row (17),
-// then the footer block (totals + contacts) on rows 18-29. Columns: A N°, B CODE, C DESCRIPTION, D UNIT,
-// E QUANTITY, F PRICE UNIT, G TOTAL AMOUNT, H REMARKS.
+// then the totals block on rows 18-21 and, in the template, the conditions/contacts boxes on rows 22-29.
+// Columns: A N°, B CODE, C DESCRIPTION, D UNIT, E QUANTITY, F PRICE UNIT, G TOTAL AMOUNT, H REMARKS.
+// Ces deux encadrés du bas (Payment Time / Delivery time / Offer Validity et Contacts) sont repris en EN-TÊTE,
+// à gauche du logo : seuls les totaux restent sous le tableau.
 const FIRST_ITEM_ROW = 17;
 const FOOTER_FIRST = 18;
-const FOOTER_LAST = 29;
+const FOOTER_LAST = 21;
+const TEMPLATE_LAST = 29;
 const COLS = 8;
+// En-tête : une ligne par élément, de la ligne 2 à la ligne 7, dans les colonnes B à D.
+const HEADER_FIRST_LINE = 2;
 
 // Footer rows, relative to FOOTER_FIRST.
 const F_GROSS = 0;
 const F_DISCOUNT = 1;
 const F_TRANSPORT = 2;
 const F_NET = 3;
-const F_PAYMENT = 6;
 
 
 type CellStyle = Partial<ExcelJS.Style>;
@@ -90,6 +94,17 @@ function wrappedLines(text: string, width: number): number {
   }, 0);
 }
 
+/** Largeur et hauteur d'un PNG, lues dans son en-tête (octets 16 à 23) ; undefined si ce n'est pas un PNG. */
+function pngSize(buffer: Uint8Array | undefined): { width: number; height: number } | undefined {
+  if (!buffer || buffer.length < 24) return undefined;
+  const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+  if (view.getUint32(0) !== 0x89504e47) return undefined;
+  return { width: view.getUint32(16), height: view.getUint32(20) };
+}
+
+/** Largeur d'une colonne Excel en pixels (police par défaut : 7 px par unité + 5 px de marge). */
+const columnPx = (width: number | undefined) => Math.round((width ?? 8.43) * 7 + 5);
+
 function currencyFormat(format: string | undefined, currency: string): string | undefined {
   if (!format) return format;
   const safe = currency.replace(/[\[\]"]/g, "");
@@ -117,17 +132,32 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
     }
     return cells;
   };
+  // Conditions et contacts du gabarit, repris tels quels (libellés, courriel, téléphone, site) dans l'en-tête.
+  const labelOf = (address: string, fallback: string) => String(ws.getCell(address).value ?? fallback).trim() || fallback;
+  const conditions = {
+    payment: labelOf("B24", "Payment Time:"),
+    delivery: labelOf("B27", "Delivery time:"),
+    validity: labelOf("B29", "Offer Validity :"),
+  };
+  const contacts = {
+    mail: clone(ws.getCell("G24").value),
+    operation: clone(ws.getCell("G26").value),
+    site: clone(ws.getCell("G29").value),
+  };
   const itemModel = captureRow(FIRST_ITEM_ROW);
   const itemHeight = ws.getRow(FIRST_ITEM_ROW).height;
   const footer: { cells: CapturedCell[]; height?: number }[] = [];
   for (let r = FOOTER_FIRST; r <= FOOTER_LAST; r++) {
     footer.push({ cells: captureRow(r), height: ws.getRow(r).height });
   }
-  const footerMerges = (ws.model.merges as string[]).filter((m) => parseInt(m.replace(/^[A-Z]+/, ""), 10) >= FOOTER_FIRST);
+  const rowOfMerge = (m: string) => parseInt(m.replace(/^[A-Z]+/, ""), 10);
+  const templateMerges = (ws.model.merges as string[]).filter((m) => rowOfMerge(m) >= FOOTER_FIRST);
+  const footerMerges = templateMerges.filter((m) => rowOfMerge(m) <= FOOTER_LAST);
 
-  // --- clear the model rows
-  for (const m of footerMerges) ws.unMergeCells(m);
-  for (let r = FIRST_ITEM_ROW; r <= FOOTER_LAST; r++) {
+  // --- clear the model rows (articles, totaux et anciens encadrés du bas)
+  for (const m of templateMerges) ws.unMergeCells(m);
+  ws.unMergeCells("A1:H12");
+  for (let r = FIRST_ITEM_ROW; r <= TEMPLATE_LAST; r++) {
     const row = ws.getRow(r);
     for (let c = 1; c <= COLS; c++) {
       const cell = row.getCell(c);
@@ -149,6 +179,46 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
     ws.getRow(13).getCell(c).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFD3ECB9" } };
   }
   if (data.category) ws.getCell("B15").value = `Request for ${titleCase(data.category)}`;
+
+  // --- en-tête : les 6 éléments (conditions puis contacts), une ligne chacun, à gauche
+  const plain: Partial<ExcelJS.Font> = { name: "Calibri", size: 10, color: { argb: "FF000000" } };
+  const bold: Partial<ExcelJS.Font> = { ...plain, bold: true };
+  const headerLines: ExcelJS.CellValue[] = [
+    { richText: [{ font: bold, text: conditions.payment }, { font: plain, text: data.paymentDays ? ` ${data.paymentDays}` : "" }] },
+    { richText: [{ font: bold, text: conditions.delivery }] },
+    { richText: [{ font: bold, text: conditions.validity }] },
+    contacts.mail as ExcelJS.CellValue,
+    contacts.operation as ExcelJS.CellValue,
+    contacts.site as ExcelJS.CellValue,
+  ];
+  headerLines.forEach((value, i) => {
+    const r = HEADER_FIRST_LINE + i;
+    ws.mergeCells(`B${r}:D${r}`);
+    const cell = ws.getCell(`B${r}`);
+    cell.value = value;
+    const isLink = typeof value === "object" && value !== null && "hyperlink" in value;
+    // Courriel : libellé en gras (déjà dans le texte riche) ; lien : bleu souligné ; téléphone : tout en gras.
+    cell.font = isLink ? { ...plain, underline: true, color: { argb: "FF0563C1" } } : i === 4 ? bold : plain;
+    cell.alignment = { horizontal: "left", vertical: "middle" };
+  });
+
+  // --- logo : même image, reculée à droite (alignée sur le bord droit du tableau) ; elle était centrée sur C-G
+  const letterhead = ws.getImages()[0];
+  if (letterhead) {
+    const size = pngSize(workbook.getImage(Number(letterhead.imageId))?.buffer as Uint8Array | undefined);
+    const height = 128; // hauteur d'origine (lignes 3 à 9)
+    const width = size ? Math.round((height * size.width) / size.height) : 384;
+    const widths = Array.from({ length: COLS }, (_, i) => columnPx(ws.getColumn(i + 1).width));
+    const total = widths.reduce((a, b) => a + b, 0);
+    let x = Math.max(total - width - 8, 0); // position horizontale du coin haut-gauche, en pixels
+    let col = 0;
+    while (col < COLS - 1 && x >= widths[col]) { x -= widths[col]; col++; }
+    // L'image du gabarit est ré-ancrée : on retire l'ancienne puis on pose la même image à sa nouvelle place.
+    (ws as unknown as { _media: unknown[] })._media = [];
+    // Ancrage exact (colonne + décalage en EMU, 9525 EMU par pixel) : une position fractionnaire serait approximative.
+    const anchor = { nativeCol: col, nativeColOff: Math.round(x * 9525), nativeRow: 2, nativeRowOff: 0 };
+    ws.addImage(Number(letterhead.imageId), { tl: anchor as unknown as ExcelJS.Anchor, ext: { width, height }, editAs: "oneCell" });
+  }
 
   // --- article rows
   const currency = data.currency;
@@ -244,7 +314,6 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
   adaptG(discountRow, discountAmount);
   adaptG(at(F_TRANSPORT), fee);
   adaptG(at(F_NET), roundMoney(gross - discountAmount + fee));
-  if (data.paymentDays) ws.getCell(`B${at(F_PAYMENT)}`).value = `Payment Time: ${data.paymentDays}`;
 
   for (const m of footerMerges) {
     // La ligne de remise doit garder E = libellé et F = cellule de pourcentage modifiable.
