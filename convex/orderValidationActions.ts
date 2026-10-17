@@ -8,12 +8,6 @@ import { isSupportedUpload, normalizedMimeType } from "./lib/extraction/fileKind
 import { parseFileToTable } from "./lib/extraction/parseFile";
 
 const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
-const ALLOWED_MIME_TYPES = new Set([
-  "application/pdf",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/vnd.ms-excel",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-]);
 
 /**
  * « Valider la commande » : lit le fichier final du client (le même document que sa demande de cotation, mais
@@ -23,14 +17,14 @@ const ALLOWED_MIME_TYPES = new Set([
 export const importValidationFile = action({
   args: { orderId: v.id("orders"), storageId: v.id("_storage"), mimeType: v.string(), fileName: v.string() },
   handler: async (ctx, { orderId, storageId, mimeType, fileName }): Promise<{ lines: number; matched: number }> => {
-    const user = await ctx.runQuery(api.users.getCurrentUser, {});
+    const user = await ctx.runQuery(api.users.getBusinessUser, {});
     if (!user) {
       await ctx.storage.delete(storageId);
       throw new Error("Authentification requise.");
     }
 
     try {
-      if (!isSupportedUpload(fileName, mimeType)) throw new Error("Type de fichier non autorisé (PDF, Excel, Word, CSV ou scan/image).");
+      if (!isSupportedUpload(fileName, mimeType)) throw new Error("Type de fichier non autorisé (PDF, Excel .xlsx/.xls ou Word .docx).");
       const blob = await ctx.storage.get(storageId);
       if (!blob) throw new Error("Fichier introuvable dans le stockage.");
       if (blob.size > MAX_FILE_SIZE_BYTES) throw new Error("Fichier trop volumineux (15 Mo max).");
@@ -44,7 +38,7 @@ export const importValidationFile = action({
         userId: user._id,
         storageId,
         fileName,
-        mimeType,
+        mimeType: normalizedMimeType(fileName, mimeType),
         size: blob.size,
         items: items.map((it) => ({
           lineRef: it.lineRef,

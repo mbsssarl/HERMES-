@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation, mutation, type MutationCtx, query } from "./_generated/server";
 import { logActivity } from "./lib/audit";
-import { requireAdmin, requireUser } from "./lib/permissions";
+import { assertSameCompany, companyIdOf, companyStateOf, getCurrentUser as getBusinessUserDoc, requireAdmin, requireAnyUser } from "./lib/permissions";
 import { generateTempPassword } from "./lib/tokens";
 
 
@@ -26,19 +26,39 @@ export const getCurrentUser = query({
     if (!authUserId) return null;
     const user = await ctx.db.get(authUserId);
     if (!user || user.status !== "active") return null;
-    return user;
+    // L'entreprise suspendue est signalée à l'interface (écran « Entreprise suspendue ») ; toutes les autres
+    // fonctions refusent alors ce compte (voir lib/permissions.ts).
+    const { company, suspended } = await companyStateOf(ctx, user);
+    return {
+      ...user,
+      companySuspended: suspended,
+      companyName: company?.name ?? null,
+      // Pourquoi (abonnement échu ou décision du super admin) et quand : sert au message de l'écran de suspension
+      // et à l'alerte « abonnement bientôt échu » de l'administrateur.
+      companySuspendKind: company?.suspendKind ?? null,
+      companySubscriptionEndsAt: company?.subscriptionEndsAt ?? null,
+      // Motif donné par le super admin, affiché à quiconque se connecte à l'entreprise suspendue.
+      companySuspendReason: suspended ? (company?.suspendReason ?? null) : null,
+    };
   },
+});
+
+/** Comme getCurrentUser, mais null pour le super admin et pour une entreprise suspendue : sert aux actions métier. */
+export const getBusinessUser = query({
+  args: {},
+  handler: async (ctx) => await getBusinessUserDoc(ctx),
 });
 
 export const listUsers = query({
   args: {},
   handler: async (ctx) => {
-    await requireAdmin(ctx);
-    return await ctx.db.query("users").order("desc").collect();
+    const admin = await requireAdmin(ctx);
+    // Uniquement les comptes de SON entreprise : le super admin et les autres entreprises n'apparaissent jamais.
+    return await ctx.db.query("users").withIndex("by_company", (q) => q.eq("companyId", companyIdOf(admin))).order("desc").collect();
   },
 });
 
-const DEFAULT_ADMIN_EMAIL = "admin@hermes.local";
+const DEFAULT_ADMIN_EMAIL = "admin@hermes.dev";
 const DEFAULT_ADMIN_PASSWORD = "Hermes-Admin-2026!";
 
 /**
@@ -104,6 +124,7 @@ export const createUser = mutation({
         mustChangePassword: true,
         createdAt: Date.now(),
         createdBy: admin._id,
+        companyId: companyIdOf(admin),
       },
     });
 
@@ -133,6 +154,7 @@ export const toggleUserStatus = mutation({
     if (userId === admin._id && status === "disabled") {
       throw new Error("Vous ne pouvez pas désactiver votre propre compte.");
     }
+    assertSameCompany(admin, await ctx.db.get(userId), "Utilisateur introuvable.");
 
     await ctx.db.patch(userId, {
       status,
@@ -153,7 +175,7 @@ export const toggleUserStatus = mutation({
 export const recordLogin = mutation({
   args: {},
   handler: async (ctx) => {
-    const user = await requireUser(ctx);
+    const user = await requireAnyUser(ctx);
     await ctx.db.patch(user._id, { lastLoginAt: Date.now() });
     await logActivity(ctx, {
       userId: user._id,
@@ -167,7 +189,7 @@ export const recordLogin = mutation({
 export const setNewPassword = mutation({
   args: { newPassword: v.string() },
   handler: async (ctx, { newPassword }) => {
-    const user = await requireUser(ctx);
+    const user = await requireAnyUser(ctx);
     if (newPassword.length < 8) {
       throw new Error("Le mot de passe doit contenir au moins 8 caractères.");
     }
@@ -210,6 +232,7 @@ export const adminResetPassword = mutation({
       throw new Error("Pour votre propre compte, utilisez la page Réglages.");
     }
     const user = await ctx.db.get(userId);
+    assertSameCompany(admin, user, "Utilisateur introuvable.");
     if (!user || !user.email) throw new Error("Utilisateur introuvable.");
 
     const tempPassword = generateTempPassword();
@@ -240,7 +263,7 @@ export const adminResetPassword = mutation({
 export const changeMyPassword = mutation({
   args: { currentPassword: v.string(), newPassword: v.string() },
   handler: async (ctx, { currentPassword, newPassword }) => {
-    const user = await requireUser(ctx);
+    const user = await requireAnyUser(ctx);
     if (!user.email) throw new Error("Compte sans email associé.");
     if (newPassword.length < 8) {
       throw new Error("Le mot de passe doit contenir au moins 8 caractères.");
@@ -271,7 +294,7 @@ export const changeMyPassword = mutation({
 export const setLanguage = mutation({
   args: { language: v.union(v.literal("fr"), v.literal("en")) },
   handler: async (ctx, { language }) => {
-    const user = await requireUser(ctx);
+    const user = await requireAnyUser(ctx);
     await ctx.db.patch(user._id, { language });
   },
 });
@@ -280,7 +303,7 @@ export const setLanguage = mutation({
 export const setTheme = mutation({
   args: { theme: v.union(v.literal("light"), v.literal("dark")) },
   handler: async (ctx, { theme }) => {
-    const user = await requireUser(ctx);
+    const user = await requireAnyUser(ctx);
     await ctx.db.patch(user._id, { theme });
   },
 });

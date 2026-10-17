@@ -3,6 +3,7 @@
 import ExcelJS from "exceljs";
 import { QUOTATION_TEMPLATE_BASE64 } from "./templateData";
 import { adaptiveNumFmt, roundMoney } from "../pricing";
+import { adaptNumberFormats } from "./numberFormats";
 
 export interface ExportItem {
   code?: string;
@@ -198,15 +199,12 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
   const footerStart = row;
   gross = roundMoney(gross);
   const discountAmount = roundMoney((gross * data.discountPercent) / 100);
+  // La ligne « (+) DELIVERY + LAUNCH SERVICE » est toujours affichée, même à 0.
   const fee = data.transportFee && data.transportFee > 0 ? roundMoney(data.transportFee) : 0;
-  const hasFee = fee > 0;
-  // Sans frais, la ligne « (+) DELIVERY + LAUNCH SERVICE » du gabarit disparaît et celles qui suivent remontent.
-  const off = (i: number) => (hasFee || i < F_TRANSPORT ? i : i - 1);
 
   // --- footer block, copied below the last article
   footer.forEach((f, i) => {
-    if (!hasFee && i === F_TRANSPORT) return;
-    const r = ws.getRow(footerStart + off(i));
+    const r = ws.getRow(footerStart + i);
     f.cells.forEach((captured, c) => {
       const cell = r.getCell(c + 1);
       let value = captured.value;
@@ -219,7 +217,7 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
     if (f.height) r.height = f.height;
   });
 
-  const at = (i: number) => footerStart + off(i);
+  const at = (i: number) => footerStart + i;
   ws.getCell(`G${at(F_GROSS)}`).value = {
     formula: data.items.length > 0 ? `SUM(G${FIRST_ITEM_ROW}:G${lastItemRow})` : "0",
     result: gross,
@@ -231,12 +229,10 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
   ws.getCell(`F${discountRow}`).alignment = { horizontal: "center" };
   ws.getCell(`F${discountRow}`).style = { ...clone(ws.getCell(`E${discountRow}`).style), numFmt: "0%", alignment: { horizontal: "center" } };
   ws.getCell(`G${discountRow}`).value = { formula: `G${at(F_GROSS)}*F${discountRow}`, result: discountAmount };
-  if (hasFee) {
-    ws.getCell(`E${at(F_TRANSPORT)}`).value = "(+) DELIVERY + LAUNCH SERVICE";
-    ws.getCell(`G${at(F_TRANSPORT)}`).value = fee;
-  }
+  ws.getCell(`E${at(F_TRANSPORT)}`).value = "(+) DELIVERY + LAUNCH SERVICE";
+  ws.getCell(`G${at(F_TRANSPORT)}`).value = fee;
   ws.getCell(`G${at(F_NET)}`).value = {
-    formula: `G${at(F_GROSS)}-G${at(F_DISCOUNT)}${hasFee ? `+G${at(F_TRANSPORT)}` : ""}`,
+    formula: `G${at(F_GROSS)}-G${at(F_DISCOUNT)}+G${at(F_TRANSPORT)}`,
     result: roundMoney(gross - discountAmount + fee),
   };
   // Montants du pied de page : décimales seulement quand elles existent.
@@ -246,16 +242,14 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
   };
   adaptG(at(F_GROSS), gross);
   adaptG(discountRow, discountAmount);
-  if (hasFee) adaptG(at(F_TRANSPORT), fee);
+  adaptG(at(F_TRANSPORT), fee);
   adaptG(at(F_NET), roundMoney(gross - discountAmount + fee));
   if (data.paymentDays) ws.getCell(`B${at(F_PAYMENT)}`).value = `Payment Time: ${data.paymentDays}`;
 
   for (const m of footerMerges) {
     // La ligne de remise doit garder E = libellé et F = cellule de pourcentage modifiable.
     if (m === "E19:F19") continue;
-    const mergeOffset = parseInt(m.replace(/^[A-Z]+/, ""), 10) - FOOTER_FIRST;
-    if (!hasFee && mergeOffset === F_TRANSPORT) continue;
-    ws.mergeCells(m.replace(/\d+/g, (n) => String(footerStart + off(parseInt(n, 10) - FOOTER_FIRST))));
+    ws.mergeCells(m.replace(/\d+/g, (n) => String(footerStart + parseInt(n, 10) - FOOTER_FIRST)));
   }
 
   // Impression compacte : A4 paysage, une page en largeur, hauteur libre pour conserver la lisibilité.
@@ -266,7 +260,7 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
     fitToWidth: 1,
     fitToHeight: 0,
     margins: { left: 0.25, right: 0.25, top: 0.35, bottom: 0.35, header: 0.15, footer: 0.15 },
-    printArea: `A1:H${Math.max(footerStart + off(FOOTER_LAST), lastItemRow)}`,
+    printArea: `A1:H${Math.max(footerStart + FOOTER_LAST - FOOTER_FIRST, lastItemRow)}`,
   };
   ws.pageSetup.scale = undefined;
   workbook.calcProperties.fullCalcOnLoad = true;
@@ -278,5 +272,6 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
   const stamp = `${String(today.getDate()).padStart(2, "0")}-${String(today.getMonth() + 1).padStart(2, "0")}-${today.getFullYear()}`;
   ws.name = `${data.reference}-${stamp}`.replace(/[\[\]:*?/\\]/g, "-").slice(0, 31);
 
+  adaptNumberFormats(ws);
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }

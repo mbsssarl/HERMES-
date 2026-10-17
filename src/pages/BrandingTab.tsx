@@ -12,11 +12,13 @@ const LOGO_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'];
 const errMsg = (err: unknown) => (err instanceof Error ? err.message.replace(/^.*Uncaught Error:\s*/s, '').split('\n')[0] : String(err));
 
 /** Personnalisation : le nom et le logo de l'entreprise, repris dans le menu, les pages de connexion et le titre de l'onglet. */
-export function BrandingTab() {
+export function BrandingTab({ platform = false }: { platform?: boolean }) {
   const toast = useToast();
   const branding = useQuery(api.branding.get, {});
   const generateUploadUrl = useMutation(api.files.generateUploadUrl);
-  const save = useMutation(api.branding.set);
+  const saveCompany = useMutation(api.branding.set);
+  const savePlatform = useMutation(api.branding.setPlatform);
+  const save = platform ? savePlatform : saveCompany;
 
   const [name, setName] = React.useState<string | null>(null); // null = pas encore modifié
   const [file, setFile] = React.useState<File | null>(null);
@@ -82,12 +84,12 @@ export function BrandingTab() {
 
   return (
     <div className="card card-pad" style={{ maxWidth: 760 }}>
-      <div className="section-title">Identité de l'entreprise</div>
+      <div className="section-title">{platform ? 'Identité de la plateforme' : "Identité de l'entreprise"}</div>
 
       <div className="branding-grid">
         <div>
           <div className="form-field">
-            <label>Nom de l'entreprise</label>
+            <label>{platform ? 'Nom affiché' : "Nom de l'entreprise"}</label>
             <input
               className="input"
               value={currentName}

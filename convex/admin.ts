@@ -1,16 +1,19 @@
 import type { Id } from "./_generated/dataModel";
 import { query } from "./_generated/server";
-import { requireAdmin } from "./lib/permissions";
+import { companyIdOf, requireAdmin } from "./lib/permissions";
 
 export const getDashboardStats = query({
   args: {},
   handler: async (ctx) => {
-    await requireAdmin(ctx);
+    const admin = await requireAdmin(ctx);
+    const companyId = companyIdOf(admin);
 
-    const users = await ctx.db.query("users").collect();
-    const orders = await ctx.db.query("orders").filter((q) => q.eq(q.field("deletedAt"), undefined)).collect();
-    const quotations = await ctx.db.query("quotations").collect();
-    const recentActivity = await ctx.db.query("activityLogs").order("desc").take(20);
+    // Tout est limité à l'entreprise de l'admin.
+    const users = await ctx.db.query("users").withIndex("by_company", (q) => q.eq("companyId", companyId)).collect();
+    const orders = (await ctx.db.query("orders").filter((q) => q.eq(q.field("deletedAt"), undefined)).collect()).filter((o) => o.companyId === companyId);
+    const orderIds = new Set(orders.map((o) => o._id));
+    const quotations = (await ctx.db.query("quotations").collect()).filter((q) => orderIds.has(q.orderId));
+    const recentActivity = (await ctx.db.query("activityLogs").order("desc").take(200)).filter((a) => a.companyId === companyId).slice(0, 20);
 
     const ordersByStatus = orders.reduce<Record<string, number>>((acc, o) => {
       acc[o.status] = (acc[o.status] ?? 0) + 1;

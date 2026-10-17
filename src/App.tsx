@@ -11,10 +11,12 @@ import { Login, SetPassword } from './pages/Login';
 import { useAuthActions } from '@convex-dev/auth/react';
 import { Admin } from './pages/Admin';
 import { Settings } from './pages/Settings';
+import { PlatformApp } from './pages/Platform';
 import { applyTheme } from './lib/theme';
 import { setLanguage, useLanguage } from './lib/i18n';
 import { api } from './lib/convex';
 import { StateBox } from './components/ui';
+import { showSuspension } from './lib/suspension';
 import { useCountries, useCurrencies, useMe, useProductCategories, useProducts, useQuotation, useQuotations } from './lib/hooks';
 
 function AccessDenied() {
@@ -28,6 +30,38 @@ function AccessDenied() {
       </div>
     </div>
   );
+}
+
+const longDate = (ms: number) => new Intl.DateTimeFormat('fr-FR', { dateStyle: 'long' }).format(new Date(ms));
+
+/**
+ * Aiguillage après connexion : le super admin va à son espace, une entreprise suspendue à l'écran d'information,
+ * tous les autres au tableau de bord de leur entreprise. Les requêtes métier ne sont lancées que pour ces derniers.
+ */
+function Gate() {
+  const me = useMe();
+  const { signOut } = useAuthActions();
+  useLanguage();
+  const theme = me?.theme;
+  React.useEffect(() => { if (theme) applyTheme(theme); }, [theme]);
+  const language = me?.language;
+  React.useEffect(() => { if (language) setLanguage(language); }, [language]);
+
+  // Entreprise suspendue (à la connexion, ou pendant la session) : retour discret à la page de connexion, qui explique
+  // pourquoi dans une fenêtre d'information - jamais un message d'erreur.
+  const suspended = me?.companySuspended === true;
+  React.useEffect(() => {
+    if (!me || !suspended) return;
+    showSuspension({ name: me.companyName, kind: me.companySuspendKind, reason: me.companySuspendReason, endsAt: me.companySubscriptionEndsAt });
+    applyTheme('light');
+    setLanguage('fr');
+    void signOut();
+  }, [me, suspended, signOut]);
+
+  if (me === undefined || suspended) return <StateBox loading variant="app" title="Chargement…" />;
+  if (me === null) return <AccessDenied />;
+  if (me.role === 'superadmin') return me.mustChangePassword ? <SetPassword /> : <PlatformApp me={me} />;
+  return <AppInner />;
 }
 
 function AppInner() {
@@ -120,6 +154,12 @@ function AppInner() {
     <div className="app">
       <Sidebar current={view} onNavigate={goTo} pendingCount={pendingCount} updatedCount={updatedCount} me={me} />
       <main className="main">
+        {me.role === 'admin' && me.companySubscriptionEndsAt !== null && me.companySubscriptionEndsAt - Date.now() <= 7 * 86_400_000 && (
+          <div className="card card-pad" style={{ marginBottom: 16, borderColor: '#f59e0b' }} role="status">
+            L'abonnement de votre entreprise expire le <strong>{longDate(me.companySubscriptionEndsAt)}</strong>. Passé cette date, plus aucun
+            compte ne pourra se connecter : contactez l'administrateur de la plateforme pour le renouveler.
+          </div>
+        )}
         {view === 'dashboard' && (
           <Dashboard
             quotations={quotations}
@@ -127,6 +167,7 @@ function AppInner() {
             onOpen={(q) => openQuotation(q.id)}
             onNew={() => setView('new')}
             onSeeAll={() => setView('quotations')}
+            isAdmin={me.role === 'admin'}
           />
         )}
         {view === 'quotations' && (
@@ -172,7 +213,7 @@ export default function App() {
     <ToastProvider>
       <AuthLoading><StateBox loading variant="app" title="Chargement…" /></AuthLoading>
       <Unauthenticated><Login /></Unauthenticated>
-      <Authenticated><AppInner /></Authenticated>
+      <Authenticated><Gate /></Authenticated>
     </ToastProvider>
   );
 }

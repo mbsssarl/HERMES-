@@ -96,7 +96,7 @@ export const extractSupplierFile = internalAction({
 export const generateSupplierTemplate = action({
   args: { orderId: v.id("orders") },
   handler: async (ctx, { orderId }) => {
-    const user = await ctx.runQuery(api.users.getCurrentUser, {});
+    const user = await ctx.runQuery(api.users.getBusinessUser, {});
     if (!user) throw new Error("Authentification requise.");
 
     const ExcelJS = await import("exceljs");

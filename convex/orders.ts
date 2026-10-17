@@ -492,7 +492,7 @@ async function ensureBase(ctx: ActionCtx, orderId: Id<"orders">, userId: Id<"use
 export const ensureBaseRates = action({
   args: { orderId: v.id("orders") },
   handler: async (ctx, { orderId }): Promise<null> => {
-    const user = await ctx.runQuery(api.users.getCurrentUser, {});
+    const user = await ctx.runQuery(api.users.getBusinessUser, {});
     if (!user) throw new Error("Authentification requise.");
     await ensureBase(ctx, orderId, user._id, false);
     return null;
@@ -511,7 +511,7 @@ export const applyBaseRates = action({
     manualRates: v.optional(v.array(v.object({ currency: v.string(), rate: v.number() }))),
   },
   handler: async (ctx, { orderId, ratePercent = 100, manualRates }): Promise<RateEntry[]> => {
-    const user = await ctx.runQuery(api.users.getCurrentUser, {});
+    const user = await ctx.runQuery(api.users.getBusinessUser, {});
     if (!user) throw new Error("Authentification requise.");
     assertPercent(ratePercent);
     const basis = await ctx.runQuery(internal.orders.getExportCurrencyBasis, { orderId });
@@ -551,7 +551,7 @@ export const applyExportCurrency = action({
     manualRates: v.optional(v.array(v.object({ currency: v.string(), rate: v.number() }))),
   },
   handler: async (ctx, { orderId, targetCurrency, applyRate, ratePercent = 100, manualRates }): Promise<{ currency: string; rate: number; ratePercent?: number; asOf: string; source: string }[] | null> => {
-    const user = await ctx.runQuery(api.users.getCurrentUser, {});
+    const user = await ctx.runQuery(api.users.getBusinessUser, {});
     if (!user) throw new Error("Authentification requise.");
 
     // L'étape 1 (vers l'USD) doit exister avant de convertir plus loin (y compris pour une quotation ancienne).

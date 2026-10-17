@@ -17,7 +17,7 @@ import { parseFileToTables } from "./lib/extraction/parseFile";
 export const analyzeCatalogFile = action({
   args: { storageId: v.id("_storage"), mimeType: v.string(), countryId: v.optional(v.id("countries")), sourceCurrency: v.optional(v.string()), targetCurrency: v.optional(v.string()), ratePercent: v.optional(v.number()), manualRate: v.optional(v.number()) },
   handler: async (ctx, { storageId, mimeType, countryId, sourceCurrency = "USD", targetCurrency, ratePercent = 100, manualRate }) => {
-    const user = await ctx.runQuery(api.users.getCurrentUser, {});
+    const user = await ctx.runQuery(api.users.getBusinessUser, {});
     if (!user || user.role !== "admin") {
       await ctx.storage.delete(storageId);
       throw new Error("Action réservée aux administrateurs.");

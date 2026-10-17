@@ -12,6 +12,48 @@ const schema = defineSchema({
   ...authTables,
 
   // ------------------------------------------------------------------
+  // ENTREPRISES
+  // L'application est partagée par plusieurs entreprises, chacune avec ses utilisateurs, ses clients, son
+  // catalogue et ses commandes (colonne `companyId` des autres tables). Créées et suspendues par le super admin.
+  // ------------------------------------------------------------------
+  companies: defineTable({
+    name: v.string(), // nom officiel, donné par le super admin
+    code: v.string(), // identifiant court en minuscules (ex: "mbss"), sert de convention d'email : admin@mbss.dev
+    status: v.union(v.literal("active"), v.literal("suspended")),
+    // Personnalisation faite par l'admin de l'entreprise (nom affiché, logo, couleur de l'interface).
+    branding: v.optional(
+      v.object({
+        name: v.optional(v.string()),
+        logoStorageId: v.optional(v.id("_storage")),
+        accentColor: v.optional(v.string()),
+      }),
+    ),
+    createdAt: v.number(),
+    createdBy: v.optional(v.id("users")),
+    suspendedAt: v.optional(v.number()),
+    suspendedBy: v.optional(v.id("users")),
+    suspendReason: v.optional(v.string()),
+    // Pourquoi l'entreprise est suspendue : décision du super admin, ou abonnement arrivé à échéance (levée par le
+    // renouvellement). Absent = suspension antérieure à cette distinction, traitée comme manuelle.
+    suspendKind: v.optional(v.union(v.literal("manual"), v.literal("subscription"))),
+    // Fin de l'abonnement mensuel (30 jours, renouvelable par le super admin). À l'échéance, l'entreprise est
+    // suspendue automatiquement. Absent = pas d'échéance (entreprise historique).
+    subscriptionEndsAt: v.optional(v.number()),
+  }).index("by_code", ["code"]),
+
+  // ------------------------------------------------------------------
+  // RÉGLAGES DE LA PLATEFORME
+  // Clé/valeur, réservés au super admin. Clé « branding » : nom, logo et couleur de la page de connexion,
+  // visible par toutes les entreprises.
+  // ------------------------------------------------------------------
+  platformSettings: defineTable({
+    key: v.string(),
+    value: v.any(),
+    updatedAt: v.number(),
+    updatedBy: v.optional(v.id("users")),
+  }).index("by_key", ["key"]),
+
+  // ------------------------------------------------------------------
   // USERS
   // Table native de @convex-dev/auth, ÉTENDUE avec nos champs métier.
   // On reprend les champs de base (email, etc.) via
@@ -19,10 +61,13 @@ const schema = defineSchema({
   // ------------------------------------------------------------------
   users: defineTable({
     ...authTables.users.validator.fields,
+    // Entreprise propriétaire de la ligne (multi-entreprises). Absent le temps de la reprise des données.
+    companyId: v.optional(v.id("companies")),
 
     // Rôle applicatif : "admin" voit tout (utilisateurs, cotations,
     // réductions, statistiques) ; "user" travaille sur ses commandes.
-    role: v.union(v.literal("admin"), v.literal("user")),
+    // "superadmin" : gère la plateforme (entreprises, suspension) sans appartenir à aucune entreprise.
+    role: v.union(v.literal("superadmin"), v.literal("admin"), v.literal("user")),
 
     // Un compte désactivé ne peut plus se connecter, mais n'est jamais
     // supprimé (traçabilité : qui a fait quoi, même après désactivation).
@@ -48,7 +93,9 @@ const schema = defineSchema({
   })
     // Index requis par @convex-dev/auth pour retrouver un compte par email
     // lors de la connexion (le nom "email" n'est pas arbitraire).
-    .index("email", ["email"]),
+    .index("email", ["email"])
+    // Comptes d'une entreprise (liste des utilisateurs de l'admin) - le super admin, sans entreprise, n'y figure jamais.
+    .index("by_company", ["companyId"]),
 
   // ------------------------------------------------------------------
   // QUOTATIONS VUES
@@ -69,9 +116,13 @@ const schema = defineSchema({
   // simple ; renommer une catégorie ici ne met pas à jour rétroactivement les produits déjà classés.
   // ------------------------------------------------------------------
   productCategories: defineTable({
+    // Entreprise propriétaire de la ligne (multi-entreprises). Absent le temps de la reprise des données.
+    companyId: v.optional(v.id("companies")),
     name: v.string(),
     active: v.boolean(),
-  }).index("by_name", ["name"]),
+  })
+    .index("by_name", ["name"])
+    .index("by_company", ["companyId"]),
 
   // ------------------------------------------------------------------
   // DEVISES
@@ -79,10 +130,14 @@ const schema = defineSchema({
   // fichiers exportés. Aucun taux de change : la devise n'est qu'une étiquette.
   // ------------------------------------------------------------------
   currencies: defineTable({
+    // Entreprise propriétaire de la ligne (multi-entreprises). Absent le temps de la reprise des données.
+    companyId: v.optional(v.id("companies")),
     code: v.string(), // code à 3 lettres en majuscules (XAF, EUR, USD...)
     name: v.string(),
     active: v.boolean(),
-  }).index("by_code", ["code"]),
+  })
+    .index("by_code", ["code"])
+    .index("by_company", ["companyId"]),
 
   // ------------------------------------------------------------------
   // PAYS
@@ -91,6 +146,8 @@ const schema = defineSchema({
   // automatiquement de cette devise, sans avoir à la redéfinir à chaque fois (voir productPrices.currency).
   // ------------------------------------------------------------------
   countries: defineTable({
+    // Entreprise propriétaire de la ligne (multi-entreprises). Absent le temps de la reprise des données.
+    companyId: v.optional(v.id("companies")),
     code: v.string(), // ex: "CM", "CI" - libre, pas forcément ISO strict
     name: v.string(),
     city: v.optional(v.string()), // ville/port principal, informatif
@@ -98,13 +155,17 @@ const schema = defineSchema({
     // l'import du catalogue) et les quotations se convertissent en USD (orders.baseRates). Ignoré par le calcul.
     currency: v.optional(v.string()),
     active: v.boolean(),
-  }).index("by_code", ["code"]),
+  })
+    .index("by_code", ["code"])
+    .index("by_company", ["companyId"]),
 
   // ------------------------------------------------------------------
   // CLIENTS
   // Les entreprises/personnes pour qui on établit des devis.
   // ------------------------------------------------------------------
   clients: defineTable({
+    // Entreprise propriétaire de la ligne (multi-entreprises). Absent le temps de la reprise des données.
+    companyId: v.optional(v.id("companies")),
     name: v.string(),
     contactEmail: v.optional(v.string()), // pré-remplit le destinataire lors de l'envoi du devis
     contactPhone: v.optional(v.string()),
@@ -129,6 +190,8 @@ const schema = defineSchema({
   // document client est comparée (matching).
   // ------------------------------------------------------------------
   products: defineTable({
+    // Entreprise propriétaire de la ligne (multi-entreprises). Absent le temps de la reprise des données.
+    companyId: v.optional(v.id("companies")),
     impaId: v.optional(v.string()), // identifiant IMPA - clé principale du matching automatique
     code: v.optional(v.string()), // identifiant secondaire (code interne/fournisseur), utilisé si pas d'IMPA
     // Versions normalisées (lettres/chiffres uniquement, majuscules - voir lib/normalize.ts) d'impaId/code,
@@ -178,6 +241,8 @@ const schema = defineSchema({
   // "apprenne" les libellés récurrents au fil des commandes.
   // ------------------------------------------------------------------
   productAliases: defineTable({
+    // Entreprise propriétaire de la ligne (multi-entreprises). Absent le temps de la reprise des données.
+    companyId: v.optional(v.id("companies")),
     productId: v.id("products"),
     alias: v.string(),
     normalizedAlias: v.string(),
@@ -194,6 +259,8 @@ const schema = defineSchema({
   // ne sert qu'à pouvoir récupérer un produit supprimé par erreur (fonction interne `restoreProductBackup`).
   // ------------------------------------------------------------------
   productBackups: defineTable({
+    // Entreprise propriétaire de la ligne (multi-entreprises). Absent le temps de la reprise des données.
+    companyId: v.optional(v.id("companies")),
     originalId: v.string(), // ancien _id du produit
     product: v.any(), // document produit tel qu'il était
     prices: v.array(v.any()), // toutes ses lignes de prix (historique compris)
@@ -211,6 +278,8 @@ const schema = defineSchema({
   // devis passé, sans dépendre du journal d'audit.
   // ------------------------------------------------------------------
   productPrices: defineTable({
+    // Entreprise propriétaire de la ligne (multi-entreprises). Absent le temps de la reprise des données.
+    companyId: v.optional(v.id("companies")),
     productId: v.id("products"),
     countryId: v.id("countries"),
     price: v.number(), // prix interne, AVANT application de la cotation (%)
@@ -235,6 +304,8 @@ const schema = defineSchema({
   // persistante : l'utilisateur peut la quitter et la reprendre plus tard.
   // ------------------------------------------------------------------
   orders: defineTable({
+    // Entreprise propriétaire de la ligne (multi-entreprises). Absent le temps de la reprise des données.
+    companyId: v.optional(v.id("companies")),
     reference: v.string(), // généré automatiquement (ex: "Q-2026-0001"), jamais modifiable par l'utilisateur
     clientId: v.id("clients"),
     clientOrderNumber: v.optional(v.string()), // numéro de commande donné par le client lui-même (facultatif)
@@ -326,7 +397,8 @@ const schema = defineSchema({
     .index("by_status", ["status"]) // pour la liste filtrée par statut
     .index("by_client", ["clientId"])
     .index("by_createdBy", ["createdBy"]) // pour "mes commandes"
-    .index("by_reference", ["reference"]),
+    .index("by_reference", ["reference"])
+    .index("by_company", ["companyId"]),
 
   // ------------------------------------------------------------------
   // LIGNES DE COMMANDE
@@ -581,6 +653,8 @@ const schema = defineSchema({
   // entités qui n'existent plus) sans faire exploser le schéma.
   // ------------------------------------------------------------------
   activityLogs: defineTable({
+    // Entreprise propriétaire de la ligne (multi-entreprises). Absent le temps de la reprise des données.
+    companyId: v.optional(v.id("companies")),
     userId: v.optional(v.id("users")), // absent pour une action système (ex: bootstrap du premier admin)
     action: v.string(), // ex: "order.created", "product.price_updated"
     entityType: v.string(), // ex: "order", "product", "user"
@@ -615,6 +689,8 @@ const schema = defineSchema({
   // infos entreprise...) sans migration de schéma.
   // ------------------------------------------------------------------
   settings: defineTable({
+    // Entreprise propriétaire de la ligne (multi-entreprises). Absent le temps de la reprise des données.
+    companyId: v.optional(v.id("companies")),
     key: v.string(), // ex: "defaultQuotationPercent", "companyInfo" - la devise vient du pays (table `countries`), pas d'un setting global
     value: v.any(),
     updatedAt: v.number(),

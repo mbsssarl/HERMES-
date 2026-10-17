@@ -27,7 +27,7 @@ export const exportQuotationXlsx = action({
     clientFormat: v.optional(v.boolean()),
   },
   handler: async (ctx, { orderId, scope, eta, clientFormat }): Promise<{ fileName: string; base64: string; notice?: string; format: "client" | "standard" }> => {
-    const user = await ctx.runQuery(api.users.getCurrentUser, {});
+    const user = await ctx.runQuery(api.users.getBusinessUser, {});
     if (!user) throw new Error("Authentification requise.");
 
     // Étape 1 de la conversion (devises des lignes -> USD) : complète les taux manquants avant de lire les montants.

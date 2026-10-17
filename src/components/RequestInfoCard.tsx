@@ -161,7 +161,9 @@ export function RequestInfoCard({
 
         <BaseRatesPanel quotation={quotation} busy={convertingCurrency} onApply={onApplyBaseRates} />
 
-        <section className="panel panel-wide">
+        {/* has-rate : quand les cases du taux sont affichées, le panneau passe en mise en page « pleine largeur » (voir styles.css,
+            section « Panneau de conversion »). Sans cette classe, ces cases se superposaient aux champs. */}
+        <section className={`panel panel-wide${applyRate && target ? ' has-rate' : ''}`}>
           <div className="panel-head">
             <div className="panel-title">Convertir vers une autre devise (depuis l'USD)</div>
             <label className="switch">
@@ -171,11 +173,9 @@ export function RequestInfoCard({
             </label>
           </div>
           <div className="panel-fields">
-            <div className="form-field" style={{ flex: '0 0 96px' }}>
-              <label>Initiale</label>
-              <input className="input" value={displayCurrency} disabled readOnly title="Devise des prix du catalogue, enregistrée sur chaque ligne au moment du matching." />
-            </div>
-            <div className="form-field" style={{ flex: '0 0 96px' }}>
+            {/* RETIRÉ : le champ « Initiale » (devise des prix du catalogue), jugé inutile ici. « Actuelle » est conservé. */}
+            {/* field-narrow remplace l'ancien style en ligne (flex: 0 0 96px) pour pouvoir s'adapter au téléphone (voir styles.css) */}
+            <div className="form-field field-narrow">
               <label>Actuelle</label>
               <input className="input" value={quotation.export_currency ?? displayCurrency} disabled readOnly title="Devise du fichier exporté." />
             </div>
@@ -192,7 +192,8 @@ export function RequestInfoCard({
             </div>
           </div>
           {applyRate && target && (
-            <div style={{ marginTop: 12 }}>
+            // panel-rate : occupe toute la largeur de la grille, sur sa propre ligne (correctif du bug d'affichage)
+            <div className="panel-rate">
               <RateInputs from="USD" to={target} live={live} value={rateText} onChange={setRateText} error={liveError} />
             </div>
           )}

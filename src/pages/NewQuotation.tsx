@@ -195,29 +195,10 @@ export function NewQuotation({
           </div>
         </div>
 
-        <div className="form-field">
-          <label>Convertir le total en (depuis l'USD) <span className="text-muted" style={{ fontWeight: 400 }}>(facultatif)</span></label>
-          <select
-            className="select"
-            value={targetCurrency}
-            onChange={(e) => setTargetCurrency(e.target.value)}
-            disabled={!sourceSupported || targetOptions.length === 0}
-          >
-            <option value="">Aucune conversion{sourceCurrency ? ` (${sourceCurrency})` : ''}</option>
-            {targetOptions.map((c) => <option key={c._id} value={c.code}>{c.code} · {c.name}</option>)}
-          </select>
-          <div className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>
-            {!targetCurrency && 'Les montants du fichier exporté seront convertis avec le taux du jour, figé à la création.'}
-            {targetCurrency && rateLoading && 'Récupération du taux…'}
-            {targetCurrency && ratePreview && `1 USD = ${ratePreview.rate.toFixed(6)} ${targetCurrency} · ${ratePreview.source} (${ratePreview.asOf})`}
-          </div>
-          {rateError && <div style={{ fontSize: 12, marginTop: 4, color: 'var(--color-error)' }}>{rateError}</div>}
-          {country && supportedTargets !== undefined && !sourceSupported && (
-            <div className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>
-              Conversion en direct indisponible depuis {sourceCurrency} (pas de taux de référence publié).
-            </div>
-          )}
-        </div>
+        {/* RETIRÉ : le champ « Convertir le total en (depuis l'USD) ». Le document client arrive sans prix, il n'y a donc rien
+            à convertir à la création. La conversion reste disponible depuis la fiche de la quotation (RequestInfoCard).
+            targetCurrency reste à '' : le bloc « if (targetCurrency) » de submit() ne s'exécute plus (aucune conversion
+            appliquée à la création). Le code d'aperçu du taux plus haut est devenu inutile : à nettoyer plus tard. */}
 
         </div>
 

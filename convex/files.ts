@@ -1,21 +1,17 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
-import { requireUser } from "./lib/permissions";
+import { getAnyUser, requireUser } from "./lib/permissions";
 import { isSupportedUpload, normalizedMimeType } from "./lib/extraction/fileKinds";
 
 const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
-const ALLOWED_MIME_TYPES = new Set([
-  "application/pdf",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
-  "application/vnd.ms-excel", // .xls
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
-]);
 
 export const generateUploadUrl = mutation({
   args: {},
   handler: async (ctx) => {
-    await requireUser(ctx);
+    // Le super admin envoie le logo de la plateforme ; les autres comptes doivent appartenir à une entreprise active.
+    const user = await getAnyUser(ctx);
+    if (user?.role !== "superadmin") await requireUser(ctx);
     return await ctx.storage.generateUploadUrl();
   },
 });
@@ -50,7 +46,7 @@ export const registerUploadedFile = mutation({
     }
     if (!isSupportedUpload(args.fileName, args.mimeType)) {
       await ctx.storage.delete(args.storageId);
-      throw new Error("Type de fichier non autorisé (PDF, Excel, Word, CSV ou scan/image).");
+      throw new Error("Type de fichier non autorisé (PDF, Excel .xlsx/.xls ou Word .docx).");
     }
 
     const uploadedFileId = await ctx.db.insert("uploadedFiles", {
@@ -58,7 +54,7 @@ export const registerUploadedFile = mutation({
       kind: args.kind,
       storageId: args.storageId,
       fileName: args.fileName.toLowerCase(), // le nom d'un fichier déposé est toujours en minuscules
-      mimeType: args.mimeType,
+      mimeType: normalizedMimeType(args.fileName, args.mimeType),
       size: args.size,
       status: "uploaded",
       uploadedBy: user._id,

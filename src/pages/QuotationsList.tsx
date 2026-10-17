@@ -1,7 +1,7 @@
 import React from 'react';
-import { Plus, RotateCcw, Trash2 } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { useMutation } from 'convex/react';
-import { api, type Id } from '../lib/convex';
+import { api } from '../lib/convex';
 import { useToast } from '../components/Toast';
 import type { QuotationWithRelations } from '../types';
 import { formatAmount, formatDate, regionLabel } from '../lib/format';
@@ -10,6 +10,7 @@ import { UpdateBadge } from '../components/UpdateBadge';
 import { ClientCell } from '../components/ClientCell';
 import { Badge, Modal, StateBox } from '../components/ui';
 import { useT } from '../lib/i18n';
+import { DeleteQuotationButton } from '../components/DeleteQuotationButton';
 
 export function QuotationsList({
   quotations,
@@ -30,28 +31,6 @@ export function QuotationsList({
   const toast = useToast();
   const purgeDeleted = useMutation(api.orders.purgeDeleted);
   const [confirmPurge, setConfirmPurge] = React.useState(false);
-  const removeOrder = useMutation(api.orders.remove);
-  const restoreOrder = useMutation(api.orders.restore);
-  const [toDelete, setToDelete] = React.useState<QuotationWithRelations | null>(null);
-  const [deletingOne, setDeletingOne] = React.useState(false);
-
-  const deleteOne = async () => {
-    if (!toDelete) return;
-    setDeletingOne(true);
-    try {
-      await removeOrder({ orderId: toDelete.id as Id<'orders'> });
-      toast(t('list.deleted', { ref: toDelete.quotation_number }), 'success');
-      setToDelete(null);
-    } catch (err) {
-      toast('Erreur: ' + (err instanceof Error ? err.message : String(err)), 'error');
-    } finally {
-      setDeletingOne(false);
-    }
-  };
-  const restoreOne = (q: QuotationWithRelations) =>
-    restoreOrder({ orderId: q.id as Id<'orders'> })
-      .then(() => toast(t('list.restored', { ref: q.quotation_number }), 'success'))
-      .catch((err) => toast('Erreur: ' + (err instanceof Error ? err.message : String(err)), 'error'));
   const [purging, setPurging] = React.useState(false);
   const [filter, setFilter] = React.useState<string>('ALL');
   const filters: Array<{ id: string; label: string }> = [
@@ -129,31 +108,24 @@ export function QuotationsList({
                   <th style={{ width: 160 }}>{t('common.status')}</th>
                   <th className="text-right" style={{ width: 110 }}>{t('common.total')}</th>
                   <th style={{ width: 170 }}>{t('common.date')}</th>
-                  {isAdmin && <th style={{ width: 64 }} aria-label="Actions" />}
+                  {isAdmin && filter !== 'DELETED' && <th style={{ width: 56 }} />}
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((q) => (
                   <tr key={q.id} className="clickable" onClick={() => onOpen(q)}>
-                    <td><div className="cell-ref"><span className="mono ref">{q.quotation_number}</span><UpdateBadge update={q.catalog_update} compact /></div></td>
-                    <td><ClientCell name={q.customer_name} /></td>
-                    <td className="cell-ellipsis" title={q.countries ? regionLabel(q.countries) : undefined}>{q.countries ? regionLabel(q.countries) : '·'}</td>
-                    <td><StatusTag status={q.status} /></td>
-                    <td className="text-right mono">{formatAmount(q.total)}</td>
-                    <td className="text-muted nowrap">{formatDate(q.created_at)}</td>
-                    {isAdmin && (
-                      <td className="text-right" onClick={(e) => e.stopPropagation()}>
-                        {q.status === 'DELETED' ? (
-                          <button className="btn btn-ghost btn-icon" title={t('list.restore')} aria-label={`${t('list.restore')} ${q.quotation_number}`} onClick={() => void restoreOne(q)}>
-                            <RotateCcw size={16} />
-                          </button>
-                        ) : (
-                          <button className="btn btn-ghost btn-icon" title={t('list.delete')} aria-label={`${t('list.delete')} ${q.quotation_number}`} onClick={() => setToDelete(q)}>
-                            <Trash2 size={16} />
-                          </button>
-                        )}
-                      </td>
-                    )}
+                    {/* CONFLIT RÉSOLU (fusion develop) : on garde les DEUX changements.
+                        [RESPONSIVE - nous] Les attributs data-label ci-dessous servent à l'affichage en cartes sur téléphone
+                        (voir `table.data.list td[data-label]::before` dans styles.css). */}
+                    <td data-label={t('common.reference')}><div className="cell-ref"><span className="mono ref">{q.quotation_number}</span><UpdateBadge update={q.catalog_update} compact /></div></td>
+                    <td data-label={t('common.client')}><ClientCell name={q.customer_name} /></td>
+                    <td className="cell-ellipsis" data-label={t('common.region')} title={q.countries ? regionLabel(q.countries) : undefined}>{q.countries ? regionLabel(q.countries) : '·'}</td>
+                    <td data-label={t('common.status')}><StatusTag status={q.status} /></td>
+                    <td className="text-right mono" data-label={t('common.total')}>{formatAmount(q.total)}</td>
+                    <td className="text-muted nowrap" data-label={t('common.date')}>{formatDate(q.created_at)}</td>
+                    {/* [SUPPRESSION - collègue] version finale : composant DeleteQuotationButton (il gère sa propre confirmation).
+                        Pas de data-label volontairement : sur téléphone le bouton s'affiche seul, sans libellé de colonne. */}
+                    {isAdmin && filter !== 'DELETED' && <td className="text-right"><DeleteQuotationButton quotation={q} /></td>}
                   </tr>
                 ))}
               </tbody>
@@ -161,21 +133,6 @@ export function QuotationsList({
           </div>
         )}
       </div>
-
-      {toDelete && (
-        <Modal
-          title={t('list.deleteTitle')}
-          onClose={() => !deletingOne && setToDelete(null)}
-          footer={<>
-            <button className="btn" onClick={() => setToDelete(null)} disabled={deletingOne}>{t('common.cancel')}</button>
-            <button className="btn btn-primary" style={{ background: '#dc2626' }} onClick={() => void deleteOne()} disabled={deletingOne}>
-              {deletingOne ? t('list.purging') : t('list.delete')}
-            </button>
-          </>}
-        >
-          <p>{t('list.deleteBody', { ref: toDelete.quotation_number })}</p>
-        </Modal>
-      )}
 
       {confirmPurge && (
         <Modal

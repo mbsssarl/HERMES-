@@ -307,6 +307,11 @@ export function CatalogImportModal({
         </>
       }
     >
+      {/* GAIN DE PLACE : ces réglages ne servent qu'AVANT la lecture du fichier (ils sont désactivés ensuite). Une fois les
+          produits affichés (rows), on les masque pour laisser toute la hauteur au tableau ; « Changer de fichier » les
+          réaffiche. Les valeurs choisies restent en mémoire et sont rappelées sur une ligne dans le résumé plus bas. */}
+      {!rows && (
+      <>
       <div className="form-field">
         <label>Région des prix du fichier</label>
         <select className="select" value={countryId} disabled={!!rows || busy} onChange={(e) => setCountryId(e.target.value)}>
@@ -343,6 +348,8 @@ export function CatalogImportModal({
       <div className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>
         Les prix convertis sont enregistrés dans la devise cible choisie. Les colonnes reconnues comprennent notamment Item Name, Product Name, Description, SKU, Qty, Unit Price et de nombreux autres intitulés.
       </div>
+      </>
+      )}
 
       {!rows && (
         <div
@@ -370,6 +377,10 @@ export function CatalogImportModal({
 
       {rows && (
         <div className="fill">
+          {/* Rappel compact des réglages masqués (région et devises choisies avant la lecture du fichier) */}
+          <div className="text-muted" style={{ fontSize: 12, marginBottom: 4 }}>
+            Région : {(() => { const c = countries.find((x) => x.id === countryId); return c ? regionLabel(c) : '—'; })()} · Devises : {sourceCurrency} → {targetCurrency}
+          </div>
           <div className="text-muted" style={{ fontSize: 13, marginBottom: 8 }}>
             {fileName}{stats ? ` (${stats.sheets} feuille(s), ${stats.read} ligne(s) lue(s)${stats.ignored > 0 ? `, ${stats.ignored} ignorée(s) : pieds de page et libellés` : ''})` : ''} · {groups.length} produit(s) distinct(s) ({duplicateRows} doublon(s) regroupé(s), dont {identicalRows} identique(s) fusionné(s) d'office) : {groups.filter((g) => !status(activeOf(g.root)).existing).length} nouveau(x), {groups.filter((g) => status(activeOf(g.root)).existing).length} déjà au catalogue - {selected.size} sélectionné(s).
             <button className="btn btn-ghost btn-sm" style={{ marginLeft: 8 }} onClick={() => setRows(null)}>Changer de fichier</button>
