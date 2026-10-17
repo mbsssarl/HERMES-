@@ -23,7 +23,10 @@ export interface ExportData {
   port?: string;
   /** Ville du pays de cotation (voir countries.city) : prioritaire sur `port` pour le titre d'en-tête. */
   city?: string;
+  /** Texte après « Request for » (ex. Provisions, Material). Chaîne vide = ligne laissée vide ; absent = gabarit. */
   category?: string;
+  /** Lieu de livraison écrit tel quel dans « SUPPLY AT … » (sinon : ville du pays, puis lieu de la commande + PORT). */
+  placeText?: string;
   paymentDays?: string;
   /** Global discount in percent, applied on the total of the whole order. */
   discountPercent: number;
@@ -169,8 +172,12 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
   // --- header lines
   // La ville du pays de cotation prime sur le lieu de livraison en texte libre (souvent un placeholder non
   // renseigné, ex. "DELIVERY PORT") : "SUPPLY AT ABIDJAN" plutôt que "SUPPLY AT DELIVERY PORT PORT".
-  const place = data.city ? data.city.toUpperCase() : (data.port ? `${data.port.toUpperCase()} PORT` : undefined);
-  const supplies = ["SUPPLY AT", place, formatDate(data.eta) ? `ETA ${formatDate(data.eta)}` : undefined, data.vessel ? `${data.vessel.toUpperCase()} VESSEL` : undefined]
+  const customPlace = data.placeText?.trim();
+  const place = data.placeText !== undefined
+    ? (customPlace ? customPlace.toUpperCase() : undefined)
+    : data.city ? data.city.toUpperCase() : (data.port ? `${data.port.toUpperCase()} PORT` : undefined);
+  const vesselName = data.vessel?.trim();
+  const supplies = ["SUPPLY AT", place, formatDate(data.eta) ? `ETA ${formatDate(data.eta)}` : undefined, vesselName ? `${vesselName.toUpperCase()} VESSEL` : undefined]
     .filter(Boolean)
     .join(" ");
   ws.getCell("B13").value = supplies;
@@ -178,7 +185,7 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
   for (let c = 2; c <= COLS; c++) {
     ws.getRow(13).getCell(c).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFD3ECB9" } };
   }
-  if (data.category) ws.getCell("B15").value = `Request for ${titleCase(data.category)}`;
+  if (data.category !== undefined) ws.getCell("B15").value = data.category.trim() ? `Request for ${titleCase(data.category.trim())}` : null;
 
   // --- en-tête : les 6 éléments (conditions puis contacts), une ligne chacun, à gauche
   const plain: Partial<ExcelJS.Font> = { name: "Calibri", size: 10, color: { argb: "FF000000" } };

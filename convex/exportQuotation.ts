@@ -23,8 +23,17 @@ export const exportQuotationXlsx = action({
     // true = envoi au CLIENT : on renvoie son fichier Excel d'origine complété des prix, au lieu du gabarit MBSS
     // (réservé aux fournisseurs et aux téléchargements simples).
     clientFormat: v.optional(v.boolean()),
+    // Textes de l'en-tête du gabarit MBSS, saisis à l'export : « Request for … », lieu de livraison, nom du navire.
+    // Absents = valeurs de la commande.
+    header: v.optional(
+      v.object({
+        requestFor: v.optional(v.string()),
+        port: v.optional(v.string()),
+        vessel: v.optional(v.string()),
+      }),
+    ),
   },
-  handler: async (ctx, { orderId, scope, eta, clientFormat }): Promise<{ fileName: string; base64: string; notice?: string; format: "client" | "standard" }> => {
+  handler: async (ctx, { orderId, scope, eta, clientFormat, header }): Promise<{ fileName: string; base64: string; notice?: string; format: "client" | "standard" }> => {
     const user = await ctx.runQuery(api.users.getBusinessUser, {});
     if (!user) throw new Error("Authentification requise.");
 
@@ -107,11 +116,12 @@ export const exportQuotationXlsx = action({
     const buffer = await buildQuotationWorkbook({
       reference: order.reference,
       currency,
-      vessel: order.vessel,
+      vessel: header?.vessel !== undefined ? header.vessel : order.vessel,
       eta: eta ?? order.eta,
       port: order.supplyPlace,
+      placeText: header?.port,
       city: country?.city,
-      category: order.documentInfo?.category,
+      category: header?.requestFor !== undefined ? header.requestFor : order.documentInfo?.category,
       paymentDays: order.documentInfo?.paymentDays,
       discountPercent: order.globalDiscountPercent ?? 0,
       transportFee: order.transportFee,

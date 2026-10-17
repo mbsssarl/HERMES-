@@ -7,7 +7,7 @@ import { StatusTag } from '../components/StatusTag';
 import { Modal, StateBox } from '../components/ui';
 import { LinesTable } from '../components/LinesTable';
 import { RequestInfoCard } from '../components/RequestInfoCard';
-import { ExportModal } from '../components/ExportModal';
+import { ExportModal, type ExportHeader } from '../components/ExportModal';
 import { ValidateOrderModal } from '../components/ValidateOrderModal';
 import { ValidationDetails } from '../components/ValidationDetails';
 import { api, type Id } from '../lib/convex';
@@ -61,6 +61,7 @@ export function QuotationDetail({
   const ensureBaseRates = useAction(api.orders.ensureBaseRates);
   const setTransportFee = useMutation(api.orders.setTransportFee);
   const markSeen = useMutation(api.orders.markSeen);
+  const updateLogistics = useMutation(api.orders.updateLogistics);
   const setExcluded = useMutation(api.orderItems.setExcluded).withOptimisticUpdate((store, { orderItemIds, excluded }) => {
     const ids = new Set<string>(orderItemIds);
     for (const { args, value } of store.getAllQueries(api.orderItems.listByOrder)) {
@@ -254,9 +255,27 @@ export function QuotationDetail({
   };
 
   // Génère le fichier Excel du gabarit MBSS pour ce périmètre (le modal décide ensuite : téléchargement ou email).
-  const fetchExport = async (scope: 'selected' | 'unknown', opts: { eta?: string; clientFormat?: boolean }): Promise<{ fileName: string; base64: string; notice?: string; format: 'client' | 'standard' } | null> => {
+  // Valeurs proposées pour l'en-tête du fichier fournisseur : celles de la quotation, comme le fichier les écrirait sans saisie.
+  const headerDefaults: ExportHeader = {
+    requestFor: quotation.document_info.category ?? 'Provisions',
+    // Même priorité que le bon de commande : le lieu saisi sur la quotation d'abord, sinon la ville du pays de cotation.
+    port: (quotation.supply_place?.trim() || quotation.countries?.city || '').toUpperCase(),
+    vessel: quotation.vessel ?? '',
+  };
+
+  const fetchExport = async (scope: 'selected' | 'unknown', opts: { eta?: string; clientFormat?: boolean; header?: ExportHeader }): Promise<{ fileName: string; base64: string; notice?: string; format: 'client' | 'standard' } | null> => {
     try {
-      return await exportXlsx({ orderId, scope, eta: opts.eta, clientFormat: opts.clientFormat });
+      const file = await exportXlsx({ orderId, scope, eta: opts.eta, clientFormat: opts.clientFormat, header: opts.header });
+      // Ce qui a été corrigé pour l'en-tête est gardé sur la quotation (mêmes informations que le bon de commande).
+      const h = opts.header;
+      if (h) {
+        const changes: { vessel?: string; supplyPlace?: string; category?: string } = {};
+        if (h.vessel.trim() !== headerDefaults.vessel.trim()) changes.vessel = h.vessel.trim();
+        if (h.port.trim() !== headerDefaults.port.trim()) changes.supplyPlace = h.port.trim();
+        if (h.requestFor.trim() !== headerDefaults.requestFor.trim()) changes.category = h.requestFor.trim();
+        if (Object.keys(changes).length > 0) updateLogistics({ orderId, ...changes }).catch(() => {});
+      }
+      return file;
     } catch (err) {
       toast('Erreur: ' + errMsg(err), 'error');
       return null;
@@ -474,6 +493,7 @@ export function QuotationDetail({
           vessel={quotation.vessel}
           defaultTo={quotation.customer_email ?? ''}
           defaultType={exportDialog === 'unknown' ? 'supplier' : 'client'}
+          headerDefaults={headerDefaults}
           fetchExport={(opts) => fetchExport(exportDialog, opts)}
           onClose={() => setExportDialog(null)}
         />

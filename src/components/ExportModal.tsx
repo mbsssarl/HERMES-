@@ -7,6 +7,9 @@ import { gmailComposeUrl, saveBase64File, yahooComposeUrl } from '../lib/exportF
 import { createGmailDraft, gmailApiConfigured, requestGmailToken } from '../lib/gmailDraft';
 
 export type RecipientType = 'client' | 'supplier';
+
+/** Textes de l'en-tête du fichier standard : « Request for … », lieu de livraison, nom du navire. */
+export interface ExportHeader { requestFor: string; port: string; vessel: string }
 type Mode = 'download' | 'email';
 type Mailer = 'gmailApi' | 'gmail' | 'yahoo';
 
@@ -25,6 +28,7 @@ export function ExportModal({
   vessel,
   defaultTo,
   defaultType,
+  headerDefaults,
   fetchExport,
   onClose,
 }: {
@@ -34,8 +38,10 @@ export function ExportModal({
   vessel: string | null;
   defaultTo: string;
   defaultType: RecipientType;
-  /** Génère le fichier côté serveur (avec l'ETA saisie, si fournisseur) ; renvoie null (et affiche l'erreur) en cas d'échec. */
-  fetchExport: (opts: { eta?: string; clientFormat?: boolean }) => Promise<{ fileName: string; base64: string; notice?: string; format: 'client' | 'standard' } | null>;
+  /** Valeurs de la quotation proposées pour l'en-tête du fichier fournisseur (modifiables avant l'export). */
+  headerDefaults: ExportHeader;
+  /** Génère le fichier côté serveur (avec l'ETA et l'en-tête saisis, si fournisseur) ; renvoie null (et affiche l'erreur) en cas d'échec. */
+  fetchExport: (opts: { eta?: string; clientFormat?: boolean; header?: ExportHeader }) => Promise<{ fileName: string; base64: string; notice?: string; format: 'client' | 'standard' } | null>;
   onClose: () => void;
 }) {
   const toast = useToast();
@@ -56,6 +62,9 @@ export function ExportModal({
     d.setDate(d.getDate() + 4);
     return d.toISOString().slice(0, 10);
   });
+  // En-tête du fichier fournisseur : préremplie depuis la quotation, corrigeable ici (enregistrée sur la quotation à l'export).
+  const [header, setHeader] = React.useState<ExportHeader>(headerDefaults);
+  const setField = (key: keyof ExportHeader) => (value: string) => setHeader((prev) => ({ ...prev, [key]: value }));
   const [mailer, setMailer] = React.useState<Mailer>(gmailApiConfigured ? 'gmailApi' : 'gmail');
   const [busy, setBusy] = React.useState(false);
 
@@ -77,7 +86,11 @@ export function ExportModal({
       const gmailToken = mode === 'email' && mailer === 'gmailApi' ? await requestGmailToken() : null;
       // Le fichier suit le destinataire, en téléchargement comme en envoi : un client reçoit son fichier d'origine
       // complété des prix, un fournisseur le gabarit MBSS (avec l'ETA saisie).
-      const file = await fetchExport({ eta: recipientType === 'supplier' && eta ? eta : undefined, clientFormat: recipientType === 'client' });
+      const file = await fetchExport({
+        eta: recipientType === 'supplier' && eta ? eta : undefined,
+        clientFormat: recipientType === 'client',
+        header: recipientType === 'supplier' ? header : undefined,
+      });
       if (!file) return;
       if (file.notice) toast(file.notice, 'info', { duration: 10000 });
       if (mode === 'download') {
@@ -153,10 +166,27 @@ export function ExportModal({
       </div>
 
       {recipientType === 'supplier' && (
-        <div className="form-field">
-          <label>ETA (arrivée du navire)</label>
-          <input className="input" type="date" value={eta} onChange={(e) => setEta(e.target.value)} />
-        </div>
+        <>
+          <div className="text-muted" style={{ fontSize: 12, margin: '4px 0 8px' }}>
+            En-tête du fichier : « SUPPLY AT {'{port}'} ETA {'{date}'} {'{navire}'} VESSEL » puis « Request for … ».
+          </div>
+          <div className="form-field">
+            <label>Request for…</label>
+            <input className="input" value={header.requestFor} maxLength={60} placeholder="Provisions, Material, Engine Stores…" onChange={(e) => setField('requestFor')(e.target.value)} />
+          </div>
+          <div className="form-field">
+            <label>Lieu de livraison (SUPPLY AT)</label>
+            <input className="input" value={header.port} maxLength={60} placeholder="DOUALA PORT" onChange={(e) => setField('port')(e.target.value)} />
+          </div>
+          <div className="form-field">
+            <label>ETA (arrivée du navire)</label>
+            <input className="input" type="date" value={eta} onChange={(e) => setEta(e.target.value)} />
+          </div>
+          <div className="form-field">
+            <label>Nom du navire</label>
+            <input className="input" value={header.vessel} maxLength={60} onChange={(e) => setField('vessel')(e.target.value)} />
+          </div>
+        </>
       )}
 
       {mode === 'email' && (
