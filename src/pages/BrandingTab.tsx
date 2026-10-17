@@ -149,7 +149,7 @@ export function BrandingTab({ platform = false }: { platform?: boolean }) {
         </div>
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20 }}>
+      <div className="form-actions" style={{ gap: 10, marginTop: 20, flexWrap: 'wrap' }}>
         <button
           className="btn"
           disabled={!dirty || saving}

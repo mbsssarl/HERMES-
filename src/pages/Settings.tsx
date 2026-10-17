@@ -61,7 +61,7 @@ export function Settings({ me }: { me: AppUser }) {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 20, alignItems: 'start' }}>
+      <div className="settings-grid">
         <form className="card card-pad" onSubmit={submit}>
           <div className="section-title">{t('settings.password')}</div>
           <div className="form-field">
@@ -77,18 +77,18 @@ export function Settings({ me }: { me: AppUser }) {
             <label>{t('settings.passwordConfirm')}</label>
             <input className="input" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" required />
           </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <div className="form-actions">
             <button className="btn btn-primary" disabled={saving}>{saving ? t('settings.saving') : t('settings.passwordSubmit')}</button>
           </div>
         </form>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div className="settings-col">
           <div className="card card-pad">
             <div className="section-title">{t('settings.appearance')}</div>
             <p className="text-muted" style={{ fontSize: 13, marginBottom: 14 }}>
               {t('settings.appearanceHint')}
             </p>
-            <div style={{ display: 'flex', gap: 12 }}>
+            <div className="choice-row">
               {([
                 ['light', t('settings.light'), <Sun size={18} key="s" />],
                 ['dark', t('settings.dark'), <Moon size={18} key="m" />],
@@ -112,7 +112,7 @@ export function Settings({ me }: { me: AppUser }) {
             <p className="text-muted" style={{ fontSize: 13, marginBottom: 14 }}>
               {t('settings.languageHint')}
             </p>
-            <div style={{ display: 'flex', gap: 12 }}>
+            <div className="choice-row">
               {([
                 ['fr', t('settings.french'), 'FR'],
                 ['en', t('settings.english'), 'EN'],

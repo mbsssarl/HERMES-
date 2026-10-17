@@ -22,7 +22,7 @@ export function Pager({ page, pages, total, pageSize, setPage }: { page: number;
   const from = page * pageSize + 1;
   const to = Math.min(total, (page + 1) * pageSize);
   return (
-    <div className="card-pad" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, borderTop: '1px solid var(--color-border)', fontSize: 13 }}>
+    <div className="card-pad" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, borderTop: '1px solid var(--color-border)', fontSize: 13 }}>
       <span className="text-muted">{from}-{to} sur {total} lignes</span>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <button className="btn btn-sm" onClick={() => setPage(page - 1)} disabled={page === 0} aria-label="Page précédente"><ChevronLeft size={14} /></button>

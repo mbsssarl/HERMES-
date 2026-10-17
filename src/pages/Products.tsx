@@ -260,7 +260,7 @@ export function Products({
           </h1>
         </div>
         {isAdmin && (
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div className="page-actions">
             <button className="btn" onClick={() => { setNewCountryId(countryFilter || priceCountries[0]?.id || ''); setShowAdd(true); }}><Plus size={16} /> Ajouter un produit</button>
             <button className={`btn ${selectMode ? 'btn-primary' : ''}`} onClick={() => (selectMode ? exitSelection() : setSelectMode(true))}>
               <CheckSquare size={16} /> {selectMode ? 'Terminer la sélection' : 'Sélectionner'}
@@ -301,7 +301,7 @@ export function Products({
 
       {inList && (
         <div className="card">
-          <div className="card-pad" style={{ borderBottom: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div className="card-pad product-bar">
             <div>
               <span style={{ fontSize: 14, fontWeight: 600 }}>
                 {visible.length} produit(s) · {countryFilter
@@ -309,31 +309,31 @@ export function Products({
                   : `${priceCountries.length} région(s)`}
               </span>
             </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'nowrap', alignItems: 'center', flex: '1 1 auto', justifyContent: 'flex-end', minWidth: 0 }}>
+            <div className="product-filters">
               <div className="segmented" role="group" aria-label="Filtre de prix">
                 {([['all', 'Tous'], ['priced', 'Avec prix'], ['unpriced', 'Sans prix']] as const).map(([value, label]) => (
                   <button key={value} type="button" className={priceView === value ? 'active' : ''} onClick={() => setPriceView(value)}>{label}</button>
                 ))}
               </div>
-              <select className="select" style={{ width: 190, flex: '0 1 190px' }} value={countryFilter} onChange={(e) => setCountryFilter(e.target.value)} aria-label="Région">
+              <select className="select pf-select" value={countryFilter} onChange={(e) => setCountryFilter(e.target.value)} aria-label="Région">
                 <option value="">Toutes les régions</option>
                 {priceCountries.map((c) => <option key={c.id} value={c.id}>{c.code} · {regionLabel(c)}</option>)}
               </select>
               {!categoryFilter && (
-                <select className="select" style={{ width: 190, flex: '0 1 190px' }} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} aria-label="Catégorie">
+                <select className="select pf-select" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} aria-label="Catégorie">
                   <option value="">Toutes les catégories</option>
                   <option value={NO_CATEGORY}>Sans catégorie</option>
                   {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
                 </select>
               )}
-              <input className="input" style={{ flex: '1 1 150px', minWidth: 130 }} placeholder="Rechercher (nom, code)…" value={search} onChange={(e) => setSearch(e.target.value)} />
+              <input className="input pf-search" type="search" placeholder="Rechercher (nom, code)…" value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
           </div>
           {selectMode && (
-            <div className="card-pad" style={{ borderBottom: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, background: 'var(--color-surface-2)' }}>
+            <div className="card-pad select-bar">
               <span style={{ fontSize: 14, fontWeight: 600 }}>{selected.size} produit(s) sélectionné(s)</span>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                <select className="select" style={{ width: 220, height: 32 }} value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)} aria-label="Classer dans" disabled={selected.size === 0}>
+              <div className="select-actions">
+                <select className="select bulk-select" value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)} aria-label="Classer dans" disabled={selected.size === 0}>
                   <option value="" disabled>Classer dans…</option>
                   <option value={NO_CATEGORY}>Sans catégorie</option>
                   {categories.filter((c) => c.active).map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
@@ -353,8 +353,8 @@ export function Products({
               </div>
             </div>
           )}
-          <div className="table-scroll" style={{ maxHeight: '70vh', border: 'none', borderRadius: 0 }}>
-            <table className="data">
+          <div className="table-scroll products-scroll" style={{ maxHeight: '70vh', border: 'none', borderRadius: 0 }}>
+            <table className="data products-list">
               <thead>
                 <tr>
                   {selectMode && (
@@ -385,29 +385,29 @@ export function Products({
                   return (
                     <tr key={`${p.id}-${c.id}`} style={selectMode && selected.has(p.id) ? { background: 'var(--color-primary-soft)' } : undefined}>
                       {selectMode && (
-                        <td><input type="checkbox" checked={selected.has(p.id)} onChange={() => toggleOne(p.id)} aria-label={`Sélectionner ${p.name}`} /></td>
+                        <td className="pc-sel"><input type="checkbox" checked={selected.has(p.id)} onChange={() => toggleOne(p.id)} aria-label={`Sélectionner ${p.name}`} /></td>
                       )}
-                      <td className="text-muted mono">{index + 1}</td>
-                      <td>
+                      <td className="text-muted mono pc-no">{index + 1}</td>
+                      <td className="pc-code" data-label="Code">
                         <TextCell mono width={110} disabled={!isAdmin} value={p.reference}
                           onCommit={(v) => edit(p, { code: v.trim() })} />
                       </td>
-                      <td style={{ minWidth: 220 }}>
+                      <td className="pc-name" data-label="Description" style={{ minWidth: 220 }}>
                         <TextCell width="100%" disabled={!isAdmin} value={p.name}
                           onCommit={(v) => { if (v.trim()) void edit(p, { name: v.trim() }); else toast('Le nom ne peut pas être vide.', 'error'); }} />
                       </td>
-                      <td>
+                      <td className="pc-cat" data-label="Category">
                         <select className="select cell-input" style={{ width: '100%' }} disabled={!isAdmin} value={p.category} onChange={(e) => void edit(p, { category: e.target.value })}>
                           <option value="">Aucune</option>
                           {!categories.some((c) => c.name === p.category) && p.category && <option value={p.category}>{p.category}</option>}
                           {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
                         </select>
                       </td>
-                      <td>
+                      <td className="pc-unit" data-label="Unit">
                         <TextCell width={80} disabled={!isAdmin} value={p.unit}
                           onCommit={(v) => { if (v.trim()) void edit(p, { unit: v.trim() }); else toast("L'unité ne peut pas être vide.", 'error'); }} />
                       </td>
-                      <td className="text-right">
+                      <td className="text-right pc-price" data-label="Unit Price">
                         <NumberCell
                           width={110}
                           decimals={2}
@@ -417,11 +417,11 @@ export function Products({
                           onCommit={(v) => void savePrice(p, c, v)}
                         />
                       </td>
-                      <td className="mono nowrap" title={c.name} style={{ fontWeight: 600 }}>
+                      <td className="mono nowrap pc-region" data-label="Region" title={c.name} style={{ fontWeight: 600 }}>
                         {c.code}
                       </td>
                       {isAdmin && (
-                        <td>
+                        <td className="pc-act">
                           <button className="btn btn-ghost btn-sm" title="Supprimer" aria-label={`Supprimer ${p.name}`} onClick={() => setToDelete(p)}>
                             <Trash2 size={14} />
                           </button>
@@ -431,7 +431,7 @@ export function Products({
                   );
                 })}
                 {paged.total === 0 && (
-                  <tr><td colSpan={isAdmin ? 8 : 7} className="text-muted" style={{ padding: 24 }}>{priceView === 'priced' && visible.length > 0 ? `Aucun des ${visible.length} produit(s) n'a de prix ici. Choisissez « Tous » ou « Sans prix » pour les voir.` : 'Aucun produit.'}</td></tr>
+                  <tr><td colSpan={isAdmin ? 8 : 7} className="text-muted pc-empty" style={{ padding: 24 }}>{priceView === 'priced' && visible.length > 0 ? `Aucun des ${visible.length} produit(s) n'a de prix ici. Choisissez « Tous » ou « Sans prix » pour les voir.` : 'Aucun produit.'}</td></tr>
                 )}
               </tbody>
             </table>
