@@ -8,8 +8,8 @@ import { createGmailDraft, gmailApiConfigured, requestGmailToken } from '../lib/
 
 export type RecipientType = 'client' | 'supplier';
 
-/** Textes de l'en-tête du fichier standard : « Request for … », pays, nom du navire. */
-export interface ExportHeader { requestFor: string; country: string; vessel: string }
+/** Informations de l'en-tête du fichier fournisseur (demande de cotation). */
+export interface ExportHeader { requestFor: string; country: string; port: string; vessel: string; refNo: string }
 type Mode = 'download' | 'email';
 type Mailer = 'gmailApi' | 'gmail' | 'yahoo';
 
@@ -168,23 +168,31 @@ export function ExportModal({
       {recipientType === 'supplier' && (
         <>
           <div className="text-muted" style={{ fontSize: 12, margin: '4px 0 8px' }}>
-            En-tête du fichier : « SUPPLY AT {'{pays}'} ETA {'{date}'} {'{navire}'} VESSEL » puis « Request for … ».
+            Informations de l'en-tête de la demande de cotation. Le fournisseur complète lui-même les conditions (paiement, délai, validité).
           </div>
           <div className="form-field">
-            <label>Request for…</label>
-            <input className="input" value={header.requestFor} maxLength={60} placeholder="Provisions, Material, Engine Stores…" onChange={(e) => setField('requestFor')(e.target.value)} />
+            <label>Titre : REQUEST FOR…</label>
+            <input className="input" value={header.requestFor} maxLength={60} placeholder="Quotation, Provisions, Material…" onChange={(e) => setField('requestFor')(e.target.value)} />
           </div>
           <div className="form-field">
             <label>Pays</label>
             <input className="input" value={header.country} maxLength={60} placeholder="Cameroun" onChange={(e) => setField('country')(e.target.value)} />
           </div>
           <div className="form-field">
-            <label>ETA (arrivée du navire)</label>
-            <input className="input" type="date" value={eta} onChange={(e) => setEta(e.target.value)} />
+            <label>Port de livraison</label>
+            <input className="input" value={header.port} maxLength={60} placeholder="Douala" onChange={(e) => setField('port')(e.target.value)} />
           </div>
           <div className="form-field">
             <label>Nom du navire</label>
             <input className="input" value={header.vessel} maxLength={60} onChange={(e) => setField('vessel')(e.target.value)} />
+          </div>
+          <div className="form-field">
+            <label>ETA (arrivée du navire)</label>
+            <input className="input" type="date" value={eta} onChange={(e) => setEta(e.target.value)} />
+          </div>
+          <div className="form-field">
+            <label>Réf. (REF NO)</label>
+            <input className="input" value={header.refNo} maxLength={60} onChange={(e) => setField('refNo')(e.target.value)} />
           </div>
         </>
       )}

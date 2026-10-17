@@ -16,19 +16,29 @@ export interface ExportItem {
   remarks?: string;
 }
 
+/** Coordonnées de l'entreprise, affichées à droite du logo (réglage « companyInfo » de l'entreprise). */
+export interface ExportCompany {
+  name?: string;
+  address?: string;
+  /** Ligne « BP : … ville, pays ». */
+  postal?: string;
+  email?: string;
+  phones?: string;
+  website?: string;
+}
+
 export interface ExportData {
   reference: string;
   currency: string;
+  /** Texte du bandeau « REQUEST FOR … » (ex. QUOTATION, PROVISIONS, MATERIAL). */
+  requestFor: string;
+  country?: string;
+  deliveryPort?: string;
   vessel?: string;
   eta?: string;
-  port?: string;
-  /** Ville du pays de cotation (voir countries.city) : prioritaire sur `port` pour le titre d'en-tête. */
-  city?: string;
-  /** Texte après « Request for » (ex. Provisions, Material). Chaîne vide = ligne laissée vide ; absent = gabarit. */
-  category?: string;
-  /** Lieu de livraison écrit tel quel dans « SUPPLY AT … » (sinon : ville du pays, puis lieu de la commande + PORT). */
-  placeText?: string;
-  paymentDays?: string;
+  /** Référence de la demande (case « REF NO »). */
+  refNo?: string;
+  company: ExportCompany;
   /** Global discount in percent, applied on the total of the whole order. */
   discountPercent: number;
   /** Frais de livraison / mise à l'eau, dans la devise du fichier : ajoutés après le discount quand ils sont définis (> 0). */
@@ -39,15 +49,19 @@ export interface ExportData {
 // Layout of the embedded template (see templateData.ts): header rows 1-16, one model item row (17),
 // then the totals block on rows 18-21 and, in the template, the conditions/contacts boxes on rows 22-29.
 // Columns: A N°, B CODE, C DESCRIPTION, D UNIT, E QUANTITY, F PRICE UNIT, G TOTAL AMOUNT, H REMARKS.
-// Ces deux encadrés du bas (Payment Time / Delivery time / Offer Validity et Contacts) sont repris en EN-TÊTE :
-// le logo à gauche, les 6 lignes à sa droite ; seuls les totaux restent sous le tableau.
+// Les deux encadrés du bas du gabarit (conditions et contacts) ne sont pas repris : l'en-tête est reconstruit (logo à
+// gauche, coordonnées de l'entreprise à sa droite, grille Country / Delivery port / Vessel / ETA et Ref / conditions,
+// mention en rouge, bandeau « REQUEST FOR … ») ; seuls les totaux restent sous le tableau.
 const FIRST_ITEM_ROW = 17;
 const FOOTER_FIRST = 18;
 const FOOTER_LAST = 21;
 const TEMPLATE_LAST = 29;
 const COLS = 8;
-// En-tête : une ligne par élément, de la ligne 2 à la ligne 7, dans les colonnes C à F (à droite du logo).
+// En-tête : coordonnées de l'entreprise sur les lignes 2 à 7 (colonnes C-D, à droite du logo) ; grille de la demande
+// sur les lignes 3 à 6 (libellés en E et G, valeurs en F et H).
 const HEADER_FIRST_LINE = 2;
+const NOTICE_ROW = 10;
+const TITLE_ROW = 13;
 // Logo : carré, posé à gauche (colonnes A-B), à hauteur des 6 lignes.
 const LOGO_SIZE_PX = 150;
 const LOGO_LEFT_PX = 16;
@@ -74,11 +88,6 @@ function formatDate(iso?: string): string | undefined {
   if (!iso) return undefined;
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
   return m ? `${m[3]}/${m[2]}/${m[1]}` : iso;
-}
-
-/** "ENGINE STORES" -> "Engine Stores" */
-function titleCase(text: string): string {
-  return text.toLowerCase().replace(/\b\p{L}/gu, (c) => c.toUpperCase());
 }
 
 /**
@@ -129,18 +138,6 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
     }
     return cells;
   };
-  // Conditions et contacts du gabarit, repris tels quels (libellés, courriel, téléphone, site) dans l'en-tête.
-  const labelOf = (address: string, fallback: string) => String(ws.getCell(address).value ?? fallback).trim() || fallback;
-  const conditions = {
-    payment: labelOf("B24", "Payment Time:"),
-    delivery: labelOf("B27", "Delivery time:"),
-    validity: labelOf("B29", "Offer Validity :"),
-  };
-  const contacts = {
-    mail: clone(ws.getCell("G24").value),
-    operation: clone(ws.getCell("G26").value),
-    site: clone(ws.getCell("G29").value),
-  };
   const itemModel = captureRow(FIRST_ITEM_ROW);
   const itemHeight = ws.getRow(FIRST_ITEM_ROW).height;
   const footer: { cells: CapturedCell[]; height?: number }[] = [];
@@ -154,6 +151,8 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
   // --- clear the model rows (articles, totaux et anciens encadrés du bas)
   for (const m of templateMerges) ws.unMergeCells(m);
   ws.unMergeCells("A1:H12");
+  ws.unMergeCells(`B${TITLE_ROW}:H${TITLE_ROW}`);
+  ws.unMergeCells("B15:H15");
   for (let r = FIRST_ITEM_ROW; r <= TEMPLATE_LAST; r++) {
     const row = ws.getRow(r);
     for (let c = 1; c <= COLS; c++) {
@@ -163,45 +162,68 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
     }
   }
 
-  // --- header lines
-  // La ville du pays de cotation prime sur le lieu de livraison en texte libre (souvent un placeholder non
-  // renseigné, ex. "DELIVERY PORT") : "SUPPLY AT ABIDJAN" plutôt que "SUPPLY AT DELIVERY PORT PORT".
-  const customPlace = data.placeText?.trim();
-  const place = data.placeText !== undefined
-    ? (customPlace ? customPlace.toUpperCase() : undefined)
-    : data.city ? data.city.toUpperCase() : (data.port ? `${data.port.toUpperCase()} PORT` : undefined);
-  const vesselName = data.vessel?.trim();
-  const supplies = ["SUPPLY AT", place, formatDate(data.eta) ? `ETA ${formatDate(data.eta)}` : undefined, vesselName ? `${vesselName.toUpperCase()} VESSEL` : undefined]
-    .filter(Boolean)
-    .join(" ");
-  ws.getCell("B13").value = supplies;
-  // The band uses the light tint of the table header's green (the template's own theme colour is orange).
-  for (let c = 2; c <= COLS; c++) {
-    ws.getRow(13).getCell(c).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFD3ECB9" } };
-  }
-  if (data.category !== undefined) ws.getCell("B15").value = data.category.trim() ? `Request for ${titleCase(data.category.trim())}` : null;
-
-  // --- en-tête : les 6 éléments (conditions puis contacts), une ligne chacun, à gauche
+  // --- en-tête : coordonnées de l'entreprise à droite du logo
   const plain: Partial<ExcelJS.Font> = { name: "Calibri", size: 10, color: { argb: "FF000000" } };
   const bold: Partial<ExcelJS.Font> = { ...plain, bold: true };
-  const headerLines: ExcelJS.CellValue[] = [
-    { richText: [{ font: bold, text: conditions.payment }, { font: plain, text: data.paymentDays ? ` ${data.paymentDays}` : "" }] },
-    { richText: [{ font: bold, text: conditions.delivery }] },
-    { richText: [{ font: bold, text: conditions.validity }] },
-    contacts.mail as ExcelJS.CellValue,
-    contacts.operation as ExcelJS.CellValue,
-    contacts.site as ExcelJS.CellValue,
-  ];
-  headerLines.forEach((value, i) => {
+  const company = data.company;
+  const companyLines: Array<{ value: string; link?: boolean }> = [];
+  const addLine = (value: string | undefined, link = false) => {
+    if (value && value.trim()) companyLines.push({ value: value.trim(), link });
+  };
+  addLine(company.name);
+  addLine(company.address);
+  addLine(company.postal);
+  addLine(company.email ? `Email : ${company.email.trim()}` : undefined);
+  addLine(company.phones ? `Operation Dept : ${company.phones.trim()}` : undefined);
+  addLine(company.website, true);
+  companyLines.forEach((line, i) => {
     const r = HEADER_FIRST_LINE + i;
-    ws.mergeCells(`C${r}:F${r}`);
+    ws.mergeCells(`C${r}:D${r}`);
     const cell = ws.getCell(`C${r}`);
-    cell.value = value;
-    const isLink = typeof value === "object" && value !== null && "hyperlink" in value;
-    // Courriel : libellé en gras (déjà dans le texte riche) ; lien : bleu souligné ; téléphone : tout en gras.
-    cell.font = isLink ? { ...plain, underline: true, color: { argb: "FF0563C1" } } : i === 4 ? bold : plain;
+    cell.value = line.link ? { text: line.value, hyperlink: line.value } : line.value;
+    cell.font = line.link ? { ...plain, underline: true, color: { argb: "FF0563C1" } } : bold;
     cell.alignment = { horizontal: "left", vertical: "middle" };
   });
+
+  // --- grille de la demande : libellé (E, G) + valeur en gras (F, H) ; conditions laissées vides pour le fournisseur
+  const upper = (text?: string) => (text?.trim() ? text.trim().toUpperCase() : "");
+  const grid: Array<[string, string, string, string]> = [
+    ["COUNTRY :", upper(data.country), "REF NO:", data.refNo?.trim() ?? ""],
+    ["DELIVERY PORT :", upper(data.deliveryPort), "Payment terms:", ""],
+    ["VESSEL NAME :", upper(data.vessel), "Delivery time:", ""],
+    ["ETA :", formatDate(data.eta) ?? "", "Offer Validity :", ""],
+  ];
+  grid.forEach(([leftLabel, leftValue, rightLabel, rightValue], i) => {
+    const r = HEADER_FIRST_LINE + 1 + i;
+    const cells: Array<[string, string, boolean]> = [["E", leftLabel, false], ["F", leftValue, true], ["G", rightLabel, false], ["H", rightValue, true]];
+    for (const [col, text, isValue] of cells) {
+      const cell = ws.getCell(`${col}${r}`);
+      cell.value = text || null;
+      cell.font = isValue ? bold : plain;
+      cell.alignment = { horizontal: "left", vertical: "middle" };
+    }
+  });
+
+  // --- mention en rouge, sous le bloc d'en-tête
+  ws.mergeCells(`C${NOTICE_ROW}:G${NOTICE_ROW}`);
+  const notice = ws.getCell(`C${NOTICE_ROW}`);
+  notice.value = "PLEASE USE OUR OWN FORMAT";
+  notice.font = { name: "Calibri", size: 16, color: { argb: "FFFF0000" } };
+  notice.alignment = { horizontal: "center", vertical: "middle" };
+  ws.getRow(NOTICE_ROW).height = 26;
+
+  // --- bandeau titre « REQUEST FOR … » sur toute la largeur (teinte claire du vert de l'en-tête du tableau)
+  ws.mergeCells(`A${TITLE_ROW}:H${TITLE_ROW}`);
+  for (let c = 1; c <= COLS; c++) {
+    ws.getRow(TITLE_ROW).getCell(c).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFD3ECB9" } };
+  }
+  const title = ws.getCell(`A${TITLE_ROW}`);
+  title.value = `REQUEST FOR ${(data.requestFor.trim() || "QUOTATION").toUpperCase()}`;
+  title.font = { name: "Arial", size: 14, bold: true, color: { argb: "FF000000" } };
+  title.alignment = { horizontal: "center", vertical: "middle" };
+  ws.getRow(TITLE_ROW).height = 24;
+  // L'ancienne ligne « Request for … » (ligne 15) est laissée vide.
+  ws.getCell("B15").value = null;
 
   // --- logo : l'image du gabarit (slogan + logo) est remplacée par le logo seul, à gauche des 6 lignes
   (ws as unknown as { _media: unknown[] })._media = [];

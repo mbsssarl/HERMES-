@@ -10,6 +10,7 @@ import { Countries } from './Countries';
 import { BackupsTab } from './BackupsTab';
 import { CategoriesTab } from './CategoriesTab';
 import { BrandingTab } from './BrandingTab';
+import { CompanyInfoCard } from '../components/CompanyInfoCard';
 import type { Country, Currency, ProductCategory } from '../types';
 import { useToast } from '../components/Toast';
 
@@ -121,7 +122,12 @@ export function Admin({
           {tab === 'currencies' && <CurrenciesTab currencies={currencies} />}
           {tab === 'categories' && <CategoriesTab categories={categories} />}
           {tab === 'backups' && <BackupsTab countries={countries} />}
-          {tab === 'branding' && <BrandingTab />}
+          {tab === 'branding' && (
+            <>
+              <BrandingTab />
+              <CompanyInfoCard />
+            </>
+          )}
           {tab === 'countries' && (
             <div className="card card-pad">
               <Countries countries={countries} currencies={currencies} loading={loadingCountries} isAdmin />

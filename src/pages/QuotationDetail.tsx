@@ -257,22 +257,26 @@ export function QuotationDetail({
   // Génère le fichier Excel du gabarit MBSS pour ce périmètre (le modal décide ensuite : téléchargement ou email).
   // Valeurs proposées pour l'en-tête du fichier fournisseur : celles de la quotation, comme le fichier les écrirait sans saisie.
   const headerDefaults: ExportHeader = {
-    requestFor: quotation.document_info.category ?? 'Provisions',
+    requestFor: 'Quotation',
     // Le pays choisi à la création de la quotation (import du document).
     country: quotation.countries?.name ?? '',
+    // Port de livraison lu dans le document du client, sinon la ville du pays de cotation.
+    port: quotation.supply_place?.trim() || quotation.countries?.city || '',
     vessel: quotation.vessel ?? '',
+    refNo: quotation.document_info.vendorRef ?? quotation.quotation_number,
   };
 
   const fetchExport = async (scope: 'selected' | 'unknown', opts: { eta?: string; clientFormat?: boolean; header?: ExportHeader }): Promise<{ fileName: string; base64: string; notice?: string; format: 'client' | 'standard' } | null> => {
     try {
       const file = await exportXlsx({ orderId, scope, eta: opts.eta, clientFormat: opts.clientFormat, header: opts.header });
-      // Le navire et le « Request for » corrigés sont gardés sur la quotation (mêmes informations que le bon de commande) ;
-      // le pays n'est qu'un texte de ce fichier : il n'est pas enregistré.
+      // Navire, port et référence corrigés sont gardés sur la quotation (mêmes informations que le bon de commande) ;
+      // le titre et le pays ne sont que des textes de ce fichier : ils ne sont pas enregistrés.
       const h = opts.header;
       if (h) {
-        const changes: { vessel?: string; category?: string } = {};
+        const changes: { vessel?: string; supplyPlace?: string; vendorRef?: string } = {};
         if (h.vessel.trim() !== headerDefaults.vessel.trim()) changes.vessel = h.vessel.trim();
-        if (h.requestFor.trim() !== headerDefaults.requestFor.trim()) changes.category = h.requestFor.trim();
+        if (h.port.trim() !== headerDefaults.port.trim()) changes.supplyPlace = h.port.trim();
+        if (h.refNo.trim() !== headerDefaults.refNo.trim()) changes.vendorRef = h.refNo.trim();
         if (Object.keys(changes).length > 0) updateLogistics({ orderId, ...changes }).catch(() => {});
       }
       return file;

@@ -3,7 +3,7 @@
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { action } from "./_generated/server";
-import { buildQuotationWorkbook } from "./lib/export/buildQuotationWorkbook";
+import { buildQuotationWorkbook, type ExportCompany } from "./lib/export/buildQuotationWorkbook";
 import { fillClientWorkbook } from "./lib/export/fillClientWorkbook";
 
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -23,13 +23,15 @@ export const exportQuotationXlsx = action({
     // true = envoi au CLIENT : on renvoie son fichier Excel d'origine complété des prix, au lieu du gabarit MBSS
     // (réservé aux fournisseurs et aux téléchargements simples).
     clientFormat: v.optional(v.boolean()),
-    // Textes de l'en-tête du gabarit MBSS, saisis à l'export : « Request for … », pays (après « SUPPLY AT »), nom du navire.
-    // Absents = valeurs de la commande.
+    // Informations de l'en-tête du gabarit, demandées à l'export : « REQUEST FOR … », pays, port de livraison, navire, réf.
+    // Absentes = valeurs de la commande.
     header: v.optional(
       v.object({
         requestFor: v.optional(v.string()),
         country: v.optional(v.string()),
+        port: v.optional(v.string()),
         vessel: v.optional(v.string()),
+        refNo: v.optional(v.string()),
       }),
     ),
   },
@@ -113,16 +115,19 @@ export const exportQuotationXlsx = action({
       }
     }
 
+    // Coordonnées de l'entreprise (réglage « companyInfo », modifiable par son admin) : bloc à droite du logo.
+    const company = ((await ctx.runQuery(api.settings.get, { key: "companyInfo" })) ?? {}) as ExportCompany;
+
     const buffer = await buildQuotationWorkbook({
       reference: order.reference,
       currency,
+      requestFor: header?.requestFor?.trim() || "Quotation",
+      country: header?.country !== undefined ? header.country : country?.name,
+      deliveryPort: header?.port !== undefined ? header.port : order.supplyPlace || country?.city,
       vessel: header?.vessel !== undefined ? header.vessel : order.vessel,
       eta: eta ?? order.eta,
-      port: order.supplyPlace,
-      placeText: header?.country,
-      city: country?.city,
-      category: header?.requestFor !== undefined ? header.requestFor : order.documentInfo?.category,
-      paymentDays: order.documentInfo?.paymentDays,
+      refNo: header?.refNo !== undefined ? header.refNo : order.documentInfo?.vendorRef ?? order.reference,
+      company,
       discountPercent: order.globalDiscountPercent ?? 0,
       transportFee: order.transportFee,
       items: items.map((item) => ({
