@@ -8,8 +8,8 @@ import { createGmailDraft, gmailApiConfigured, requestGmailToken } from '../lib/
 
 export type RecipientType = 'client' | 'supplier';
 
-/** Textes de l'en-tête du fichier standard : « Request for … », lieu de livraison, nom du navire. */
-export interface ExportHeader { requestFor: string; port: string; vessel: string }
+/** Textes de l'en-tête du fichier standard : « Request for … », pays, nom du navire. */
+export interface ExportHeader { requestFor: string; country: string; vessel: string }
 type Mode = 'download' | 'email';
 type Mailer = 'gmailApi' | 'gmail' | 'yahoo';
 
@@ -168,15 +168,15 @@ export function ExportModal({
       {recipientType === 'supplier' && (
         <>
           <div className="text-muted" style={{ fontSize: 12, margin: '4px 0 8px' }}>
-            En-tête du fichier : « SUPPLY AT {'{port}'} ETA {'{date}'} {'{navire}'} VESSEL » puis « Request for … ».
+            En-tête du fichier : « SUPPLY AT {'{pays}'} ETA {'{date}'} {'{navire}'} VESSEL » puis « Request for … ».
           </div>
           <div className="form-field">
             <label>Request for…</label>
             <input className="input" value={header.requestFor} maxLength={60} placeholder="Provisions, Material, Engine Stores…" onChange={(e) => setField('requestFor')(e.target.value)} />
           </div>
           <div className="form-field">
-            <label>Lieu de livraison (SUPPLY AT)</label>
-            <input className="input" value={header.port} maxLength={60} placeholder="DOUALA PORT" onChange={(e) => setField('port')(e.target.value)} />
+            <label>Pays</label>
+            <input className="input" value={header.country} maxLength={60} placeholder="Cameroun" onChange={(e) => setField('country')(e.target.value)} />
           </div>
           <div className="form-field">
             <label>ETA (arrivée du navire)</label>

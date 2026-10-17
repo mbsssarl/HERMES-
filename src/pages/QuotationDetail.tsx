@@ -258,20 +258,20 @@ export function QuotationDetail({
   // Valeurs proposées pour l'en-tête du fichier fournisseur : celles de la quotation, comme le fichier les écrirait sans saisie.
   const headerDefaults: ExportHeader = {
     requestFor: quotation.document_info.category ?? 'Provisions',
-    // Même priorité que le bon de commande : le lieu saisi sur la quotation d'abord, sinon la ville du pays de cotation.
-    port: (quotation.supply_place?.trim() || quotation.countries?.city || '').toUpperCase(),
+    // Le pays choisi à la création de la quotation (import du document).
+    country: quotation.countries?.name ?? '',
     vessel: quotation.vessel ?? '',
   };
 
   const fetchExport = async (scope: 'selected' | 'unknown', opts: { eta?: string; clientFormat?: boolean; header?: ExportHeader }): Promise<{ fileName: string; base64: string; notice?: string; format: 'client' | 'standard' } | null> => {
     try {
       const file = await exportXlsx({ orderId, scope, eta: opts.eta, clientFormat: opts.clientFormat, header: opts.header });
-      // Ce qui a été corrigé pour l'en-tête est gardé sur la quotation (mêmes informations que le bon de commande).
+      // Le navire et le « Request for » corrigés sont gardés sur la quotation (mêmes informations que le bon de commande) ;
+      // le pays n'est qu'un texte de ce fichier : il n'est pas enregistré.
       const h = opts.header;
       if (h) {
-        const changes: { vessel?: string; supplyPlace?: string; category?: string } = {};
+        const changes: { vessel?: string; category?: string } = {};
         if (h.vessel.trim() !== headerDefaults.vessel.trim()) changes.vessel = h.vessel.trim();
-        if (h.port.trim() !== headerDefaults.port.trim()) changes.supplyPlace = h.port.trim();
         if (h.requestFor.trim() !== headerDefaults.requestFor.trim()) changes.category = h.requestFor.trim();
         if (Object.keys(changes).length > 0) updateLogistics({ orderId, ...changes }).catch(() => {});
       }

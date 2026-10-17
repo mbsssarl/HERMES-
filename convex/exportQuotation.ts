@@ -23,12 +23,12 @@ export const exportQuotationXlsx = action({
     // true = envoi au CLIENT : on renvoie son fichier Excel d'origine complété des prix, au lieu du gabarit MBSS
     // (réservé aux fournisseurs et aux téléchargements simples).
     clientFormat: v.optional(v.boolean()),
-    // Textes de l'en-tête du gabarit MBSS, saisis à l'export : « Request for … », lieu de livraison, nom du navire.
+    // Textes de l'en-tête du gabarit MBSS, saisis à l'export : « Request for … », pays (après « SUPPLY AT »), nom du navire.
     // Absents = valeurs de la commande.
     header: v.optional(
       v.object({
         requestFor: v.optional(v.string()),
-        port: v.optional(v.string()),
+        country: v.optional(v.string()),
         vessel: v.optional(v.string()),
       }),
     ),
@@ -119,7 +119,7 @@ export const exportQuotationXlsx = action({
       vessel: header?.vessel !== undefined ? header.vessel : order.vessel,
       eta: eta ?? order.eta,
       port: order.supplyPlace,
-      placeText: header?.port,
+      placeText: header?.country,
       city: country?.city,
       category: header?.requestFor !== undefined ? header.requestFor : order.documentInfo?.category,
       paymentDays: order.documentInfo?.paymentDays,
