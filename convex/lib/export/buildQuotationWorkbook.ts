@@ -222,8 +222,12 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
   title.font = { name: "Arial", size: 14, bold: true, color: { argb: "FF000000" } };
   title.alignment = { horizontal: "center", vertical: "middle" };
   ws.getRow(TITLE_ROW).height = 24;
-  // L'ancienne ligne « Request for … » (ligne 15) est laissée vide.
-  ws.getCell("B15").value = null;
+  // L'ancienne ligne « Request for … » (ligne 15) est laissée vide, sans sa bordure.
+  for (let c = 1; c <= COLS; c++) {
+    const cell = ws.getRow(15).getCell(c);
+    cell.value = null;
+    cell.style = {};
+  }
 
   // --- logo : l'image du gabarit (slogan + logo) est remplacée par le logo seul, à gauche des 6 lignes
   (ws as unknown as { _media: unknown[] })._media = [];
@@ -333,6 +337,9 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
     if (m === "E19:F19") continue;
     ws.mergeCells(m.replace(/\d+/g, (n) => String(footerStart + parseInt(n, 10) - FOOTER_FIRST)));
   }
+
+  // Aucun quadrillage à l'écran hors du tableau : seules les bordures des cellules du tableau restent visibles.
+  ws.views = [{ ...(ws.views[0] ?? {}), showGridLines: false } as ExcelJS.WorksheetView];
 
   // Impression compacte : A4 paysage, une page en largeur, hauteur libre pour conserver la lisibilité.
   ws.pageSetup = {
