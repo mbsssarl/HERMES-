@@ -100,7 +100,7 @@ export const generateSupplierTemplate = action({
     if (!user) throw new Error("Authentification requise.");
 
     const ExcelJS = await import("exceljs");
-    const unmatchedItems = await ctx.runQuery(internal.orderItems.listUnmatchedInternal, { orderId });
+    const unmatchedItems = await ctx.runQuery(internal.orderItems.listUnmatchedInternal, { orderId, companyId: user.companyId! });
 
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet("Articles non répertoriés");

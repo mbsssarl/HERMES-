@@ -28,7 +28,8 @@ export async function companyStateOf(ctx: QueryCtx | MutationCtx, user: Doc<"use
  */
 export async function getCurrentUser(ctx: QueryCtx | MutationCtx): Promise<Doc<"users"> | null> {
   const user = await getAnyUser(ctx);
-  if (!user || user.role === "superadmin") return null;
+  // Le super admin n'a accès à aucune donnée métier ; un compte sans entreprise n'en a pas non plus.
+  if (!user || user.role === "superadmin" || !user.companyId) return null;
   const { suspended } = await companyStateOf(ctx, user);
   return suspended ? null : user;
 }
@@ -74,4 +75,56 @@ export function companyIdOf(user: Doc<"users">): Id<"companies"> {
 /** Throws unless `doc` belongs to the same company as `user` (même message qu'un document absent : rien n'est révélé). */
 export function assertSameCompany(user: Doc<"users">, doc: { companyId?: Id<"companies"> } | null, notFound = "Introuvable."): void {
   if (!doc || !user.companyId || doc.companyId !== user.companyId) throw new Error(notFound);
+}
+
+/** Tables dont les lignes appartiennent à une entreprise (colonne `companyId`). */
+export type TenantTable =
+  | "clients"
+  | "countries"
+  | "currencies"
+  | "productCategories"
+  | "products"
+  | "productAliases"
+  | "productPrices"
+  | "productBackups"
+  | "orders"
+  | "orderItems";
+
+/**
+ * Charge un document par identifiant et le renvoie seulement s'il appartient à l'entreprise de `user` ;
+ * sinon null, exactement comme un document absent (on ne révèle jamais qu'il existe chez une autre entreprise).
+ * À utiliser pour TOUT identifiant reçu du navigateur.
+ */
+export async function getOwned<T extends TenantTable>(
+  ctx: QueryCtx | MutationCtx,
+  user: Doc<"users">,
+  table: T,
+  id: Id<T>,
+): Promise<Doc<T> | null> {
+  const doc = await ctx.db.get(id);
+  if (!doc || !user.companyId) return null;
+  return (doc as { companyId?: Id<"companies"> }).companyId === user.companyId ? doc : null;
+}
+
+/** Comme getOwned, mais lève une erreur si le document est absent ou d'une autre entreprise. */
+export async function requireOwned<T extends TenantTable>(
+  ctx: QueryCtx | MutationCtx,
+  user: Doc<"users">,
+  table: T,
+  id: Id<T>,
+  notFound = "Introuvable.",
+): Promise<Doc<T>> {
+  const doc = await getOwned(ctx, user, table, id);
+  if (!doc) throw new Error(notFound);
+  return doc;
+}
+
+/** Commande de l'entreprise de `user`, ou erreur. Les lignes, fichiers, devis... d'une commande se contrôlent ici. */
+export function requireOrder(ctx: QueryCtx | MutationCtx, user: Doc<"users">, orderId: Id<"orders">): Promise<Doc<"orders">> {
+  return requireOwned(ctx, user, "orders", orderId, "Commande introuvable.");
+}
+
+/** Ligne de commande de l'entreprise de `user`, ou erreur. */
+export function requireItem(ctx: QueryCtx | MutationCtx, user: Doc<"users">, itemId: Id<"orderItems">): Promise<Doc<"orderItems">> {
+  return requireOwned(ctx, user, "orderItems", itemId, "Ligne introuvable.");
 }

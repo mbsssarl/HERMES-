@@ -8,13 +8,16 @@ import { logActivity } from "./lib/audit";
 import { NO_IMPA_CATEGORY } from "./lib/impaCategories";
 import { normalizeCode, normalizeName } from "./lib/normalize";
 import { jaroWinkler } from "./lib/stringSimilarity";
-import { requireAdmin, requireUser } from "./lib/permissions";
+import { companyIdOf, getOwned, requireAdmin, requireOwned, requireUser } from "./lib/permissions";
 import { computeItemPricing } from "./lib/matching";
 
 /** Throws unless `name` matches one of the fixed, admin-managed product categories (empty clears the field). */
-async function assertKnownCategory(ctx: MutationCtx, name: string | undefined) {
+async function assertKnownCategory(ctx: MutationCtx, companyId: Id<"companies">, name: string | undefined) {
   if (!name) return;
-  const known = await ctx.db.query("productCategories").withIndex("by_name", (q) => q.eq("name", name)).unique();
+  const known = await ctx.db
+    .query("productCategories")
+    .withIndex("by_company_and_name", (q) => q.eq("companyId", companyId).eq("name", name))
+    .unique();
   if (!known) throw new Error("Catégorie inconnue : ajoutez-la d'abord dans Admin > Catégories.");
 }
 import { getCurrentPrice, setCurrentPrice } from "./lib/productPricing";
@@ -28,15 +31,19 @@ import { getCurrentPrice, setCurrentPrice } from "./lib/productPricing";
 export const list = query({
   args: { search: v.optional(v.string()) },
   handler: async (ctx, { search }) => {
-    await requireUser(ctx);
+    const user = await requireUser(ctx);
+    const companyId = companyIdOf(user);
     if (search && search.trim()) {
       const found = await ctx.db
         .query("products")
-        .withSearchIndex("search_name", (q) => q.search("normalizedName", normalizeName(search)))
+        .withSearchIndex("search_name", (q) => q.search("normalizedName", normalizeName(search)).eq("companyId", companyId))
         .take(100);
       return found.filter((p) => p.deletedAt === undefined);
     }
-    const prices = await ctx.db.query("productPrices").withIndex("by_validTo", (q) => q.eq("validTo", undefined)).collect();
+    const prices = await ctx.db
+      .query("productPrices")
+      .withIndex("by_company_and_validTo", (q) => q.eq("companyId", companyId).eq("validTo", undefined))
+      .collect();
     const productIds = [...new Set(prices.map((p) => p.productId))];
     const docs = await Promise.all(productIds.map((id) => ctx.db.get(id)));
     return docs.filter((p): p is Doc<"products"> => p !== null && p.active && p.deletedAt === undefined);
@@ -50,9 +57,10 @@ export const list = query({
 export const listAllPage = query({
   args: { paginationOpts: paginationOptsValidator },
   handler: async (ctx, { paginationOpts }) => {
-    await requireUser(ctx);
+    const user = await requireUser(ctx);
     return await ctx.db
       .query("products")
+      .withIndex("by_company", (q) => q.eq("companyId", companyIdOf(user)))
       .filter((q) => q.eq(q.field("deletedAt"), undefined))
       .paginate(paginationOpts);
   },
@@ -62,10 +70,10 @@ export const listAllPage = query({
 export const listByCategory = query({
   args: { category: v.string() },
   handler: async (ctx, { category }) => {
-    await requireUser(ctx);
+    const user = await requireUser(ctx);
     const rows = await ctx.db
       .query("products")
-      .withIndex("by_category", (q) => q.eq("category", category || undefined))
+      .withIndex("by_company_and_category", (q) => q.eq("companyId", companyIdOf(user)).eq("category", category || undefined))
       .take(8000);
     return rows.filter((p) => p.deletedAt === undefined);
   },
@@ -75,16 +83,19 @@ export const listByCategory = query({
 export const countByCategory = query({
   args: { category: v.string() },
   handler: async (ctx, { category }) => {
-    await requireUser(ctx);
-    const rows = await ctx.db.query("products").withIndex("by_category", (q) => q.eq("category", category || undefined)).collect();
+    const user = await requireUser(ctx);
+    const rows = await ctx.db
+      .query("products")
+      .withIndex("by_company_and_category", (q) => q.eq("companyId", companyIdOf(user)).eq("category", category || undefined))
+      .collect();
     return rows.filter((p) => p.deletedAt === undefined).length;
   },
 });
 export const get = query({
   args: { productId: v.id("products") },
   handler: async (ctx, { productId }) => {
-    await requireUser(ctx);
-    return await ctx.db.get(productId);
+    const user = await requireUser(ctx);
+    return await getOwned(ctx, user, "products", productId);
   },
 });
 
@@ -104,6 +115,7 @@ interface NewProductData {
  */
 export async function insertProduct(
   ctx: MutationCtx,
+  companyId: Id<"companies">,
   data: NewProductData,
   actorId: Id<"users">,
   source: "manual" | "supplier_import",
@@ -114,6 +126,7 @@ export async function insertProduct(
   const category = data.category ?? (data.impaId || data.code ? undefined : NO_IMPA_CATEGORY);
   return await ctx.db.insert("products", {
     ...data,
+    companyId,
     category,
     normalizedName: normalizeName(data.name),
     normalizedImpaId: data.impaId ? normalizeCode(data.impaId) : undefined,
@@ -139,8 +152,9 @@ export const createManual = mutation({
   },
   handler: async (ctx, args) => {
     const admin = await requireAdmin(ctx);
-    await assertKnownCategory(ctx, args.category);
-    const productId = await insertProduct(ctx, args, admin._id, "manual");
+    const companyId = companyIdOf(admin);
+    await assertKnownCategory(ctx, companyId, args.category);
+    const productId = await insertProduct(ctx, companyId, args, admin._id, "manual");
     await logActivity(ctx, {
       userId: admin._id,
       action: "product.created",
@@ -148,7 +162,7 @@ export const createManual = mutation({
       entityId: productId,
       metadata: { name: args.name, impaId: args.impaId },
     });
-    await ctx.scheduler.runAfter(0, internal.orderItems.rematchPendingInternal, { actorEmail: admin.email ?? undefined });
+    await ctx.scheduler.runAfter(0, internal.orderItems.rematchPendingInternal, { companyId, actorEmail: admin.email ?? undefined });
     return productId;
   },
 });
@@ -165,6 +179,7 @@ export const update = mutation({
   },
   handler: async (ctx, { productId, ...patch }) => {
     const admin = await requireAdmin(ctx);
+    const current = await requireOwned(ctx, admin, "products", productId, "Produit introuvable.");
     const update: Partial<Doc<"products">> = { updatedAt: Date.now(), updatedBy: admin._id };
 
     if (patch.name !== undefined) {
@@ -180,7 +195,7 @@ export const update = mutation({
     if (patch.description !== undefined) update.description = patch.description.trim() || undefined;
     if (patch.category !== undefined) {
       update.category = patch.category.trim() || undefined;
-      await assertKnownCategory(ctx, update.category);
+      await assertKnownCategory(ctx, companyIdOf(admin), update.category);
     }
     // The catalogue's "IMPA / Code" is one value stored in both fields (as at import).
     for (const key of ["code", "impaId"] as const) {
@@ -195,9 +210,8 @@ export const update = mutation({
       // « No IMPA » suit le code : retirer le code range le produit dans « No IMPA » (s'il n'a pas d'autre
       // catégorie) ; lui donner un code le sort de « No IMPA ».
       if (patch.category === undefined) {
-        const current = await ctx.db.get(productId);
-        if (!raw && current && !current.category) update.category = NO_IMPA_CATEGORY;
-        else if (raw && current?.category === NO_IMPA_CATEGORY) update.category = undefined;
+        if (!raw && !current.category) update.category = NO_IMPA_CATEGORY;
+        else if (raw && current.category === NO_IMPA_CATEGORY) update.category = undefined;
       }
     }
 
@@ -210,7 +224,7 @@ export const update = mutation({
       metadata: patch,
     });
     if (patch.name || patch.code || patch.impaId) {
-      await ctx.scheduler.runAfter(0, internal.orderItems.rematchPendingInternal, { actorEmail: admin.email ?? undefined });
+      await ctx.scheduler.runAfter(0, internal.orderItems.rematchPendingInternal, { companyId: companyIdOf(admin), actorEmail: admin.email ?? undefined });
     }
   },
 });
@@ -221,18 +235,22 @@ export const setCategoryMany = mutation({
   handler: async (ctx, { productIds, category }) => {
     const admin = await requireAdmin(ctx);
     const name = category.trim() || undefined;
-    await assertKnownCategory(ctx, name);
+    await assertKnownCategory(ctx, companyIdOf(admin), name);
+    let updated = 0;
     for (const productId of productIds) {
+      // Un produit d'une autre entreprise est ignoré comme s'il n'existait pas.
+      if (!(await getOwned(ctx, admin, "products", productId))) continue;
       await ctx.db.patch(productId, { category: name, updatedAt: Date.now(), updatedBy: admin._id });
+      updated++;
     }
     await logActivity(ctx, {
       userId: admin._id,
       action: "product.categorized_bulk",
       entityType: "product",
       entityId: "bulk",
-      metadata: { count: productIds.length, category: name },
+      metadata: { count: updated, category: name },
     });
-    return { updated: productIds.length };
+    return { updated };
   },
 });
 
@@ -242,14 +260,14 @@ export const setCategoryMany = mutation({
  * Quotation lines that pointed to it go back to "unmatched" (a line with a manual price keeps that price).
  * Returns the number of quotation lines affected.
  */
-async function deleteProductForGood(ctx: MutationCtx, productId: Id<"products">, adminEmail: string): Promise<number> {
-  const product = await ctx.db.get(productId);
-  if (!product) return 0;
+async function deleteProductForGood(ctx: MutationCtx, product: Doc<"products">, adminEmail: string): Promise<number> {
+  const productId = product._id;
 
   const prices = await ctx.db.query("productPrices").withIndex("by_product", (q) => q.eq("productId", productId)).collect();
   const aliases = await ctx.db.query("productAliases").withIndex("by_product", (q) => q.eq("productId", productId)).collect();
 
   await ctx.db.insert("productBackups", {
+    companyId: product.companyId,
     originalId: productId,
     product,
     prices,
@@ -283,7 +301,8 @@ export const remove = mutation({
   args: { productId: v.id("products") },
   handler: async (ctx, { productId }) => {
     const admin = await requireAdmin(ctx);
-    const affectedLines = await deleteProductForGood(ctx, productId, admin.email ?? "");
+    const product = await requireOwned(ctx, admin, "products", productId, "Produit introuvable.");
+    const affectedLines = await deleteProductForGood(ctx, product, admin.email ?? "");
     await logActivity(ctx, {
       userId: admin._id,
       action: "product.deleted",
@@ -301,15 +320,19 @@ export const removeMany = mutation({
   handler: async (ctx, { productIds }) => {
     const admin = await requireAdmin(ctx);
     let affectedLines = 0;
+    let deleted = 0;
     for (const productId of productIds) {
-      affectedLines += await deleteProductForGood(ctx, productId, admin.email ?? "");
+      const product = await getOwned(ctx, admin, "products", productId);
+      if (!product) continue;
+      affectedLines += await deleteProductForGood(ctx, product, admin.email ?? "");
+      deleted++;
     }
     await logActivity(ctx, {
       userId: admin._id,
       action: "product.deleted_bulk",
       entityType: "product",
       entityId: "bulk",
-      metadata: { count: productIds.length, affectedLines },
+      metadata: { count: deleted, affectedLines },
     });
     return { affectedLines };
   },
@@ -344,7 +367,7 @@ export const purgeSoftDeleted = internalMutation({
   args: {},
   handler: async (ctx) => {
     const soft = await ctx.db.query("products").filter((q) => q.neq(q.field("deletedAt"), undefined)).take(100);
-    for (const product of soft) await deleteProductForGood(ctx, product._id, "migration");
+    for (const product of soft) await deleteProductForGood(ctx, product, "migration");
     return { purged: soft.length, more: soft.length === 100 };
   },
 });
@@ -354,17 +377,17 @@ export const purgeSoftDeleted = internalMutation({
  * voir normalizeCode). Un code fourni qui ne correspond à rien est « inconnu » : il n'est jamais rattrapé
  * par le nom.
  */
-async function findProductByCode(ctx: QueryCtx, code: string): Promise<Doc<"products"> | null> {
+async function findProductByCode(ctx: QueryCtx, companyId: Id<"companies">, code: string): Promise<Doc<"products"> | null> {
   const normalized = normalizeCode(code);
   const byImpa = await ctx.db
     .query("products")
-    .withIndex("by_normalizedImpaId", (q) => q.eq("normalizedImpaId", normalized))
+    .withIndex("by_company_and_normalizedImpaId", (q) => q.eq("companyId", companyId).eq("normalizedImpaId", normalized))
     .filter((q) => q.eq(q.field("deletedAt"), undefined))
     .first();
   if (byImpa) return byImpa;
   return await ctx.db
     .query("products")
-    .withIndex("by_normalizedCode", (q) => q.eq("normalizedCode", normalized))
+    .withIndex("by_company_and_normalizedCode", (q) => q.eq("companyId", companyId).eq("normalizedCode", normalized))
     .filter((q) => q.eq(q.field("deletedAt"), undefined))
     .first();
 }
@@ -374,12 +397,12 @@ const MAX_SUGGESTIONS = 5;
 const CODED_BOOST = 0.1; // les produits avec un code IMPA passent avant les autres à ressemblance voisine
 
 /** Produits proches d'un nom (sans code IMPA fiable) : ceux qui ont un code IMPA d'abord, puis les autres. */
-async function suggestByName(ctx: QueryCtx, name: string, countryId: Id<"countries"> | undefined) {
+async function suggestByName(ctx: QueryCtx, companyId: Id<"companies">, name: string, countryId: Id<"countries"> | undefined) {
   const normalized = normalizeName(name);
   if (!normalized) return [];
   const found = await ctx.db
     .query("products")
-    .withSearchIndex("search_name", (q) => q.search("normalizedName", normalized))
+    .withSearchIndex("search_name", (q) => q.search("normalizedName", normalized).eq("companyId", companyId))
     .take(25);
   const ranked = found
     .filter((p) => p.deletedAt === undefined)
@@ -410,11 +433,13 @@ export const previewCatalogRows = query({
     rows: v.array(v.object({ code: v.optional(v.string()), name: v.string() })),
   },
   handler: async (ctx, { countryId, rows }) => {
-    await requireAdmin(ctx);
+    const admin = await requireAdmin(ctx);
+    const companyId = companyIdOf(admin);
+    if (countryId) await requireOwned(ctx, admin, "countries", countryId, "Région introuvable.");
     return await Promise.all(
       rows.map(async (row) => {
         const code = row.code?.trim();
-        const existing = code ? await findProductByCode(ctx, code) : null;
+        const existing = code ? await findProductByCode(ctx, companyId, code) : null;
         const current = existing && countryId ? await getCurrentPrice(ctx, existing._id, countryId) : null;
         return {
           existingName: existing?.name,
@@ -422,7 +447,7 @@ export const previewCatalogRows = query({
           currentPrice: current?.price,
           matchedBy: existing ? ("code" as const) : null,
           unknownCode: Boolean(code) && !existing,
-          suggestions: existing ? [] : await suggestByName(ctx, row.name, countryId),
+          suggestions: existing ? [] : await suggestByName(ctx, companyId, row.name, countryId),
         };
       }),
     );
@@ -459,7 +484,8 @@ export const importCatalog = mutation({
   },
   handler: async (ctx, { countryId, targetCurrency, sourceCurrency, sourceRate, rows }) => {
     const admin = await requireAdmin(ctx);
-    const country = countryId ? await ctx.db.get(countryId) : null;
+    const companyId = companyIdOf(admin);
+    const country = countryId ? await getOwned(ctx, admin, "countries", countryId) : null;
     if (countryId && !country) throw new Error("Région introuvable.");
     // La devise des prix n'est plus celle du pays : elle est choisie explicitement à l'import.
     const priceCurrency = targetCurrency?.trim().toUpperCase();
@@ -472,7 +498,7 @@ export const importCatalog = mutation({
     const resolved: Array<{ row: (typeof rows)[number]; existing: Doc<"products"> | null }> = [];
     for (const row of rows) {
       const code = row.code?.trim();
-      const existing = code ? await findProductByCode(ctx, code) : null;
+      const existing = code ? await findProductByCode(ctx, companyId, code) : null;
       resolved.push({ row, existing });
     }
 
@@ -487,14 +513,14 @@ export const importCatalog = mutation({
       let productId: Id<"products"> | undefined = existing?._id;
       let wasCreated = false;
       if (!productId && row.linkProductId) {
-        const linked = await ctx.db.get(row.linkProductId);
+        const linked = await getOwned(ctx, admin, "products", row.linkProductId);
         if (!linked || linked.deletedAt !== undefined) throw new Error(`Produit lié introuvable pour « ${name} ».`);
         productId = linked._id;
       }
       if (!productId) {
         const sameName = await ctx.db
           .query("products")
-          .withIndex("by_normalizedName", (q) => q.eq("normalizedName", normalizeName(name)))
+          .withIndex("by_company_and_normalizedName", (q) => q.eq("companyId", companyId).eq("normalizedName", normalizeName(name)))
           .filter((q) =>
             q.and(
               q.eq(q.field("deletedAt"), undefined),
@@ -508,7 +534,7 @@ export const importCatalog = mutation({
         } else {
           // Un code inconnu dans un catalogue fournisseur n'est pas forcément un IMPA : le conserver comme code
           // interne permet d'importer les catalogues étrangers sans perdre leur référence d'origine.
-          productId = await insertProduct(ctx, { code: row.code?.trim() || undefined, name, description: row.description, unit: row.unit ?? "PCS" }, admin._id, "manual");
+          productId = await insertProduct(ctx, companyId, { code: row.code?.trim() || undefined, name, description: row.description, unit: row.unit ?? "PCS" }, admin._id, "manual");
           created++;
           wasCreated = true;
         }
@@ -519,7 +545,7 @@ export const importCatalog = mutation({
         const current = await getCurrentPrice(ctx, productId, countryId);
         const price = Math.round(row.price * 100) / 100;
         if (!current || current.price !== price || current.currency !== priceCurrency) {
-          await setCurrentPrice(ctx, { productId, countryId, price, currency: priceCurrency, sourceCurrency: catalogCurrency, sourceRate, actorId: admin._id });
+          await setCurrentPrice(ctx, { companyId, productId, countryId, price, currency: priceCurrency, sourceCurrency: catalogCurrency, sourceRate, actorId: admin._id });
           pricesSet++;
         }
       }
@@ -533,7 +559,7 @@ export const importCatalog = mutation({
       metadata: { rows: rows.length, created, pricesSet, countryId, currency: priceCurrency, sourceCurrency: catalogCurrency, sourceRate },
     });
     if (created > 0 || pricesSet > 0) {
-      await ctx.scheduler.runAfter(0, internal.orderItems.rematchPendingInternal, { actorEmail: admin.email ?? undefined });
+      await ctx.scheduler.runAfter(0, internal.orderItems.rematchPendingInternal, { companyId, actorEmail: admin.email ?? undefined });
     }
     return { created, pricesSet, skipped };
   },

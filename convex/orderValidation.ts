@@ -2,14 +2,14 @@ import { v } from "convex/values";
 import { internalMutation, query } from "./_generated/server";
 import { logActivity } from "./lib/audit";
 import { normalizeCode, normalizeName } from "./lib/normalize";
-import { requireUser } from "./lib/permissions";
+import { getOwned, requireUser } from "./lib/permissions";
 
 /** Validation de la commande (fichier final du client) et ses articles retenus ; null tant que la commande n'est pas validée. */
 export const get = query({
   args: { orderId: v.id("orders") },
   handler: async (ctx, { orderId }) => {
-    await requireUser(ctx);
-    const order = await ctx.db.get(orderId);
+    const user = await requireUser(ctx);
+    const order = await getOwned(ctx, user, "orders", orderId);
     if (!order || order.validatedAt === undefined) return null;
     const items = await ctx.db.query("orderValidatedItems").withIndex("by_order", (q) => q.eq("orderId", orderId)).collect();
     items.sort((a, b) => a.position - b.position);
@@ -51,6 +51,8 @@ export const saveValidation = internalMutation({
     const order = await ctx.db.get(orderId);
     const user = await ctx.db.get(userId);
     if (!order || !user) throw new Error("Commande introuvable.");
+    // La commande doit appartenir à l'entreprise de l'utilisateur qui valide.
+    if (!user.companyId || order.companyId !== user.companyId) throw new Error("Commande introuvable.");
     if (order.createdBy !== userId && user.role !== "admin") {
       throw new Error("Seul le propriétaire de la quotation (ou un administrateur) peut valider la commande.");
     }

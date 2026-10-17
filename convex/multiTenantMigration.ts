@@ -25,6 +25,7 @@ const TABLES = [
   "currencies",
   "countries",
   "orders",
+  "orderItems",
   "activityLogs",
   "settings",
 ] as const;
@@ -48,7 +49,7 @@ export const start = internalMutation({
     if (!company) {
       // L'ancien branding global (réglage « branding ») devient celui de l'entreprise, et sert aussi de
       // point de départ à la page de connexion de la plateforme.
-      const row = await ctx.db.query("settings").withIndex("by_key", (q) => q.eq("key", "branding")).first();
+      const row = await ctx.db.query("settings").withIndex("by_company_and_key", (q) => q.eq("companyId", undefined).eq("key", "branding")).first();
       const branding = (row?.value ?? undefined) as
         | { name?: string; logoStorageId?: Id<"_storage">; accentColor?: string }
         | undefined;

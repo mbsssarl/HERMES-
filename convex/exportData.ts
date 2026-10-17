@@ -3,10 +3,11 @@ import { internalQuery } from "./_generated/server";
 
 /** Everything the Excel export of a quotation needs, in display order. */
 export const getForExport = internalQuery({
-  args: { orderId: v.id("orders") },
-  handler: async (ctx, { orderId }) => {
+  args: { orderId: v.id("orders"), companyId: v.id("companies") },
+  handler: async (ctx, { orderId, companyId }) => {
     const order = await ctx.db.get(orderId);
-    if (!order) return null;
+    // Une commande d'une autre entreprise est traitée comme absente.
+    if (!order || order.companyId !== companyId) return null;
     const client = await ctx.db.get(order.clientId);
     const country = await ctx.db.get(order.countryId);
     const items = await ctx.db

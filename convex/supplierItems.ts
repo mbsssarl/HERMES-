@@ -4,14 +4,15 @@ import { insertProduct } from "./products";
 import { normalizeCode, normalizeName } from "./lib/normalize";
 import { rematchOrderItem } from "./lib/matching";
 import { getCurrentPrice, setCurrentPrice } from "./lib/productPricing";
-import { requireUser } from "./lib/permissions";
+import { companyIdOf, getOwned, requireOrder, requireUser } from "./lib/permissions";
 import { logActivity } from "./lib/audit";
 import { internalMutation, mutation, query } from "./_generated/server";
 
 export const listByOrder = query({
   args: { orderId: v.id("orders") },
   handler: async (ctx, { orderId }) => {
-    await requireUser(ctx);
+    const user = await requireUser(ctx);
+    await requireOrder(ctx, user, orderId);
     return await ctx.db
       .query("supplierItems")
       .withIndex("by_order", (q) => q.eq("orderId", orderId))
@@ -29,7 +30,10 @@ export const update = mutation({
     rawPrice: v.optional(v.number()),
   },
   handler: async (ctx, { supplierItemId, ...patch }) => {
-    await requireUser(ctx);
+    const user = await requireUser(ctx);
+    const item = await ctx.db.get(supplierItemId);
+    if (!item) throw new Error("Ligne introuvable.");
+    await requireOrder(ctx, user, item.orderId);
     await ctx.db.patch(supplierItemId, patch);
   },
 });
@@ -38,6 +42,9 @@ export const reject = mutation({
   args: { supplierItemId: v.id("supplierItems") },
   handler: async (ctx, { supplierItemId }) => {
     const user = await requireUser(ctx);
+    const item = await ctx.db.get(supplierItemId);
+    if (!item) throw new Error("Ligne introuvable.");
+    await requireOrder(ctx, user, item.orderId);
     await ctx.db.patch(supplierItemId, { status: "rejected", validatedBy: user._id, validatedAt: Date.now() });
   },
 });
@@ -61,7 +68,8 @@ export const saveToCatalog = mutation({
         throw new Error(`Ligne "${item.rawName}" : unité et prix sont requis avant enregistrement.`);
       }
 
-      const order = await ctx.db.get(item.orderId);
+      // Une ligne d'une commande d'une autre entreprise est ignorée comme si elle n'existait pas.
+      const order = await getOwned(ctx, user, "orders", item.orderId);
       if (!order) continue;
       const country = await ctx.db.get(order.countryId);
       if (!country) continue;
@@ -70,6 +78,7 @@ export const saveToCatalog = mutation({
         item.duplicateOfProductId ??
         (await insertProduct(
           ctx,
+          companyIdOf(user),
           {
             impaId: item.rawCode,
             code: item.rawCode,
@@ -83,6 +92,7 @@ export const saveToCatalog = mutation({
         ));
 
       await setCurrentPrice(ctx, {
+        companyId: companyIdOf(user),
         productId,
         countryId: order.countryId,
         price: item.rawPrice,
@@ -132,7 +142,8 @@ export const saveExtractedSupplierItemsInternal = internalMutation({
   },
   handler: async (ctx, { orderId, uploadedFileId, items }) => {
     const order = await ctx.db.get(orderId);
-    if (!order) throw new Error("Commande introuvable.");
+    if (!order || !order.companyId) throw new Error("Commande introuvable.");
+    const companyId = order.companyId;
 
     const orderItems = await ctx.db
       .query("orderItems")
@@ -144,7 +155,7 @@ export const saveExtractedSupplierItemsInternal = internalMutation({
       if (raw.rawCode) {
         const existing = await ctx.db
           .query("products")
-          .withIndex("by_normalizedImpaId", (q) => q.eq("normalizedImpaId", normalizeCode(raw.rawCode!)))
+          .withIndex("by_company_and_normalizedImpaId", (q) => q.eq("companyId", companyId).eq("normalizedImpaId", normalizeCode(raw.rawCode!)))
           .filter((q) => q.eq(q.field("deletedAt"), undefined))
           .unique();
         existingProductId = existing?._id;

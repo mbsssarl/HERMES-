@@ -105,13 +105,13 @@ export const createCompany = mutation({
 
     // Référentiels de départ copiés de la première entreprise (le super admin n'y lit rien d'autre que des listes).
     if (template) {
-      for (const c of await ctx.db.query("currencies").withIndex("by_company", (q) => q.eq("companyId", template._id)).take(500)) {
+      for (const c of await ctx.db.query("currencies").withIndex("by_company_and_code", (q) => q.eq("companyId", template._id)).take(500)) {
         await ctx.db.insert("currencies", { companyId, code: c.code, name: c.name, active: c.active });
       }
-      for (const c of await ctx.db.query("countries").withIndex("by_company", (q) => q.eq("companyId", template._id)).take(500)) {
+      for (const c of await ctx.db.query("countries").withIndex("by_company_and_code", (q) => q.eq("companyId", template._id)).take(500)) {
         await ctx.db.insert("countries", { companyId, code: c.code, name: c.name, city: c.city, active: c.active });
       }
-      for (const c of await ctx.db.query("productCategories").withIndex("by_company", (q) => q.eq("companyId", template._id)).take(500)) {
+      for (const c of await ctx.db.query("productCategories").withIndex("by_company_and_name", (q) => q.eq("companyId", template._id)).take(500)) {
         await ctx.db.insert("productCategories", { companyId, name: c.name, active: c.active });
       }
     }

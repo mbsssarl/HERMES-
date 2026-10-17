@@ -15,6 +15,8 @@ export async function getCurrentPrice(
 }
 
 export interface SetPriceInput {
+  /** Entreprise du produit (recopiée sur la ligne de prix). */
+  companyId: Id<"companies">;
   productId: Id<"products">;
   countryId: Id<"countries">;
   price: number;
@@ -34,6 +36,7 @@ export async function setCurrentPrice(ctx: MutationCtx, input: SetPriceInput): P
   }
 
   return await ctx.db.insert("productPrices", {
+    companyId: input.companyId,
     productId: input.productId,
     countryId: input.countryId,
     price: input.price,

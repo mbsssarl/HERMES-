@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
-import { getAnyUser, requireUser } from "./lib/permissions";
+import { getAnyUser, getOwned, requireOrder, requireUser } from "./lib/permissions";
 
 const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = new Set([
@@ -24,7 +24,8 @@ export const generateUploadUrl = mutation({
 export const listByOrder = query({
   args: { orderId: v.id("orders") },
   handler: async (ctx, { orderId }) => {
-    await requireUser(ctx);
+    const user = await requireUser(ctx);
+    await requireOrder(ctx, user, orderId);
     return await ctx.db
       .query("uploadedFiles")
       .withIndex("by_order", (q) => q.eq("orderId", orderId))
@@ -44,6 +45,11 @@ export const registerUploadedFile = mutation({
   },
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
+    await requireOrder(ctx, user, args.orderId).catch(async (err) => {
+      // Fichier déjà envoyé au stockage mais commande refusée : on ne le garde pas.
+      await ctx.storage.delete(args.storageId);
+      throw err;
+    });
 
     if (args.size > MAX_FILE_SIZE_BYTES) {
       await ctx.storage.delete(args.storageId);
@@ -77,10 +83,18 @@ export const registerUploadedFile = mutation({
   },
 });
 
+/**
+ * Adresse d'un fichier du stockage (fichier déposé ou PDF de quotation), seulement s'il appartient à une commande
+ * de l'entreprise de l'utilisateur ; sinon null. Un identifiant de stockage d'une autre entreprise ne donne rien.
+ */
 export const getUrl = query({
   args: { storageId: v.id("_storage") },
   handler: async (ctx, { storageId }) => {
-    await requireUser(ctx);
+    const user = await requireUser(ctx);
+    const file = await ctx.db.query("uploadedFiles").withIndex("by_storage", (q) => q.eq("storageId", storageId)).first();
+    const quotation = file ? null : await ctx.db.query("quotations").withIndex("by_pdf", (q) => q.eq("pdfStorageId", storageId)).first();
+    const orderId = file?.orderId ?? quotation?.orderId;
+    if (!orderId || !(await getOwned(ctx, user, "orders", orderId))) return null;
     return await ctx.storage.getUrl(storageId);
   },
 });
@@ -119,6 +133,10 @@ export const registerGeneratedFileInternal = internalMutation({
     uploadedBy: v.id("users"),
   },
   handler: async (ctx, args) => {
+    // Le fichier généré est rattaché à une commande de l'entreprise de l'utilisateur qui l'a demandé.
+    const uploader = await ctx.db.get(args.uploadedBy);
+    const order = await ctx.db.get(args.orderId);
+    if (!uploader?.companyId || !order || order.companyId !== uploader.companyId) throw new Error("Commande introuvable.");
     return await ctx.db.insert("uploadedFiles", {
       ...args,
       status: "extracted",

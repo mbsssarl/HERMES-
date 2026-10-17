@@ -10,10 +10,9 @@ export const getDashboardStats = query({
 
     // Tout est limité à l'entreprise de l'admin.
     const users = await ctx.db.query("users").withIndex("by_company", (q) => q.eq("companyId", companyId)).collect();
-    const orders = (await ctx.db.query("orders").filter((q) => q.eq(q.field("deletedAt"), undefined)).collect()).filter((o) => o.companyId === companyId);
-    const orderIds = new Set(orders.map((o) => o._id));
-    const quotations = (await ctx.db.query("quotations").collect()).filter((q) => orderIds.has(q.orderId));
-    const recentActivity = (await ctx.db.query("activityLogs").order("desc").take(200)).filter((a) => a.companyId === companyId).slice(0, 20);
+    const orders = (await ctx.db.query("orders").withIndex("by_company", (q) => q.eq("companyId", companyId)).collect()).filter((o) => o.deletedAt === undefined);
+    const quotations = (await Promise.all(orders.map((o) => ctx.db.query("quotations").withIndex("by_order", (q) => q.eq("orderId", o._id)).collect()))).flat();
+    const recentActivity = await ctx.db.query("activityLogs").withIndex("by_company", (q) => q.eq("companyId", companyId)).order("desc").take(20);
 
     const ordersByStatus = orders.reduce<Record<string, number>>((acc, o) => {
       acc[o.status] = (acc[o.status] ?? 0) + 1;

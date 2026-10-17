@@ -53,6 +53,7 @@ export const sendQuotationEmail = action({
 
     const quotation = await ctx.runQuery(internal.quotations.getQuotationInternal, {
       quotationId,
+      companyId: user.companyId!,
     });
     if (!quotation || quotation.orderId !== orderId) {
       throw new Error("Quotation introuvable pour cette commande.");

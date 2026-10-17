@@ -2,13 +2,14 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { logActivity } from "./lib/audit";
 import { applyLineChanges } from "./lib/lineEdits";
-import { requireUser } from "./lib/permissions";
+import { requireOrder, requireUser } from "./lib/permissions";
 
 /** Modifications en attente d'une quotation (tout le monde les voit ; seul le propriétaire les valide). */
 export const listByOrder = query({
   args: { orderId: v.id("orders") },
   handler: async (ctx, { orderId }) => {
-    await requireUser(ctx);
+    const user = await requireUser(ctx);
+    await requireOrder(ctx, user, orderId);
     const rows = await ctx.db.query("orderItemEdits").withIndex("by_order", (q) => q.eq("orderId", orderId)).collect();
     const pending = rows.filter((r) => r.status === "pending");
     return await Promise.all(
@@ -26,8 +27,7 @@ export const decide = mutation({
     if (!edit) throw new Error("Modification introuvable.");
     if (edit.status !== "pending") throw new Error("Cette modification a déjà été traitée.");
 
-    const order = await ctx.db.get(edit.orderId);
-    if (!order) throw new Error("Quotation introuvable.");
+    const order = await requireOrder(ctx, user, edit.orderId);
     if (order.createdBy !== user._id) {
       throw new Error("Seul le propriétaire de la quotation peut valider ou invalider une modification.");
     }
@@ -55,6 +55,7 @@ export const withdraw = mutation({
     const user = await requireUser(ctx);
     const edit = await ctx.db.get(editId);
     if (!edit) throw new Error("Modification introuvable.");
+    await requireOrder(ctx, user, edit.orderId);
     if (edit.status !== "pending") throw new Error("Cette modification a déjà été traitée.");
     if (edit.proposedBy !== user._id) throw new Error("Seul l'auteur peut retirer sa proposition.");
     await ctx.db.patch(editId, { status: "withdrawn", decidedBy: user._id, decidedAt: Date.now() });

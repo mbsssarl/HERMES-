@@ -18,7 +18,7 @@ export const generateQuotation = action({
     if (!user) throw new Error("Authentification requise.");
 
     await ctx.runAction(api.orders.ensureBaseRates, { orderId });
-    const data = await ctx.runQuery(internal.quotations.getQuotationBuildDataInternal, { orderId });
+    const data = await ctx.runQuery(internal.quotations.getQuotationBuildDataInternal, { orderId, companyId: user.companyId! });
     if (!data) throw new Error("Commande introuvable.");
     if (data.matchedItems.length === 0) {
       throw new Error("Aucun article répertorié à inclure dans la quotation.");

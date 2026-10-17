@@ -1,13 +1,14 @@
 import { v } from "convex/values";
 import { logActivity } from "./lib/audit";
-import { requireAdmin, requireUser } from "./lib/permissions";
+import { getOwned, requireAdmin, requireOrder, requireUser } from "./lib/permissions";
 import { COMPANY_INFO_KEY } from "./settings";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 
 export const listByOrder = query({
   args: { orderId: v.id("orders") },
   handler: async (ctx, { orderId }) => {
-    await requireUser(ctx);
+    const user = await requireUser(ctx);
+    await requireOrder(ctx, user, orderId);
     return await ctx.db
       .query("quotations")
       .withIndex("by_order", (q) => q.eq("orderId", orderId))
@@ -17,10 +18,11 @@ export const listByOrder = query({
 });
 
 export const getQuotationBuildDataInternal = internalQuery({
-  args: { orderId: v.id("orders") },
-  handler: async (ctx, { orderId }) => {
+  args: { orderId: v.id("orders"), companyId: v.id("companies") },
+  handler: async (ctx, { orderId, companyId }) => {
     const order = await ctx.db.get(orderId);
-    if (!order) return null;
+    // Une commande d'une autre entreprise est traitée comme absente.
+    if (!order || order.companyId !== companyId) return null;
     const client = await ctx.db.get(order.clientId);
 
     // Only lines with an actual price are included: a matched-but-no-price
@@ -42,7 +44,7 @@ export const getQuotationBuildDataInternal = internalQuery({
 
     const companyInfoSetting = await ctx.db
       .query("settings")
-      .withIndex("by_key", (q) => q.eq("key", COMPANY_INFO_KEY))
+      .withIndex("by_company_and_key", (q) => q.eq("companyId", companyId).eq("key", COMPANY_INFO_KEY))
       .unique();
 
     return {
@@ -77,6 +79,9 @@ export const saveQuotationInternal = internalMutation({
     generatedBy: v.id("users"),
   },
   handler: async (ctx, args) => {
+    const author = await ctx.db.get(args.generatedBy);
+    const target = await ctx.db.get(args.orderId);
+    if (!author?.companyId || !target || target.companyId !== author.companyId) throw new Error("Commande introuvable.");
     const previous = await ctx.db
       .query("quotations")
       .withIndex("by_order", (q) => q.eq("orderId", args.orderId))
@@ -111,9 +116,13 @@ export const saveQuotationInternal = internalMutation({
 });
 
 export const getQuotationInternal = internalQuery({
-  args: { quotationId: v.id("quotations") },
-  handler: async (ctx, { quotationId }) => {
-    return await ctx.db.get(quotationId);
+  args: { quotationId: v.id("quotations"), companyId: v.id("companies") },
+  handler: async (ctx, { quotationId, companyId }) => {
+    const quotation = await ctx.db.get(quotationId);
+    if (!quotation) return null;
+    // Le devis doit appartenir à une commande de l'entreprise de l'appelant.
+    const order = await ctx.db.get(quotation.orderId);
+    return order && order.companyId === companyId ? quotation : null;
   },
 });
 
@@ -121,6 +130,9 @@ export const approve = mutation({
   args: { quotationId: v.id("quotations") },
   handler: async (ctx, { quotationId }) => {
     const admin = await requireAdmin(ctx);
+    const quotation = await ctx.db.get(quotationId);
+    if (!quotation) throw new Error("Devis introuvable.");
+    await requireOrder(ctx, admin, quotation.orderId);
     await ctx.db.patch(quotationId, {
       approvedByAdmin: true,
       approvedBy: admin._id,
@@ -148,6 +160,9 @@ export const recordEmailSentInternal = internalMutation({
     sentBy: v.id("users"),
   },
   handler: async (ctx, args) => {
+    const sender = await ctx.db.get(args.sentBy);
+    const target = await ctx.db.get(args.orderId);
+    if (!sender?.companyId || !target || target.companyId !== sender.companyId) throw new Error("Commande introuvable.");
     await ctx.db.insert("emailLogs", { ...args, sentAt: Date.now() });
 
     if (args.status === "sent") {
@@ -167,7 +182,8 @@ export const recordEmailSentInternal = internalMutation({
 export const listEmailLogs = query({
   args: { orderId: v.id("orders") },
   handler: async (ctx, { orderId }) => {
-    await requireUser(ctx);
+    const user = await requireUser(ctx);
+    await requireOrder(ctx, user, orderId);
     return await ctx.db
       .query("emailLogs")
       .withIndex("by_order", (q) => q.eq("orderId", orderId))

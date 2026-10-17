@@ -6,14 +6,15 @@ import { applyMatchedProduct, computeItemPricing, matchOrderItem, refreshCatalog
 import { learnAlias } from "./lib/productAliases";
 import { logActivity } from "./lib/audit";
 import { applyLineChanges, lineChangesFields, validateLineChanges } from "./lib/lineEdits";
-import { requireUser } from "./lib/permissions";
+import { companyIdOf, getOwned, requireItem, requireOrder, requireOwned, requireUser } from "./lib/permissions";
 import { internal } from "./_generated/api";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 
 export const listByOrder = query({
   args: { orderId: v.id("orders") },
   handler: async (ctx, { orderId }) => {
-    await requireUser(ctx);
+    const user = await requireUser(ctx);
+    await requireOrder(ctx, user, orderId);
     const items = await ctx.db
       .query("orderItems")
       .withIndex("by_order", (q) => q.eq("orderId", orderId))
@@ -35,8 +36,11 @@ export const listByOrder = query({
 });
 
 export const listUnmatchedInternal = internalQuery({
-  args: { orderId: v.id("orders") },
-  handler: async (ctx, { orderId }) => {
+  args: { orderId: v.id("orders"), companyId: v.id("companies") },
+  handler: async (ctx, { orderId, companyId }) => {
+    // La commande doit appartenir à l'entreprise de l'appelant, sinon rien n'est renvoyé.
+    const order = await ctx.db.get(orderId);
+    if (!order || order.companyId !== companyId) return [];
     const items = await ctx.db
       .query("orderItems")
       .withIndex("by_order_and_status", (q) => q.eq("orderId", orderId).eq("matchStatus", "unmatched"))
@@ -49,15 +53,14 @@ export const confirmAmbiguousMatch = mutation({
   args: { orderItemId: v.id("orderItems"), productId: v.id("products") },
   handler: async (ctx, { orderItemId, productId }) => {
     const user = await requireUser(ctx);
-    const item = await ctx.db.get(orderItemId);
-    const product = await ctx.db.get(productId);
-    if (!item || !product) throw new Error("Ligne ou produit introuvable.");
+    const item = await requireItem(ctx, user, orderItemId);
+    const product = await requireOwned(ctx, user, "products", productId, "Produit introuvable.");
 
     await applyMatchedProduct(ctx, item, product, "manual", 1);
     await ctx.db.patch(orderItemId, { updatedBy: user._id });
     // No code was supplied for this line (that's why it was ambiguous) -
     // teach the wording so the same client phrasing matches instantly next time.
-    if (!item.rawCode) await learnAlias(ctx, productId, item.rawDescription, user._id);
+    if (!item.rawCode) await learnAlias(ctx, companyIdOf(user), productId, item.rawDescription, user._id);
   },
 });
 
@@ -65,13 +68,12 @@ export const setManualMatch = mutation({
   args: { orderItemId: v.id("orderItems"), productId: v.id("products") },
   handler: async (ctx, { orderItemId, productId }) => {
     const user = await requireUser(ctx);
-    const item = await ctx.db.get(orderItemId);
-    const product = await ctx.db.get(productId);
-    if (!item || !product) throw new Error("Ligne ou produit introuvable.");
+    const item = await requireItem(ctx, user, orderItemId);
+    const product = await requireOwned(ctx, user, "products", productId, "Produit introuvable.");
 
     await applyMatchedProduct(ctx, item, product, "manual", 1);
     await ctx.db.patch(orderItemId, { updatedBy: user._id });
-    if (!item.rawCode) await learnAlias(ctx, productId, item.rawDescription, user._id);
+    if (!item.rawCode) await learnAlias(ctx, companyIdOf(user), productId, item.rawDescription, user._id);
   },
 });
 
@@ -79,8 +81,7 @@ export const clearMatch = mutation({
   args: { orderItemId: v.id("orderItems") },
   handler: async (ctx, { orderItemId }) => {
     const user = await requireUser(ctx);
-    const item = await ctx.db.get(orderItemId);
-    if (!item) throw new Error("Ligne introuvable.");
+    const item = await requireItem(ctx, user, orderItemId);
     const unmatched = { ...item, productId: undefined };
     await ctx.db.patch(orderItemId, {
       productId: undefined,
@@ -136,6 +137,8 @@ export const saveExtractedItemsInternal = internalMutation({
   handler: async (ctx, { orderId, items, metadata }) => {
     const order = await ctx.db.get(orderId);
     if (!order) throw new Error("Commande introuvable.");
+    const companyId = order.companyId;
+    if (!companyId) throw new Error("Commande sans entreprise.");
 
     // Fill in blanks only - never override a value the user already typed
     // (whether before or after this document was imported).
@@ -167,6 +170,7 @@ export const saveExtractedItemsInternal = internalMutation({
       // Intitulé de section (texte seul) : importé mais décoché, et sans recherche dans le catalogue.
       const sectionHeader = looksLikeSectionHeader(raw);
       const orderItemId = await ctx.db.insert("orderItems", {
+        companyId,
         orderId,
         lineNo: existingCount + i + 1,
         rawCode: raw.rawCode,
@@ -193,7 +197,7 @@ export const saveExtractedItemsInternal = internalMutation({
 
       if (sectionHeader) continue;
 
-      const result = await matchOrderItem(ctx, { rawCode: raw.rawCode, rawDescription: raw.rawDescription });
+      const result = await matchOrderItem(ctx, { companyId, rawCode: raw.rawCode, rawDescription: raw.rawDescription });
       if (result.status === "ambiguous") {
         await ctx.db.patch(orderItemId, { matchStatus: "ambiguous", ambiguousCandidates: result.candidates });
       } else if (result.status !== "unmatched") {
@@ -222,8 +226,7 @@ export const update = mutation({
   args: { orderItemId: v.id("orderItems"), ...lineChangesFields },
   handler: async (ctx, { orderItemId, ...edits }): Promise<{ applied: boolean }> => {
     const user = await requireUser(ctx);
-    const item = await ctx.db.get(orderItemId);
-    if (!item) throw new Error("Ligne introuvable.");
+    const item = await requireItem(ctx, user, orderItemId);
     validateLineChanges(edits);
 
     const order = await ctx.db.get(item.orderId);
@@ -266,14 +269,19 @@ const REMATCH_PAGE_SIZE = 100;
  */
 export const rematchPendingInternal = internalMutation({
   args: {
+    // Seules les lignes de cette entreprise sont reprises, contre SON catalogue.
+    companyId: v.id("companies"),
     cursor: v.optional(v.string()),
     // Start of this wave and who caused it (for the "quotation updated" badge).
     startedAt: v.optional(v.number()),
     actorEmail: v.optional(v.string()),
   },
-  handler: async (ctx, { cursor, startedAt, actorEmail }): Promise<void> => {
+  handler: async (ctx, { companyId, cursor, startedAt, actorEmail }): Promise<void> => {
     const wave = startedAt ?? Date.now();
-    const page = await ctx.db.query("orderItems").paginate({ numItems: REMATCH_PAGE_SIZE, cursor: cursor ?? null });
+    const page = await ctx.db
+      .query("orderItems")
+      .withIndex("by_company", (q) => q.eq("companyId", companyId))
+      .paginate({ numItems: REMATCH_PAGE_SIZE, cursor: cursor ?? null });
     const improved = new Map<Id<"orders">, number>();
 
     for (const item of page.page) {
@@ -296,6 +304,7 @@ export const rematchPendingInternal = internalMutation({
 
     if (!page.isDone) {
       await ctx.scheduler.runAfter(0, internal.orderItems.rematchPendingInternal, {
+        companyId,
         cursor: page.continueCursor,
         startedAt: wave,
         actorEmail,
@@ -313,9 +322,8 @@ export const rematchPendingInternal = internalMutation({
 export const refreshOrder = mutation({
   args: { orderId: v.id("orders"), cursor: v.optional(v.string()) },
   handler: async (ctx, { orderId, cursor }): Promise<{ done: boolean; cursor: string; matched: number; repriced: number }> => {
-    await requireUser(ctx);
-    const order = await ctx.db.get(orderId);
-    if (!order) throw new Error("Commande introuvable.");
+    const user = await requireUser(ctx);
+    const order = await requireOrder(ctx, user, orderId);
     if (order.deletedAt !== undefined) throw new Error("Cette quotation est dans la corbeille.");
     if (order.validatedAt !== undefined || order.status === "po" || order.status === "sent" || order.status === "archived") {
       throw new Error("Cette quotation est validée ou envoyée : ses montants sont figés.");
@@ -345,9 +353,12 @@ export const refreshOrder = mutation({
 
 /** Après la suppression des prix du catalogue : les lignes des quotations ouvertes qui en tiraient leur prix n'ont plus de prix. */
 export const clearCataloguePricesInternal = internalMutation({
-  args: { cursor: v.optional(v.string()) },
-  handler: async (ctx, { cursor }): Promise<void> => {
-    const page = await ctx.db.query("orderItems").paginate({ numItems: 100, cursor: cursor ?? null });
+  args: { companyId: v.id("companies"), cursor: v.optional(v.string()) },
+  handler: async (ctx, { companyId, cursor }): Promise<void> => {
+    const page = await ctx.db
+      .query("orderItems")
+      .withIndex("by_company", (q) => q.eq("companyId", companyId))
+      .paginate({ numItems: 100, cursor: cursor ?? null });
     for (const item of page.page) {
       if (!item.productId || item.unitPriceManual !== undefined || item.unitPriceOriginal === undefined) continue;
       const order = await ctx.db.get(item.orderId);
@@ -363,7 +374,7 @@ export const clearCataloguePricesInternal = internalMutation({
         updatedAt: Date.now(),
       });
     }
-    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.orderItems.clearCataloguePricesInternal, { cursor: page.continueCursor });
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.orderItems.clearCataloguePricesInternal, { companyId, cursor: page.continueCursor });
   },
 });
 
@@ -391,6 +402,8 @@ export const setExcluded = mutation({
   handler: async (ctx, { orderItemIds, excluded }) => {
     const user = await requireUser(ctx);
     for (const id of orderItemIds) {
+      // Une ligne d'une autre entreprise est ignorée comme si elle n'existait pas.
+      if (!(await getOwned(ctx, user, "orderItems", id))) continue;
       await ctx.db.patch(id, { excluded: excluded ? true : undefined, updatedAt: Date.now(), updatedBy: user._id });
     }
   },
@@ -404,8 +417,8 @@ export const dismissProposal = mutation({
   args: { orderItemId: v.id("orderItems"), productId: v.id("products") },
   handler: async (ctx, { orderItemId, productId }) => {
     const user = await requireUser(ctx);
-    const item = await ctx.db.get(orderItemId);
-    if (!item) throw new Error("Ligne introuvable.");
+    await requireItem(ctx, user, orderItemId);
+    const item = (await ctx.db.get(orderItemId))!;
 
     const remaining = (item.ambiguousCandidates ?? []).filter((id) => id !== productId);
     if (remaining.length > 0) {

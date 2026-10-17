@@ -13,6 +13,8 @@ const MAX_CANDIDATES = 3;
 const NAME_SEARCH_LIMIT = 25;
 
 export interface MatchInput {
+  /** Entreprise de la commande : seul SON catalogue est consulté. */
+  companyId: Id<"companies">;
   rawCode?: string;
   rawDescription: string;
 }
@@ -41,7 +43,7 @@ export async function matchOrderItem(
     const normalizedCode = normalizeCode(rawCode);
     const byImpa = await ctx.db
       .query("products")
-      .withIndex("by_normalizedImpaId", (q) => q.eq("normalizedImpaId", normalizedCode))
+      .withIndex("by_company_and_normalizedImpaId", (q) => q.eq("companyId", input.companyId).eq("normalizedImpaId", normalizedCode))
       .filter((q) => q.eq(q.field("deletedAt"), undefined))
       .unique();
     if (byImpa) {
@@ -50,7 +52,7 @@ export async function matchOrderItem(
 
     const byCode = await ctx.db
       .query("products")
-      .withIndex("by_normalizedCode", (q) => q.eq("normalizedCode", normalizedCode))
+      .withIndex("by_company_and_normalizedCode", (q) => q.eq("companyId", input.companyId).eq("normalizedCode", normalizedCode))
       .filter((q) => q.eq(q.field("deletedAt"), undefined))
       .unique();
     if (byCode) {
@@ -60,10 +62,10 @@ export async function matchOrderItem(
     return { status: "unmatched" };
   }
 
-  const aliasProductId = await findProductByAlias(ctx, input.rawDescription);
+  const aliasProductId = await findProductByAlias(ctx, input.companyId, input.rawDescription);
   if (aliasProductId) {
     const product = await ctx.db.get(aliasProductId);
-    if (product && product.deletedAt === undefined) {
+    if (product && product.companyId === input.companyId && product.deletedAt === undefined) {
       return { status: "matched_name", productId: aliasProductId, confidence: 1 };
     }
   }
@@ -73,7 +75,7 @@ export async function matchOrderItem(
 
   const searchResults = await ctx.db
     .query("products")
-    .withSearchIndex("search_name", (q) => q.search("normalizedName", normalized))
+    .withSearchIndex("search_name", (q) => q.search("normalizedName", normalized).eq("companyId", input.companyId))
     .take(NAME_SEARCH_LIMIT);
 
   const active = searchResults.filter((p) => p.deletedAt === undefined);
@@ -113,6 +115,8 @@ export async function matchOrderItem(
  * matching decision to revisit.
  */
 export async function rematchOrderItem(ctx: MutationCtx, item: Doc<"orderItems">): Promise<void> {
+  // Une ligne sans entreprise (reprise non terminée) n'est jamais rapprochée : aucun catalogue à consulter.
+  if (!item.companyId) return;
   if (item.matchStatus === "matched_impa" || item.matchStatus === "manual") {
     if (item.productId && item.unitPriceOriginal === undefined) {
       await repriceOrderItem(ctx, item);
@@ -121,6 +125,7 @@ export async function rematchOrderItem(ctx: MutationCtx, item: Doc<"orderItems">
   }
 
   const result = await matchOrderItem(ctx, {
+    companyId: item.companyId,
     rawCode: item.rawCode,
     rawDescription: item.rawDescription,
   });
@@ -151,7 +156,7 @@ export async function rematchOrderItem(ctx: MutationCtx, item: Doc<"orderItems">
   }
 
   const product = await ctx.db.get(result.productId);
-  if (!product) return;
+  if (!product || product.companyId !== item.companyId) return;
 
   await applyMatchedProduct(ctx, item, product, result.status, result.confidence);
 }
@@ -267,7 +272,7 @@ export async function refreshCataloguePrice(ctx: MutationCtx, item: Doc<"orderIt
 export async function repriceOrderItem(ctx: MutationCtx, item: Doc<"orderItems">): Promise<void> {
   if (!item.productId) return;
   const product = await ctx.db.get(item.productId);
-  if (!product) return;
+  if (!product || product.companyId !== item.companyId) return;
 
   await applyMatchedProduct(
     ctx,

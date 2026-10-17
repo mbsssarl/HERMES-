@@ -5,6 +5,7 @@ import { normalizeName } from "./normalize";
 /** Exact lookup by normalized alias - used as a matching shortcut before falling back to fuzzy name search. */
 export async function findProductByAlias(
   ctx: QueryCtx | MutationCtx,
+  companyId: Id<"companies">,
   rawDescription: string,
 ): Promise<Id<"products"> | null> {
   const normalized = normalizeName(rawDescription);
@@ -12,7 +13,7 @@ export async function findProductByAlias(
 
   const alias = await ctx.db
     .query("productAliases")
-    .withIndex("by_normalizedAlias", (q) => q.eq("normalizedAlias", normalized))
+    .withIndex("by_company_and_normalizedAlias", (q) => q.eq("companyId", companyId).eq("normalizedAlias", normalized))
     .first();
 
   return alias?.productId ?? null;
@@ -26,6 +27,7 @@ export async function findProductByAlias(
  */
 export async function learnAlias(
   ctx: MutationCtx,
+  companyId: Id<"companies">,
   productId: Id<"products">,
   rawDescription: string,
   actorId: Id<"users">,
@@ -35,11 +37,12 @@ export async function learnAlias(
 
   const existing = await ctx.db
     .query("productAliases")
-    .withIndex("by_normalizedAlias", (q) => q.eq("normalizedAlias", normalizedAlias))
+    .withIndex("by_company_and_normalizedAlias", (q) => q.eq("companyId", companyId).eq("normalizedAlias", normalizedAlias))
     .first();
   if (existing) return;
 
   await ctx.db.insert("productAliases", {
+    companyId,
     productId,
     alias: rawDescription.trim(),
     normalizedAlias,

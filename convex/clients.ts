@@ -2,16 +2,18 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { capitalizeWords } from "./lib/names";
 import { logActivity } from "./lib/audit";
-import { requireUser } from "./lib/permissions";
+import { companyIdOf, getOwned, requireOwned, requireUser } from "./lib/permissions";
 
 export const list = query({
   args: { search: v.optional(v.string()) },
   handler: async (ctx, { search }) => {
-    await requireUser(ctx);
-    const clients = await ctx.db
-      .query("clients")
-      .filter((q) => q.eq(q.field("deletedAt"), undefined))
-      .collect();
+    const user = await requireUser(ctx);
+    const clients = (
+      await ctx.db
+        .query("clients")
+        .withIndex("by_company_and_name", (q) => q.eq("companyId", companyIdOf(user)))
+        .collect()
+    ).filter((c) => c.deletedAt === undefined);
 
     if (!search) return clients;
     const term = search.toLowerCase();
@@ -22,8 +24,8 @@ export const list = query({
 export const get = query({
   args: { clientId: v.id("clients") },
   handler: async (ctx, { clientId }) => {
-    await requireUser(ctx);
-    return await ctx.db.get(clientId);
+    const user = await requireUser(ctx);
+    return await getOwned(ctx, user, "clients", clientId);
   },
 });
 
@@ -38,10 +40,12 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     const user = await requireUser(ctx);
+    if (args.countryId) await requireOwned(ctx, user, "countries", args.countryId, "Région introuvable.");
     // Le nom d'un client est enregistré avec une majuscule à chaque mot.
     const name = capitalizeWords(args.name.trim());
     const clientId = await ctx.db.insert("clients", {
       ...args,
+      companyId: companyIdOf(user),
       name,
       createdAt: Date.now(),
       createdBy: user._id,
@@ -69,6 +73,8 @@ export const update = mutation({
   },
   handler: async (ctx, { clientId, ...patch }) => {
     const user = await requireUser(ctx);
+    await requireOwned(ctx, user, "clients", clientId, "Client introuvable.");
+    if (patch.countryId) await requireOwned(ctx, user, "countries", patch.countryId, "Région introuvable.");
     await ctx.db.patch(clientId, patch);
     await logActivity(ctx, {
       userId: user._id,

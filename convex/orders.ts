@@ -1,19 +1,19 @@
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { ActionCtx, MutationCtx } from "./_generated/server";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { logActivity } from "./lib/audit";
 import { computeItemPricing } from "./lib/matching";
-import { requireAdmin, requireUser } from "./lib/permissions";
+import { companyIdOf, getOwned, requireAdmin, requireOrder, requireOwned, requireUser } from "./lib/permissions";
 
 const ORDER_COUNTER_KEY = "orderReferenceCounter";
 
-async function nextOrderReference(ctx: MutationCtx, actorId: Id<"users">): Promise<string> {
+async function nextOrderReference(ctx: MutationCtx, companyId: Id<"companies">, actorId: Id<"users">): Promise<string> {
   const year = new Date().getFullYear();
   const counter = await ctx.db
     .query("settings")
-    .withIndex("by_key", (q) => q.eq("key", ORDER_COUNTER_KEY))
+    .withIndex("by_company_and_key", (q) => q.eq("companyId", companyId).eq("key", ORDER_COUNTER_KEY))
     .unique();
 
   const current = counter?.value as { year: number; seq: number } | undefined;
@@ -24,6 +24,7 @@ async function nextOrderReference(ctx: MutationCtx, actorId: Id<"users">): Promi
   } else {
     // System-owned counter row; updatedBy is best-effort and not used for display.
     await ctx.db.insert("settings", {
+      companyId,
       key: ORDER_COUNTER_KEY,
       value: { year, seq },
       updatedAt: Date.now(),
@@ -58,11 +59,14 @@ export const list = query({
     const seenRows = await ctx.db.query("orderSeen").withIndex("by_user_order", (q) => q.eq("userId", user._id)).collect();
     const seenAt = new Map(seenRows.map((r) => [r.orderId as string, r.seenAt]));
 
-    let orders = status
-      ? await ctx.db.query("orders").withIndex("by_status", (q) => q.eq("status", status)).collect()
-      : clientId
-        ? await ctx.db.query("orders").withIndex("by_client", (q) => q.eq("clientId", clientId)).collect()
-        : await ctx.db.query("orders").order("desc").collect();
+    // Uniquement les commandes de SON entreprise ; statut et client ne font que restreindre cette liste.
+    let orders = await ctx.db
+      .query("orders")
+      .withIndex("by_company", (q) => q.eq("companyId", companyIdOf(user)))
+      .order("desc")
+      .collect();
+    if (status) orders = orders.filter((o) => o.status === status);
+    if (clientId) orders = orders.filter((o) => o.clientId === clientId);
 
     orders = orders.filter((o) => (deleted ? o.deletedAt !== undefined : o.deletedAt === undefined));
     if (mineOnly) orders = orders.filter((o) => o.createdBy === user._id);
@@ -108,8 +112,8 @@ export const list = query({
 export const get = query({
   args: { orderId: v.id("orders") },
   handler: async (ctx, { orderId }) => {
-    await requireUser(ctx);
-    const order = await ctx.db.get(orderId);
+    const user = await requireUser(ctx);
+    const order = await getOwned(ctx, user, "orders", orderId);
     if (!order) return null;
     const client = await ctx.db.get(order.clientId);
     const country = await ctx.db.get(order.countryId);
@@ -129,10 +133,15 @@ export const create = mutation({
   },
   handler: async (ctx, { clientId, countryId, clientOrderNumber, vessel, eta, supplyPlace }) => {
     const user = await requireUser(ctx);
-    const reference = await nextOrderReference(ctx, user._id);
+    const companyId = companyIdOf(user);
+    // Le client et la région choisis doivent appartenir à l'entreprise de l'utilisateur.
+    await requireOwned(ctx, user, "clients", clientId, "Client introuvable.");
+    await requireOwned(ctx, user, "countries", countryId, "Région introuvable.");
+    const reference = await nextOrderReference(ctx, companyId, user._id);
     const now = Date.now();
 
     const orderId = await ctx.db.insert("orders", {
+      companyId,
       reference,
       clientId,
       countryId,
@@ -199,9 +208,8 @@ export const updateLogistics = mutation({
     currency: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await requireUser(ctx);
-    const order = await ctx.db.get(args.orderId);
-    if (!order) throw new Error("Commande introuvable.");
+    const user = await requireUser(ctx);
+    const order = await requireOrder(ctx, user, args.orderId);
 
     // A provided empty string clears the field (an omitted field is left untouched).
     const clean = (value: string) => value.trim() || undefined;
@@ -241,6 +249,7 @@ export const updateStatus = mutation({
   },
   handler: async (ctx, { orderId, status }) => {
     const user = await requireUser(ctx);
+    await requireOrder(ctx, user, orderId);
     await ctx.db.patch(orderId, { status, updatedAt: Date.now() });
     await logActivity(ctx, {
       userId: user._id,
@@ -256,6 +265,7 @@ export const setQuotationOverride = mutation({
   args: { orderId: v.id("orders"), percent: v.optional(v.number()) },
   handler: async (ctx, { orderId, percent }) => {
     const admin = await requireAdmin(ctx);
+    await requireOrder(ctx, admin, orderId);
     await ctx.db.patch(orderId, { quotationPercentOverride: percent, updatedAt: Date.now() });
 
     // The cotation applies to every priced line that uses a catalogue price.
@@ -278,6 +288,7 @@ export const setGlobalDiscount = mutation({
   args: { orderId: v.id("orders"), percent: v.optional(v.number()) },
   handler: async (ctx, { orderId, percent }) => {
     const admin = await requireAdmin(ctx);
+    await requireOrder(ctx, admin, orderId);
     await ctx.db.patch(orderId, { globalDiscountPercent: percent, updatedAt: Date.now() });
     await logActivity(ctx, {
       userId: admin._id,
@@ -306,8 +317,7 @@ export const applyGlobalPricing = mutation({
   },
   handler: async (ctx, { orderId, quotationPercent, discountPercent }) => {
     const admin = await requireAdmin(ctx);
-    const order = await ctx.db.get(orderId);
-    if (!order) throw new Error("Commande introuvable.");
+    const order = await requireOrder(ctx, admin, orderId);
     if (quotationPercent !== undefined && (quotationPercent < 0 || quotationPercent > 1000)) {
       throw new Error("Cotation invalide.");
     }
@@ -384,10 +394,11 @@ async function resolveRate(ctx: ActionCtx, from: string, to: string, ratePercent
  * devise propre, ex. prix saisi à la main, est en USD) + état actuel de la conversion.
  */
 export const getExportCurrencyBasis = internalQuery({
-  args: { orderId: v.id("orders") },
-  handler: async (ctx, { orderId }) => {
+  args: { orderId: v.id("orders"), companyId: v.id("companies") },
+  handler: async (ctx, { orderId, companyId }) => {
     const order = await ctx.db.get(orderId);
-    if (!order) return null;
+    // Une commande d'une autre entreprise est traitée comme absente.
+    if (!order || order.companyId !== companyId) return null;
     const items = await ctx.db.query("orderItems").withIndex("by_order", (q) => q.eq("orderId", orderId)).collect();
     const currencies = new Set<string>();
     for (const item of items) {
@@ -417,6 +428,9 @@ export const persistPipeline = internalMutation({
     exportCurrency: v.string(),
   },
   handler: async (ctx, { orderId, userId, baseRates, usdRate, exportCurrency }) => {
+    const actor = await ctx.db.get(userId);
+    const target = await ctx.db.get(orderId);
+    if (!actor || !target || !actor.companyId || target.companyId !== actor.companyId) throw new Error("Commande introuvable.");
     const items = await ctx.db.query("orderItems").withIndex("by_order", (q) => q.eq("orderId", orderId)).collect();
     const currencies = new Set<string>();
     for (const item of items) {
@@ -456,8 +470,10 @@ export const persistPipeline = internalMutation({
  * jour. Ne touche pas aux taux déjà choisis. Une quotation « ancienne » (conversion directe, sans étape USD) n'est
  * migrée que sur demande explicite (migrate), jamais en tâche de fond.
  */
-async function ensureBase(ctx: ActionCtx, orderId: Id<"orders">, userId: Id<"users">, migrate: boolean) {
-  const basis = await ctx.runQuery(internal.orders.getExportCurrencyBasis, { orderId });
+async function ensureBase(ctx: ActionCtx, orderId: Id<"orders">, user: Doc<"users">, migrate: boolean) {
+  const userId = user._id;
+  const companyId = companyIdOf(user);
+  const basis = await ctx.runQuery(internal.orders.getExportCurrencyBasis, { orderId, companyId });
   if (!basis) throw new Error("Commande introuvable.");
   const legacy = basis.baseRates === undefined && basis.exportCurrency !== undefined;
   if ((legacy || basis.frozen) && !migrate) return basis;
@@ -485,7 +501,7 @@ async function ensureBase(ctx: ActionCtx, orderId: Id<"orders">, userId: Id<"use
   if (failed.length > 0) {
     throw new Error(`Taux en ligne indisponible pour ${failed.join(" ; ")}. Saisissez le taux dans « Conversion en USD ».`);
   }
-  return await ctx.runQuery(internal.orders.getExportCurrencyBasis, { orderId });
+  return await ctx.runQuery(internal.orders.getExportCurrencyBasis, { orderId, companyId });
 }
 
 /** Appelée à l'ouverture/export d'une quotation : complète les taux manquants vers l'USD (étape 1) au taux du jour. */
@@ -494,7 +510,7 @@ export const ensureBaseRates = action({
   handler: async (ctx, { orderId }): Promise<null> => {
     const user = await ctx.runQuery(api.users.getBusinessUser, {});
     if (!user) throw new Error("Authentification requise.");
-    await ensureBase(ctx, orderId, user._id, false);
+    await ensureBase(ctx, orderId, user, false);
     return null;
   },
 });
@@ -514,7 +530,7 @@ export const applyBaseRates = action({
     const user = await ctx.runQuery(api.users.getBusinessUser, {});
     if (!user) throw new Error("Authentification requise.");
     assertPercent(ratePercent);
-    const basis = await ctx.runQuery(internal.orders.getExportCurrencyBasis, { orderId });
+    const basis = await ctx.runQuery(internal.orders.getExportCurrencyBasis, { orderId, companyId: companyIdOf(user) });
     if (!basis) throw new Error("Commande introuvable.");
     const legacy = basis.baseRates === undefined && basis.exportCurrency !== undefined;
 
@@ -555,7 +571,7 @@ export const applyExportCurrency = action({
     if (!user) throw new Error("Authentification requise.");
 
     // L'étape 1 (vers l'USD) doit exister avant de convertir plus loin (y compris pour une quotation ancienne).
-    const basis = await ensureBase(ctx, orderId, user._id, true);
+    const basis = await ensureBase(ctx, orderId, user, true);
     if (!basis) throw new Error("Commande introuvable.");
 
     if (!targetCurrency || targetCurrency === BASE_CURRENCY) {
@@ -586,8 +602,7 @@ export const setTransportFee = mutation({
   args: { orderId: v.id("orders"), transportFee: v.optional(v.number()) },
   handler: async (ctx, { orderId, transportFee }) => {
     const admin = await requireAdmin(ctx);
-    const order = await ctx.db.get(orderId);
-    if (!order) throw new Error("Commande introuvable.");
+    await requireOrder(ctx, admin, orderId);
     if (transportFee !== undefined && (!Number.isFinite(transportFee) || transportFee < 0)) throw new Error("Frais de transport invalides.");
     const fee = transportFee && transportFee > 0 ? Math.round(transportFee * 100) / 100 : undefined;
     await ctx.db.patch(orderId, { transportFee: fee, updatedAt: Date.now() });
@@ -606,6 +621,7 @@ export const markSeen = mutation({
   args: { orderId: v.id("orders") },
   handler: async (ctx, { orderId }) => {
     const user = await requireUser(ctx);
+    await requireOrder(ctx, user, orderId);
     // collect (et non unique) : deux ouvertures simultanées peuvent avoir créé deux lignes, on garde la première.
     const rows = await ctx.db
       .query("orderSeen")
@@ -624,6 +640,7 @@ export const remove = mutation({
   args: { orderId: v.id("orders") },
   handler: async (ctx, { orderId }) => {
     const admin = await requireAdmin(ctx);
+    await requireOrder(ctx, admin, orderId);
     await ctx.db.patch(orderId, { deletedAt: Date.now(), updatedAt: Date.now() });
     await logActivity(ctx, { userId: admin._id, action: "order.deleted", entityType: "order", entityId: orderId });
   },
@@ -639,7 +656,7 @@ export const purgeDeleted = mutation({
   args: {},
   handler: async (ctx): Promise<{ purged: number; remaining: number }> => {
     const admin = await requireAdmin(ctx);
-    const trashed = (await ctx.db.query("orders").collect()).filter((o) => o.deletedAt !== undefined);
+    const trashed = (await ctx.db.query("orders").withIndex("by_company", (q) => q.eq("companyId", companyIdOf(admin))).collect()).filter((o) => o.deletedAt !== undefined);
     const batch = trashed.slice(0, 4);
 
     for (const order of batch) {
@@ -679,6 +696,7 @@ export const restore = mutation({
   args: { orderId: v.id("orders") },
   handler: async (ctx, { orderId }) => {
     const admin = await requireAdmin(ctx);
+    await requireOrder(ctx, admin, orderId);
     await ctx.db.patch(orderId, { deletedAt: undefined, updatedAt: Date.now() });
     await logActivity(ctx, { userId: admin._id, action: "order.restored", entityType: "order", entityId: orderId });
   },
@@ -688,6 +706,7 @@ export const archive = mutation({
   args: { orderId: v.id("orders") },
   handler: async (ctx, { orderId }) => {
     const user = await requireUser(ctx);
+    await requireOrder(ctx, user, orderId);
     await ctx.db.patch(orderId, { status: "archived", updatedAt: Date.now() });
     await logActivity(ctx, {
       userId: user._id,

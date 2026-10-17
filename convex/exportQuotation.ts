@@ -30,7 +30,7 @@ export const exportQuotationXlsx = action({
 
     // Étape 1 de la conversion (devises des lignes -> USD) : complète les taux manquants avant de lire les montants.
     await ctx.runAction(api.orders.ensureBaseRates, { orderId });
-    const data = await ctx.runQuery(internal.exportData.getForExport, { orderId });
+    const data = await ctx.runQuery(internal.exportData.getForExport, { orderId, companyId: user.companyId! });
     const brand = await ctx.runQuery(api.branding.get, {});
     const brandFile = brand.name.replace(/[\\/:*?"<>|]/g, " ").trim() || "export";
     if (!data) throw new Error("Commande introuvable.");

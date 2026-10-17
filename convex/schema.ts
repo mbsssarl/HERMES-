@@ -121,8 +121,7 @@ const schema = defineSchema({
     name: v.string(),
     active: v.boolean(),
   })
-    .index("by_name", ["name"])
-    .index("by_company", ["companyId"]),
+    .index("by_company_and_name", ["companyId", "name"]),
 
   // ------------------------------------------------------------------
   // DEVISES
@@ -136,8 +135,7 @@ const schema = defineSchema({
     name: v.string(),
     active: v.boolean(),
   })
-    .index("by_code", ["code"])
-    .index("by_company", ["companyId"]),
+    .index("by_company_and_code", ["companyId", "code"]),
 
   // ------------------------------------------------------------------
   // PAYS
@@ -156,8 +154,7 @@ const schema = defineSchema({
     currency: v.optional(v.string()),
     active: v.boolean(),
   })
-    .index("by_code", ["code"])
-    .index("by_company", ["companyId"]),
+    .index("by_company_and_code", ["companyId", "code"]),
 
   // ------------------------------------------------------------------
   // CLIENTS
@@ -180,7 +177,7 @@ const schema = defineSchema({
     // Suppression douce uniquement : un client lié à des commandes
     // passées ne doit jamais disparaître de l'historique.
     deletedAt: v.optional(v.number()),
-  }).index("by_name", ["name"]),
+  }).index("by_company_and_name", ["companyId", "name"]),
 
   // ------------------------------------------------------------------
   // CATALOGUE PRODUITS
@@ -220,16 +217,15 @@ const schema = defineSchema({
     source: v.union(v.literal("manual"), v.literal("supplier_import")),
     sourceOrderId: v.optional(v.id("orders")), // si issu d'un import fournisseur, la commande d'origine
   })
-    .index("by_impaId", ["impaId"]) // hérité, conservé pour compat - le matching utilise l'index normalisé ci-dessous
-    .index("by_code", ["code"]) // idem
-    .index("by_normalizedImpaId", ["normalizedImpaId"]) // matching prioritaire (priorité 1 de l'algorithme)
-    .index("by_normalizedCode", ["normalizedCode"]) // matching secondaire (priorité 2)
-    .index("by_normalizedName", ["normalizedName"])
-    .index("by_active", ["active"])
-    .index("by_category", ["category"]) // parcourir / compter une catégorie du catalogue IMPA (vide = sans catégorie)
+    // Chaque entreprise a son propre catalogue : tous les index commencent par companyId.
+    .index("by_company", ["companyId"])
+    .index("by_company_and_normalizedImpaId", ["companyId", "normalizedImpaId"]) // matching prioritaire (priorité 1 de l'algorithme)
+    .index("by_company_and_normalizedCode", ["companyId", "normalizedCode"]) // matching secondaire (priorité 2)
+    .index("by_company_and_normalizedName", ["companyId", "normalizedName"])
+    .index("by_company_and_category", ["companyId", "category"]) // parcourir / compter une catégorie du catalogue IMPA (vide = sans catégorie)
     // Index de recherche plein-texte utilisé pour le matching par nom
-    // (priorité 4, uniquement quand le client n'a fourni aucun code).
-    .searchIndex("search_name", { searchField: "normalizedName" }),
+    // (priorité 4, uniquement quand le client n'a fourni aucun code), limité à l'entreprise.
+    .searchIndex("search_name", { searchField: "normalizedName", filterFields: ["companyId"] }),
 
   // ------------------------------------------------------------------
   // ALIAS PRODUITS
@@ -250,7 +246,7 @@ const schema = defineSchema({
     createdBy: v.id("users"),
   })
     .index("by_product", ["productId"])
-    .index("by_normalizedAlias", ["normalizedAlias"]),
+    .index("by_company_and_normalizedAlias", ["companyId", "normalizedAlias"]),
 
   // ------------------------------------------------------------------
   // SAUVEGARDE DES PRODUITS SUPPRIMÉS
@@ -267,7 +263,7 @@ const schema = defineSchema({
     aliases: v.array(v.any()),
     deletedAt: v.number(),
     deletedBy: v.string(), // email de l'admin
-  }).index("by_deletedAt", ["deletedAt"]),
+  }).index("by_company_and_deletedAt", ["companyId", "deletedAt"]),
 
   // ------------------------------------------------------------------
   // PRIX PRODUITS (par pays)
@@ -296,7 +292,7 @@ const schema = defineSchema({
     // sur validTo === undefined parmi les résultats de cet index.
     .index("by_product_country", ["productId", "countryId"])
     // Prix en vigueur (validTo vide) sans parcourir tout l'historique des prix clos.
-    .index("by_validTo", ["validTo"]),
+    .index("by_company_and_validTo", ["companyId", "validTo"]),
 
   // ------------------------------------------------------------------
   // COMMANDES
@@ -407,6 +403,8 @@ const schema = defineSchema({
   // - elle reste visible dans la section "non répertoriés".
   // ------------------------------------------------------------------
   orderItems: defineTable({
+    // Entreprise de la commande, recopiée ici pour que les tâches de fond parcourent seulement SES lignes.
+    companyId: v.optional(v.id("companies")),
     orderId: v.id("orders"),
     lineNo: v.number(), // ordre d'origine dans le document, pour garder le même affichage
 
@@ -469,6 +467,7 @@ const schema = defineSchema({
     updatedBy: v.optional(v.id("users")),
   })
     .index("by_order", ["orderId"])
+    .index("by_company", ["companyId"])
     .index("by_product", ["productId"])
     // Index composé : permet de lister uniquement les lignes "unmatched"
     // ou "ambiguous" d'une commande sans charger toutes les lignes
@@ -566,7 +565,9 @@ const schema = defineSchema({
     uploadedAt: v.number(),
   })
     .index("by_order", ["orderId"])
-    .index("by_order_and_kind", ["orderId", "kind"]),
+    .index("by_order_and_kind", ["orderId", "kind"])
+    // Retrouver la commande (donc l'entreprise) d'un fichier du stockage avant d'en donner l'adresse.
+    .index("by_storage", ["storageId"]),
 
   // ------------------------------------------------------------------
   // STAGING FOURNISSEUR
@@ -627,7 +628,9 @@ const schema = defineSchema({
     approvedByAdmin: v.optional(v.boolean()),
     approvedBy: v.optional(v.id("users")),
     approvedAt: v.optional(v.number()),
-  }).index("by_order", ["orderId"]),
+  })
+    .index("by_order", ["orderId"])
+    .index("by_pdf", ["pdfStorageId"]),
 
   // ------------------------------------------------------------------
   // HISTORIQUE DES EMAILS
@@ -664,7 +667,8 @@ const schema = defineSchema({
   })
     .index("by_user", ["userId", "createdAt"])
     .index("by_entity", ["entityType", "entityId"])
-    .index("by_action", ["action", "createdAt"]),
+    .index("by_action", ["action", "createdAt"])
+    .index("by_company", ["companyId", "createdAt"]),
 
   // ------------------------------------------------------------------
   // TOKENS DE RÉINITIALISATION DE MOT DE PASSE (hérité, plus utilisé)
@@ -695,7 +699,7 @@ const schema = defineSchema({
     value: v.any(),
     updatedAt: v.number(),
     updatedBy: v.id("users"),
-  }).index("by_key", ["key"]),
+  }).index("by_company_and_key", ["companyId", "key"]),
 });
 
 export default schema;
