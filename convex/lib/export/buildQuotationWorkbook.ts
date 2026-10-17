@@ -222,11 +222,13 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
   title.font = { name: "Arial", size: 14, bold: true, color: { argb: "FF000000" } };
   title.alignment = { horizontal: "center", vertical: "middle" };
   ws.getRow(TITLE_ROW).height = 24;
-  // L'ancienne ligne « Request for … » (ligne 15) est laissée vide, sans sa bordure.
-  for (let c = 1; c <= COLS; c++) {
-    const cell = ws.getRow(15).getCell(c);
-    cell.value = null;
-    cell.style = {};
+  // Lignes 14 et 15 (espace sous le bandeau, ancienne ligne « Request for … ») : vides, sans fond ni bordure hérités du gabarit.
+  for (const blankRow of [14, 15]) {
+    for (let c = 1; c <= COLS; c++) {
+      const cell = ws.getRow(blankRow).getCell(c);
+      cell.value = null;
+      cell.style = {};
+    }
   }
 
   // --- logo : l'image du gabarit (slogan + logo) est remplacée par le logo seul, à gauche des 6 lignes
