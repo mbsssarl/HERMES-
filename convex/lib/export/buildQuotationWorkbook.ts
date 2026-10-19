@@ -323,6 +323,13 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
     formula: `G${at(F_GROSS)}-G${at(F_DISCOUNT)}+G${at(F_TRANSPORT)}`,
     result: roundMoney(gross - discountAmount + fee),
   };
+  // Bloc des totaux entièrement fermé : libellé (E-F) et montant (G) encadrés sur leurs quatre côtés, y compris le côté droit.
+  const thin: Partial<ExcelJS.Border> = { style: "thin" };
+  const boxed: Partial<ExcelJS.Borders> = { top: thin, left: thin, bottom: thin, right: thin };
+  for (let i = F_GROSS; i <= F_NET; i++) {
+    for (const col of ["E", "F", "G"]) ws.getCell(`${col}${at(i)}`).border = boxed;
+  }
+
   // Montants du pied de page : toujours 2 décimales.
   for (const rowNumber of [at(F_GROSS), discountRow, at(F_TRANSPORT), at(F_NET)]) {
     const cell = ws.getCell(`G${rowNumber}`);
