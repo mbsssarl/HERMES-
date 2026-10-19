@@ -9,7 +9,6 @@ import { TableSkeleton } from '../components/ui';
 import { QuotationsChart } from '../components/QuotationsChart';
 import { useT } from '../lib/i18n';
 import { DeleteQuotationButton } from '../components/DeleteQuotationButton';
-import { SubscriptionCountdown } from '../components/SubscriptionCountdown';
 
 export function Dashboard({
   quotations,
@@ -18,7 +17,6 @@ export function Dashboard({
   onNew,
   onSeeAll,
   isAdmin,
-  subscriptionEndsAt,
 }: {
   quotations: QuotationWithRelations[];
   loading: boolean;
@@ -28,8 +26,6 @@ export function Dashboard({
   onSeeAll: () => void;
   /** Affiche le bouton de suppression (réservé aux administrateurs). */
   isAdmin: boolean;
-  /** Fin de l'abonnement de l'entreprise (ms), null = sans échéance ; undefined = non affiché (réservé à l'admin). */
-  subscriptionEndsAt?: number | null;
 }) {
   const t = useT();
   const today = new Date().toDateString();
@@ -58,31 +54,6 @@ export function Dashboard({
         </div>
         <button className="btn btn-primary" onClick={onNew}>+ {t('common.newQuotation')}</button>
       </div>
-
-      {isAdmin && subscriptionEndsAt !== undefined && (
-        <div
-          className="card card-pad"
-          role="status"
-          style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', justifyContent: 'space-between', borderColor: subscriptionEndsAt !== null && subscriptionEndsAt - Date.now() <= 7 * 86_400_000 ? '#f59e0b' : undefined }}
-        >
-          <div>
-            <div className="text-muted" style={{ fontSize: 12 }}>Abonnement de l'entreprise</div>
-            {subscriptionEndsAt === null ? (
-              <div style={{ fontWeight: 600 }}>Sans échéance</div>
-            ) : (
-              <div style={{ fontSize: 18 }}><SubscriptionCountdown endsAt={subscriptionEndsAt} /></div>
-            )}
-          </div>
-          {subscriptionEndsAt !== null && (
-            <div className="text-muted" style={{ fontSize: 13, maxWidth: 520 }}>
-              Fin le {new Intl.DateTimeFormat('fr-FR', { dateStyle: 'long' }).format(new Date(subscriptionEndsAt))}.
-              {subscriptionEndsAt - Date.now() <= 7 * 86_400_000
-                ? " Passé cette date, plus aucun compte ne pourra se connecter : contactez l'administrateur de la plateforme pour renouveler l'abonnement."
-                : ''}
-            </div>
-          )}
-        </div>
-      )}
 
       <div className="stats-grid">
         {stats.map((s) => (

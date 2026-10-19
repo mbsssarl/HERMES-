@@ -160,7 +160,6 @@ function AppInner() {
             onNew={() => setView('new')}
             onSeeAll={() => setView('quotations')}
             isAdmin={me.role === 'admin'}
-            subscriptionEndsAt={me.role === 'admin' ? me.companySubscriptionEndsAt : undefined}
           />
         )}
         {view === 'quotations' && (
@@ -194,7 +193,7 @@ function AppInner() {
         )}
         {view === 'settings' && <Settings me={me} />}
         {view === 'admin' && me.role === 'admin' && (
-          <Admin quotations={quotations} countries={countries} loadingCountries={loadingCountries} currencies={currencies} categories={categories} onOpen={(q) => openQuotation(q.id)} />
+          <Admin subscriptionEndsAt={me.companySubscriptionEndsAt} quotations={quotations} countries={countries} loadingCountries={loadingCountries} currencies={currencies} categories={categories} onOpen={(q) => openQuotation(q.id)} />
         )}
       </main>
     </div>

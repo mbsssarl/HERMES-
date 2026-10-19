@@ -11,6 +11,7 @@ import { BackupsTab } from './BackupsTab';
 import { CategoriesTab } from './CategoriesTab';
 import { BrandingTab } from './BrandingTab';
 import { CompanyInfoCard } from '../components/CompanyInfoCard';
+import { SubscriptionCountdown } from '../components/SubscriptionCountdown';
 import type { Country, Currency, ProductCategory } from '../types';
 import { useToast } from '../components/Toast';
 
@@ -72,6 +73,7 @@ type UserDoc = Doc<'users'>;
  * aux quotations de chacun.
  */
 export function Admin({
+  subscriptionEndsAt,
   quotations,
   countries,
   currencies,
@@ -79,6 +81,8 @@ export function Admin({
   loadingCountries,
   onOpen,
 }: {
+  /** Fin de l'abonnement de l'entreprise (ms) ; null = sans échéance. */
+  subscriptionEndsAt: number | null;
   quotations: QuotationWithRelations[];
   countries: Country[];
   currencies: Currency[];
@@ -86,7 +90,7 @@ export function Admin({
   loadingCountries: boolean;
   onOpen: (q: QuotationWithRelations) => void;
 }) {
-  const [tab, setTab] = React.useState<'users' | 'logs' | 'countries' | 'currencies' | 'categories' | 'backups' | 'branding'>('users');
+  const [tab, setTab] = React.useState<'users' | 'logs' | 'countries' | 'currencies' | 'categories' | 'backups' | 'branding' | 'subscription'>('users');
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const users = useQuery(api.users.listUsers);
 
@@ -109,9 +113,18 @@ export function Admin({
             <button className={`btn btn-sm ${tab === 'categories' ? 'btn-primary' : ''}`} onClick={() => setTab('categories')}>Catégories</button>
             <button className={`btn btn-sm ${tab === 'backups' ? 'btn-primary' : ''}`} onClick={() => setTab('backups')}>Sauvegardes</button>
             <button className={`btn btn-sm ${tab === 'branding' ? 'btn-primary' : ''}`} onClick={() => setTab('branding')}>Personnalisation</button>
+            <button className={`btn btn-sm ${tab === 'subscription' ? 'btn-primary' : ''}`} onClick={() => setTab('subscription')}>Abonnement</button>
           </div>
         )}
       </div>
+
+      {/* Échéance proche : avertissement visible quel que soit l'onglet (le détail est dans l'onglet Abonnement). */}
+      {!selected && tab !== 'subscription' && subscriptionEndsAt !== null && subscriptionEndsAt - Date.now() <= 7 * 86_400_000 && (
+        <div className="card card-pad" role="status" style={{ marginBottom: 16, borderColor: '#f59e0b', display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>L'abonnement de l'entreprise expire dans <SubscriptionCountdown endsAt={subscriptionEndsAt} compact />. Passé cette date, plus aucun compte ne pourra se connecter.</span>
+          <button className="btn btn-sm" onClick={() => setTab('subscription')}>Voir</button>
+        </div>
+      )}
 
       {selected ? (
         <UserDetail user={selected} quotations={quotations} onBack={() => setSelectedId(null)} onOpen={onOpen} users={users} />
@@ -128,6 +141,7 @@ export function Admin({
               <CompanyInfoCard />
             </>
           )}
+          {tab === 'subscription' && <SubscriptionTab endsAt={subscriptionEndsAt} />}
           {tab === 'countries' && (
             <div className="card card-pad">
               <Countries countries={countries} currencies={currencies} loading={loadingCountries} isAdmin />
@@ -317,6 +331,32 @@ function UsersTab({
         </Modal>
       )}
     </>
+  );
+}
+
+// ------------------------------------------------------------------ Abonnement
+
+function SubscriptionTab({ endsAt }: { endsAt: number | null }) {
+  const soon = endsAt !== null && endsAt - Date.now() <= 7 * 86_400_000;
+  return (
+    <div className="card card-pad" style={{ maxWidth: 760, borderColor: soon ? '#f59e0b' : undefined }}>
+      <div className="section-title">Abonnement de l'entreprise</div>
+      {endsAt === null ? (
+        <p style={{ margin: 0, fontWeight: 600 }}>Sans échéance</p>
+      ) : (
+        <>
+          <div style={{ fontSize: 28, marginBottom: 4 }}><SubscriptionCountdown endsAt={endsAt} /></div>
+          <div className="text-muted" style={{ fontSize: 14 }}>
+            Fin le {new Intl.DateTimeFormat('fr-FR', { dateStyle: 'long', timeStyle: 'short' }).format(new Date(endsAt))}.
+          </div>
+          <p className="text-muted" style={{ fontSize: 13, marginTop: 16, marginBottom: 0 }}>
+            L'abonnement est mensuel (30 jours). À l'échéance, l'accès est suspendu automatiquement pour tous les comptes de
+            l'entreprise, sans perte de données. Il est renouvelé par l'administrateur de la plateforme : contactez-le avant la fin
+            pour qu'aucun jour ne soit perdu.
+          </p>
+        </>
+      )}
+    </div>
   );
 }
 
