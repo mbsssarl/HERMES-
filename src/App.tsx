@@ -32,8 +32,6 @@ function AccessDenied() {
   );
 }
 
-const longDate = (ms: number) => new Intl.DateTimeFormat('fr-FR', { dateStyle: 'long' }).format(new Date(ms));
-
 /**
  * Aiguillage après connexion : le super admin va à son espace, une entreprise suspendue à l'écran d'information,
  * tous les autres au tableau de bord de leur entreprise. Les requêtes métier ne sont lancées que pour ces derniers.
@@ -154,12 +152,6 @@ function AppInner() {
     <div className="app">
       <Sidebar current={view} onNavigate={goTo} pendingCount={pendingCount} updatedCount={updatedCount} me={me} />
       <main className="main">
-        {me.role === 'admin' && me.companySubscriptionEndsAt !== null && me.companySubscriptionEndsAt - Date.now() <= 7 * 86_400_000 && (
-          <div className="card card-pad" style={{ marginBottom: 16, borderColor: '#f59e0b' }} role="status">
-            L'abonnement de votre entreprise expire le <strong>{longDate(me.companySubscriptionEndsAt)}</strong>. Passé cette date, plus aucun
-            compte ne pourra se connecter : contactez l'administrateur de la plateforme pour le renouveler.
-          </div>
-        )}
         {view === 'dashboard' && (
           <Dashboard
             quotations={quotations}
@@ -168,6 +160,7 @@ function AppInner() {
             onNew={() => setView('new')}
             onSeeAll={() => setView('quotations')}
             isAdmin={me.role === 'admin'}
+            subscriptionEndsAt={me.role === 'admin' ? me.companySubscriptionEndsAt : undefined}
           />
         )}
         {view === 'quotations' && (

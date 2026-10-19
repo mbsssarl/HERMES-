@@ -6,7 +6,6 @@ import { setLanguage, useT } from '../lib/i18n';
 import { applyTheme } from '../lib/theme';
 import { useBranding } from '../lib/branding';
 import { Modal } from './ui';
-import { SubscriptionCountdown } from './SubscriptionCountdown';
 
 export type View = 'dashboard' | 'quotations' | 'new' | 'detail' | 'products' | 'settings' | 'admin';
 
@@ -63,12 +62,6 @@ export function Sidebar({
         </button>
       ))}
       <div className="sidebar-foot">
-        {me.role === 'admin' && (
-          <div className="who" style={{ marginBottom: 8 }}>
-            <div style={{ fontSize: 11, opacity: 0.8 }}>Abonnement</div>
-            {me.companySubscriptionEndsAt !== null ? <SubscriptionCountdown endsAt={me.companySubscriptionEndsAt} compact /> : <span>Sans échéance</span>}
-          </div>
-        )}
         <div className="who">{me.email}</div>
         <button className="nav-item" onClick={() => setConfirmLogout(true)}>
           <LogOut size={18} /> {t('nav.logout')}
