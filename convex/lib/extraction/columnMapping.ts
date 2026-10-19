@@ -26,8 +26,8 @@ type CellValue = string | number | null | undefined;
 const CLIENT_FIELD_ALIASES: Record<Exclude<keyof NormalizedClientItem, "sourceRow">, string[]> = {
   rawCode: ["product code", "item code", "impa code", "impa id", "part number", "article number", "article no", "sku", "stock code", "material code", "reference no", "reference", "ref", "code", "impa", "id", "item no", "item number", "product no"],
   rawDescription: ["item name", "product name", "material name", "goods name", "article name", "item description", "product description", "material description", "description", "designation", "libelle", "name", "nom", "article", "item", "product", "goods"],
-  rawQuantity: ["requested quantity", "order quantity", "ordered qty", "item quantity", "quantity", "qty", "qnty", "quantite", "qte", "count"],
-  rawUnit: ["unit of measure", "measurement unit", "unit measure", "uom", "u/m", "units", "unit", "unite", "measure"],
+  rawQuantity: ["requested quantity", "order quantity", "ordered qty", "item quantity", "quantity", "qty", "qnty", "quantite", "qte", "count", "=req"],
+  rawUnit: ["unit of measure", "measurement unit", "unit measure", "uom", "u/m", "units", "unit", "unite", "measure", "=packing"],
   rawOrigin: ["country of origin", "product origin", "origin country", "origin", "origine", "made in"],
   quotedQuantity: ["quoted quantity", "quoted qty", "supplier quantity", "qte cotee"],
   unitPrice: ["unit price (usd)", "unit price (eur)", "unit price (xaf)", "price per unit", "selling price", "purchase price", "quoted price", "unit cost", "rate per unit", "unit price", "prix unitaire", "price", "cost", "amount", "prix"],
@@ -99,10 +99,11 @@ function findColumnIndex(headers: string[], aliases: string[]): number {
   // Array.from: tolerate sparse header rows (missing cells are treated as empty headers).
   const normalizedHeaders = Array.from(headers, (h) => normalizeHeader(h ?? ""));
   for (const alias of aliases) {
-    const idx = normalizedHeaders.findIndex((h) => h === alias);
+    const idx = normalizedHeaders.findIndex((h) => h === alias.replace(/^=/, ""));
     if (idx !== -1) return idx;
   }
   for (const alias of aliases) {
+    if (alias.startsWith("=")) continue; // alias « exact seulement » : pas de correspondance partielle
     const idx = normalizedHeaders.findIndex((h) => h.includes(alias));
     if (idx !== -1) return idx;
   }

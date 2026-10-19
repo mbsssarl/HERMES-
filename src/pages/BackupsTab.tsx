@@ -64,20 +64,20 @@ export function BackupsTab({ countries }: { countries: Country[] }) {
   return (
     <>
       <div className="card">
-        <div className="card-pad" style={{ borderBottom: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <div className="card-pad card-head">
           <div>
             <h3 style={{ fontSize: 16 }}>Produits supprimés</h3>
             <span className="text-muted" style={{ fontSize: 13 }}>
               {data.total} sauvegarde(s){data.total > data.items.length ? ` (les ${data.items.length} plus récentes sont affichées)` : ''}. Copie de sécurité : restaurez ou supprimez définitivement.
             </span>
           </div>
-          <input className="input" style={{ width: 260 }} placeholder="Rechercher (nom, code)…" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <input className="input filter-input" type="search" placeholder="Rechercher (nom, code)…" value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
 
         {selected.size > 0 && (
-          <div className="card-pad" style={{ borderBottom: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, background: 'var(--color-surface-2)' }}>
+          <div className="card-pad select-bar">
             <span style={{ fontSize: 14, fontWeight: 600 }}>{selected.size} sélectionné(s)</span>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div className="select-actions">
               <button className="btn btn-sm" onClick={() => setConfirm({ kind: 'restore', ids: [...selected] })}><RotateCcw size={14} /> Restaurer ({selected.size})</button>
               <button className="btn btn-sm btn-primary" style={{ background: '#dc2626', borderColor: '#dc2626' }} onClick={() => setConfirm({ kind: 'purge', ids: [...selected] })}>
                 <Trash2 size={14} /> Supprimer définitivement ({selected.size})
@@ -89,8 +89,8 @@ export function BackupsTab({ countries }: { countries: Country[] }) {
         {items.length === 0 ? (
           <StateBox title="Aucune sauvegarde" subtitle="Les produits supprimés apparaîtront ici." />
         ) : (
-          <div className="table-scroll" style={{ maxHeight: '62vh', border: 'none', borderRadius: 0 }}>
-            <table className="data">
+          <div className="table-scroll cards-scroll" style={{ maxHeight: '62vh', border: 'none', borderRadius: 0 }}>
+            <table className="data cards">
               <thead>
                 <tr>
                   <th style={{ width: 30 }}>
@@ -108,14 +108,14 @@ export function BackupsTab({ countries }: { countries: Country[] }) {
               <tbody>
                 {items.map((b) => (
                   <tr key={b._id} style={selected.has(b._id) ? { background: 'var(--color-primary-soft)' } : undefined}>
-                    <td><input type="checkbox" checked={selected.has(b._id)} onChange={() => toggle(b._id)} aria-label={`Sélectionner ${b.name}`} /></td>
-                    <td className="mono">{b.code || '·'}</td>
-                    <td style={{ minWidth: 260 }}>{b.name}</td>
-                    <td className="text-muted">{b.unit}</td>
-                    <td className="text-right mono">{b.priceCount}</td>
-                    <td className="text-muted nowrap">{formatDate(new Date(b.deletedAt).toISOString())}</td>
-                    <td className="text-muted">{b.deletedBy || '·'}</td>
-                    <td className="text-right nowrap">
+                    <td className="c-sel"><input type="checkbox" checked={selected.has(b._id)} onChange={() => toggle(b._id)} aria-label={`Sélectionner ${b.name}`} /></td>
+                    <td className="mono" data-label="Code">{b.code || '·'}</td>
+                    <td className="c-full" data-label="Description" style={{ minWidth: 260 }}>{b.name}</td>
+                    <td className="text-muted" data-label="Unit">{b.unit}</td>
+                    <td className="text-right mono" data-label="Prix">{b.priceCount}</td>
+                    <td className="text-muted nowrap" data-label="Supprimé le">{formatDate(new Date(b.deletedAt).toISOString())}</td>
+                    <td className="text-muted" data-label="Par">{b.deletedBy || '·'}</td>
+                    <td className="text-right nowrap c-actions">
                       <button className="btn btn-ghost btn-sm" title="Consulter" onClick={() => setViewId(b._id)}><Eye size={14} /></button>
                       <button className="btn btn-ghost btn-sm" title="Restaurer" onClick={() => setConfirm({ kind: 'restore', ids: [b._id] })}><RotateCcw size={14} /></button>
                       <button className="btn btn-ghost btn-sm" title="Supprimer définitivement" onClick={() => setConfirm({ kind: 'purge', ids: [b._id] })}><Trash2 size={14} /></button>

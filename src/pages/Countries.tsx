@@ -54,7 +54,7 @@ export function Countries({ countries, loading, isAdmin }: { countries: Country[
 
       <div className="card">
         <div className="table-wrap">
-          <table className="data">
+          <table className="data cards">
             <thead>
               <tr>
                 <th>Code</th>
@@ -67,14 +67,14 @@ export function Countries({ countries, loading, isAdmin }: { countries: Country[
             <tbody>
               {countries.map((c) => (
                 <tr key={c.id}>
-                  <td><TextCell mono width={80} disabled={!isAdmin} value={c.code} onCommit={(v) => void edit(c, { code: v })} /></td>
-                  <td style={{ minWidth: 220 }}><TextCell width="100%" disabled={!isAdmin} value={c.name} onCommit={(v) => void edit(c, { name: v })} /></td>
-                  <td style={{ minWidth: 160 }}><TextCell width="100%" disabled={!isAdmin} value={c.city ?? ''} placeholder="·" onCommit={(v) => void edit(c, { city: v })} /></td>
-                  <td>
+                  <td data-label="Code"><TextCell mono width={80} disabled={!isAdmin} value={c.code} onCommit={(v) => void edit(c, { code: v })} /></td>
+                  <td className="c-full" data-label="Pays" style={{ minWidth: 220 }}><TextCell width="100%" disabled={!isAdmin} value={c.name} onCommit={(v) => void edit(c, { name: v })} /></td>
+                  <td data-label="Ville" style={{ minWidth: 160 }}><TextCell width="100%" disabled={!isAdmin} value={c.city ?? ''} placeholder="·" onCommit={(v) => void edit(c, { city: v })} /></td>
+                  <td data-label="Statut">
                     <span className={`tag ${c.active ? 'tag-new' : 'tag-same'}`}>{c.active ? 'Actif' : 'Inactif'}</span>
                   </td>
                   {isAdmin && (
-                    <td className="text-right">
+                    <td className="text-right c-actions">
                       <button className="btn btn-ghost btn-sm" onClick={() => void edit(c, { active: !c.active })}>{c.active ? 'Désactiver' : 'Activer'}</button>
                     </td>
                   )}

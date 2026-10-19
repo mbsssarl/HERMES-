@@ -101,7 +101,7 @@ export function Admin({
           <h1 className="page-title">Admin</h1>
         </div>
         {!selected && (
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <div className="admin-tabs">
             <button className={`btn btn-sm ${tab === 'users' ? 'btn-primary' : ''}`} onClick={() => setTab('users')}>Utilisateurs</button>
             <button className={`btn btn-sm ${tab === 'logs' ? 'btn-primary' : ''}`} onClick={() => setTab('logs')}>Journal d'activité</button>
             <button className={`btn btn-sm ${tab === 'countries' ? 'btn-primary' : ''}`} onClick={() => setTab('countries')}>Régions</button>
@@ -202,7 +202,7 @@ function UsersTab({
   return (
     <>
       <div className="card">
-        <div className="card-pad" style={{ borderBottom: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="card-pad card-head">
           <div>
             <h3 style={{ fontSize: 16 }}>Utilisateurs</h3>
             <span className="text-muted" style={{ fontSize: 13 }}>{users.length} compte(s)</span>
@@ -210,7 +210,7 @@ function UsersTab({
           <button className="btn btn-primary" onClick={() => setShowAdd(true)}><Plus size={16} /> Créer un compte</button>
         </div>
         <div className="table-wrap">
-          <table className="data">
+          <table className="data cards">
             <thead>
               <tr>
                 <th>Email</th>
@@ -224,15 +224,15 @@ function UsersTab({
             <tbody>
               {users.map((u) => (
                 <tr key={u._id} className="clickable" onClick={() => onSelect(u._id)}>
-                  <td style={{ fontWeight: 600 }}>{u.email}</td>
-                  <td>{u.role === 'admin' ? 'Admin' : 'Utilisateur'}</td>
-                  <td>
+                  <td className="c-main" style={{ fontWeight: 600 }}>{u.email}</td>
+                  <td data-label="Rôle">{u.role === 'admin' ? 'Admin' : 'Utilisateur'}</td>
+                  <td data-label="Statut">
                     <span className={`tag ${u.status === 'active' ? 'tag-new' : 'tag-same'}`}>{u.status === 'active' ? 'Actif' : 'Désactivé'}</span>
                     {u.mustChangePassword && <span className="tag tag-warn" style={{ marginLeft: 6 }}>Mot de passe temporaire</span>}
                   </td>
-                  <td className="text-muted nowrap">{u.lastLoginAt ? formatDate(new Date(u.lastLoginAt).toISOString()) : 'Jamais'}</td>
-                  <td className="text-right mono">{countBy.get(u._id) ?? 0}</td>
-                  <td className="text-right nowrap" onClick={(e) => e.stopPropagation()}>
+                  <td className="text-muted nowrap" data-label="Dernière connexion">{u.lastLoginAt ? formatDate(new Date(u.lastLoginAt).toISOString()) : 'Jamais'}</td>
+                  <td className="text-right mono" data-label="Quotations">{countBy.get(u._id) ?? 0}</td>
+                  <td className="text-right nowrap c-actions" onClick={(e) => e.stopPropagation()}>
                     <button className="btn btn-ghost btn-sm" onClick={() => setToReset(u)} title="Générer un mot de passe à usage unique">
                       <KeyRound size={14} /> Réinitialiser le mot de passe
                     </button>
@@ -353,19 +353,19 @@ function UserDetail({
           <StateBox title="Aucune quotation" subtitle="Cet utilisateur n'a pas encore créé de quotation." />
         ) : (
           <div className="table-wrap">
-            <table className="data">
+            <table className="data cards">
               <thead>
                 <tr><th>Référence</th><th>Client</th><th>Région</th><th>Statut</th><th className="text-right">Total</th><th>Date</th></tr>
               </thead>
               <tbody>
                 {mine.map((q) => (
                   <tr key={q.id} className="clickable" onClick={() => onOpen(q)}>
-                    <td className="mono" style={{ fontWeight: 700 }}>{q.quotation_number}</td>
-                    <td>{q.customer_name}</td>
-                    <td>{q.countries?.code ?? '·'}</td>
-                    <td><StatusTag status={q.status} /></td>
-                    <td className="text-right mono">{formatAmount(q.total)}</td>
-                    <td className="text-muted nowrap">{formatDate(q.created_at)}</td>
+                    <td className="mono c-main" style={{ fontWeight: 700 }}>{q.quotation_number}</td>
+                    <td data-label="Client">{q.customer_name}</td>
+                    <td data-label="Région">{q.countries?.code ?? '·'}</td>
+                    <td data-label="Statut"><StatusTag status={q.status} /></td>
+                    <td className="text-right mono" data-label="Total">{formatAmount(q.total)}</td>
+                    <td className="text-muted nowrap" data-label="Date">{formatDate(q.created_at)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -397,19 +397,19 @@ function LogsTab({ users, onlyUserId, title }: { users: UserDoc[]; onlyUserId?: 
 
   return (
     <div className="card">
-      <div className="card-pad" style={{ borderBottom: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+      <div className="card-pad card-head">
         <div>
           <h3 style={{ fontSize: 16 }}>{title ?? "Journal d'activité"}</h3>
           <span className="text-muted" style={{ fontSize: 13 }}>{rows.length} événement(s) récent(s)</span>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div className="toolbar-actions">
           {!onlyUserId && (
-            <select className="select" style={{ width: 240 }} value={userFilter} onChange={(e) => setUserFilter(e.target.value)} aria-label="Utilisateur">
+            <select className="select filter-input" value={userFilter} onChange={(e) => setUserFilter(e.target.value)} aria-label="Utilisateur">
               <option value="">Tous les utilisateurs</option>
               {users.map((u) => <option key={u._id} value={u._id}>{u.email}</option>)}
             </select>
           )}
-          <input className="input" style={{ width: 240 }} placeholder="Rechercher…" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <input className="input filter-input" type="search" placeholder="Rechercher…" value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
       </div>
       {logs === undefined ? (
@@ -417,18 +417,18 @@ function LogsTab({ users, onlyUserId, title }: { users: UserDoc[]; onlyUserId?: 
       ) : rows.length === 0 ? (
         <StateBox title="Aucune activité" />
       ) : (
-        <div className="table-scroll" style={{ maxHeight: '60vh', border: 'none', borderRadius: 0 }}>
-          <table className="data">
+        <div className="table-scroll cards-scroll" style={{ maxHeight: '60vh', border: 'none', borderRadius: 0 }}>
+          <table className="data cards">
             <thead>
               <tr><th>Date</th>{!onlyUserId && <th>Utilisateur</th>}<th>Action</th><th>Détails</th></tr>
             </thead>
             <tbody>
               {rows.map((l) => (
                 <tr key={l._id}>
-                  <td className="text-muted nowrap">{formatDate(new Date(l.createdAt).toISOString())}</td>
-                  {!onlyUserId && <td>{l.userId ? emailOf.get(l.userId) ?? 'Utilisateur supprimé' : 'Système'}</td>}
-                  <td style={{ fontWeight: 600 }}>{actionLabel(l.action)}</td>
-                  <td className="text-muted" style={{ fontSize: 12, maxWidth: 420 }}>{detailsOf(l.metadata) || l.entityType}</td>
+                  <td className="text-muted nowrap" data-label="Date">{formatDate(new Date(l.createdAt).toISOString())}</td>
+                  {!onlyUserId && <td data-label="Utilisateur">{l.userId ? emailOf.get(l.userId) ?? 'Utilisateur supprimé' : 'Système'}</td>}
+                  <td className="c-main" style={{ fontWeight: 600 }}>{actionLabel(l.action)}</td>
+                  <td className="text-muted c-full" data-label="Détails" style={{ fontSize: 12, maxWidth: 420 }}>{detailsOf(l.metadata) || l.entityType}</td>
                 </tr>
               ))}
             </tbody>
@@ -485,14 +485,14 @@ function CurrenciesTab({ currencies }: { currencies: Currency[] }) {
   return (
     <>
       <div className="card">
-        <div className="card-pad" style={{ borderBottom: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <div className="card-pad card-head">
           <div>
             <h3 style={{ fontSize: 16 }}>Devises</h3>
             <span className="text-muted" style={{ fontSize: 13 }}>
               Devises disponibles pour les régions et pour la conversion du fichier exporté (code ISO 4217 exact requis : le taux de change en ligne s'appuie dessus).
             </span>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div className="toolbar-actions">
             <button className="btn" onClick={() => void seedAll()} disabled={seeding} title="Ajoute toutes les devises ISO 4217 manquantes, sans toucher à celles déjà présentes.">
               {seeding ? 'Chargement…' : 'Charger toutes les devises ISO'}
             </button>
@@ -500,18 +500,18 @@ function CurrenciesTab({ currencies }: { currencies: Currency[] }) {
           </div>
         </div>
         <div className="table-wrap">
-          <table className="data">
+          <table className="data cards">
             <thead><tr><th>Code</th><th>Nom</th><th>Statut</th><th></th></tr></thead>
             <tbody>
               {currencies.map((c) => (
                 <tr key={c.id}>
-                  <td className="mono" style={{ fontWeight: 700 }}>{c.code}</td>
-                  <td style={{ minWidth: 240 }}>
+                  <td className="mono c-main" style={{ fontWeight: 700 }}>{c.code}</td>
+                  <td className="c-full" data-label="Nom" style={{ minWidth: 240 }}>
                     <input key={c.name} className="input cell-input" style={{ width: '100%' }} defaultValue={c.name}
                       onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== c.name) void edit(c, { name: v }); else e.target.value = c.name; }} />
                   </td>
-                  <td><span className={`tag ${c.active ? 'tag-new' : 'tag-same'}`}>{c.active ? 'Active' : 'Inactive'}</span></td>
-                  <td className="text-right">
+                  <td data-label="Statut"><span className={`tag ${c.active ? 'tag-new' : 'tag-same'}`}>{c.active ? 'Active' : 'Inactive'}</span></td>
+                  <td className="text-right c-actions">
                     <button className="btn btn-ghost btn-sm" onClick={() => void edit(c, { active: !c.active })}>{c.active ? 'Désactiver' : 'Activer'}</button>
                   </td>
                 </tr>

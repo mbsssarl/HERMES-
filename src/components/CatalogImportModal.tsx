@@ -7,6 +7,7 @@ import { formatPrice, regionLabel } from '../lib/format';
 import { Modal } from './ui';
 import { RateInputs, cleanServerError, parseRate } from './RateInputs';
 import { useToast } from './Toast';
+import { ACCEPT_ATTRIBUTE } from '../../convex/lib/extraction/fileKinds';
 
 interface Suggestion {
   productId: string;
@@ -361,7 +362,7 @@ export function CatalogImportModal({
           {busy ? <div className="spinner" /> : <div className="upload-icon"><UploadCloud size={28} /></div>}
           <h3>{busy ? 'Analyse du fichier en cours…' : fileName || 'Glissez un fichier ici'}</h3>
           <p>{busy ? `${fileName} · extraction des produits et comparaison avec le catalogue` : 'Cliquez ou déposez un fichier Excel, PDF ou Word'}</p>
-          <input ref={fileInput} type="file" accept=".xlsx,.xls,.pdf,.docx" style={{ display: 'none' }}
+          <input ref={fileInput} type="file" accept={ACCEPT_ATTRIBUTE} style={{ display: 'none' }}
             onChange={(e) => { const f = e.target.files?.[0]; if (f) void readFile(f); e.target.value = ''; }} />
         </div>
       )}

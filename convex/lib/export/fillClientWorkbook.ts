@@ -125,7 +125,9 @@ export async function fillClientWorkbook(
 
   let filled = 0;
   let unplaced = 0;
+  let lastExportedRow = headerRowNumber;
   for (const item of items) {
+    if (item.sourceRow !== undefined && item.sourceRow > lastExportedRow) lastExportedRow = item.sourceRow;
     if (item.unitPrice === undefined) continue;
 
     let rowNumber = item.sourceRow;
@@ -154,6 +156,34 @@ export async function fillClientWorkbook(
       }
     }
     filled++;
+  }
+
+  // Le tableau s'arrête au dernier article exporté : les lignes numérotées restées vides en dessous (gabarit du
+  // client prévu pour plus d'articles) sont masquées. On ne supprime pas de lignes : cela décalerait les cellules
+  // fusionnées du pied de page du client.
+  if (columns.rawDescription !== -1 && lastExportedRow > headerRowNumber) {
+    const lastTableRow = Math.max(...(table.dataRowNumbers ?? [lastExportedRow]));
+    const lastTableCol = Math.max(priceCol, columns.total + 1, columns.quantity + 1, columns.rawDescription + 1);
+    for (let r = lastExportedRow + 1; r <= lastTableRow; r++) {
+      const row = ws.getRow(r);
+      // Emplacement vide = aucun texte dans les colonnes du tableau (seulement un numéro de ligne préimprimé ou une
+      // formule). Une ligne de pied de page (« Grand Total », « Discount »...) porte un libellé : on n'y touche pas.
+      let blankSlot = true;
+      for (let c = 1; c <= lastTableCol && blankSlot; c++) {
+        const v = row.getCell(c).value;
+        if (typeof v === "string" && v.trim() !== "") blankSlot = false;
+        else if (v !== null && v !== undefined && typeof v === "object" && !("formula" in v) && !("sharedFormula" in v)) blankSlot = false;
+      }
+      if (!blankSlot) continue;
+      // Plus aucune bordure, ni numéro, ni formule dans les colonnes du tableau : il ne se prolonge pas au-delà des
+      // articles. Les colonnes situées à droite du tableau (listes de choix, devises...) ne sont pas touchées.
+      for (let c = 1; c <= lastTableCol; c++) {
+        const cell = row.getCell(c);
+        cell.value = null;
+        cell.style = {};
+      }
+      row.hidden = true;
+    }
   }
 
   // Préparation impression : la feuille d'origine est ramenée à la largeur d'une page A4.

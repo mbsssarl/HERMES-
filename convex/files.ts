@@ -2,14 +2,9 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { getAnyUser, getOwned, requireOrder, requireUser } from "./lib/permissions";
+import { isSupportedUpload, normalizedMimeType } from "./lib/extraction/fileKinds";
 
 const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
-const ALLOWED_MIME_TYPES = new Set([
-  "application/pdf",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
-  "application/vnd.ms-excel", // .xls
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
-]);
 
 export const generateUploadUrl = mutation({
   args: {},
@@ -55,9 +50,9 @@ export const registerUploadedFile = mutation({
       await ctx.storage.delete(args.storageId);
       throw new Error("Fichier trop volumineux (15 Mo max).");
     }
-    if (!ALLOWED_MIME_TYPES.has(args.mimeType)) {
+    if (!isSupportedUpload(args.fileName, args.mimeType)) {
       await ctx.storage.delete(args.storageId);
-      throw new Error("Type de fichier non autorisé (PDF, Excel ou Word uniquement).");
+      throw new Error("Type de fichier non autorisé (PDF, Excel .xlsx/.xls ou Word .docx).");
     }
 
     const uploadedFileId = await ctx.db.insert("uploadedFiles", {
@@ -65,7 +60,7 @@ export const registerUploadedFile = mutation({
       kind: args.kind,
       storageId: args.storageId,
       fileName: args.fileName.toLowerCase(), // le nom d'un fichier déposé est toujours en minuscules
-      mimeType: args.mimeType,
+      mimeType: normalizedMimeType(args.fileName, args.mimeType),
       size: args.size,
       status: "uploaded",
       uploadedBy: user._id,

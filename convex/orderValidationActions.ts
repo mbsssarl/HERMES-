@@ -4,15 +4,10 @@ import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { action } from "./_generated/server";
 import { mapRowsToValidationItems } from "./lib/extraction/columnMapping";
+import { isSupportedUpload, normalizedMimeType } from "./lib/extraction/fileKinds";
 import { parseFileToTable } from "./lib/extraction/parseFile";
 
 const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
-const ALLOWED_MIME_TYPES = new Set([
-  "application/pdf",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/vnd.ms-excel",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-]);
 
 /**
  * « Valider la commande » : lit le fichier final du client (le même document que sa demande de cotation, mais
@@ -29,7 +24,7 @@ export const importValidationFile = action({
     }
 
     try {
-      if (!ALLOWED_MIME_TYPES.has(mimeType)) throw new Error("Type de fichier non autorisé (PDF, Excel ou Word uniquement).");
+      if (!isSupportedUpload(fileName, mimeType)) throw new Error("Type de fichier non autorisé (PDF, Excel .xlsx/.xls ou Word .docx).");
       const blob = await ctx.storage.get(storageId);
       if (!blob) throw new Error("Fichier introuvable dans le stockage.");
       if (blob.size > MAX_FILE_SIZE_BYTES) throw new Error("Fichier trop volumineux (15 Mo max).");
@@ -43,7 +38,7 @@ export const importValidationFile = action({
         userId: user._id,
         storageId,
         fileName,
-        mimeType,
+        mimeType: normalizedMimeType(fileName, mimeType),
         size: blob.size,
         items: items.map((it) => ({
           lineRef: it.lineRef,

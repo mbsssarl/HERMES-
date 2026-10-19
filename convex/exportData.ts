@@ -20,7 +20,9 @@ export const getForExport = internalQuery({
     const currency = order.exportCurrency ?? "USD";
     // Fichier d'origine du client (le premier importé) : sert de gabarit à l'envoi au client.
     const files = await ctx.db.query("uploadedFiles").withIndex("by_order", (q) => q.eq("orderId", orderId)).order("asc").collect();
-    const clientFile = files.find((f) => f.kind === "client_request") ?? null;
+    // On préfère le premier fichier lu avec succès : un envoi précédent resté en erreur ne doit pas servir de gabarit.
+    const clientFiles = files.filter((f) => f.kind === "client_request");
+    const clientFile = clientFiles.find((f) => f.status === "extracted") ?? clientFiles[0] ?? null;
     return { order, client, country, currency, items, clientFile };
   },
 });

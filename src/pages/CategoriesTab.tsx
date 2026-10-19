@@ -54,14 +54,14 @@ export function CategoriesTab({ categories }: { categories: ProductCategory[] })
   return (
     <>
       <div className="card">
-        <div className="card-pad" style={{ borderBottom: '1px solid var(--color-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <div className="card-pad card-head">
           <div>
             <h3 style={{ fontSize: 16 }}>Catégories</h3>
             <span className="text-muted" style={{ fontSize: 13 }}>
               {categories.length} · classement des articles du catalogue (Produits & prix), comme sur impa.services. Pas de suppression : renommez ou désactivez.
             </span>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div className="toolbar-actions">
             <button className="btn" onClick={() => void loadImpa()} disabled={seeding} title="Ajoute les 36 catégories du catalogue IMPA manquantes, sans toucher aux existantes.">
               {seeding ? 'Chargement…' : 'Charger les catégories IMPA'}
             </button>
@@ -69,17 +69,17 @@ export function CategoriesTab({ categories }: { categories: ProductCategory[] })
           </div>
         </div>
         <div className="table-wrap">
-          <table className="data">
+          <table className="data cards">
             <thead><tr><th>Nom</th><th>Statut</th><th></th></tr></thead>
             <tbody>
               {categories.map((c) => (
                 <tr key={c.id}>
-                  <td style={{ minWidth: 260, fontWeight: 600 }}>
+                  <td className="c-full" data-label="Nom" style={{ minWidth: 260, fontWeight: 600 }}>
                     <input key={c.name} className="input cell-input" style={{ width: '100%' }} defaultValue={c.name}
                       onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== c.name) void edit(c, { name: v }); else e.target.value = c.name; }} />
                   </td>
-                  <td><span className={`tag ${c.active ? 'tag-new' : 'tag-same'}`}>{c.active ? 'Active' : 'Inactive'}</span></td>
-                  <td className="text-right">
+                  <td data-label="Statut"><span className={`tag ${c.active ? 'tag-new' : 'tag-same'}`}>{c.active ? 'Active' : 'Inactive'}</span></td>
+                  <td className="text-right c-actions">
                     <button className="btn btn-ghost btn-sm" onClick={() => void edit(c, { active: !c.active })}>{c.active ? 'Désactiver' : 'Activer'}</button>
                   </td>
                 </tr>

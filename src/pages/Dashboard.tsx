@@ -6,6 +6,7 @@ import { StatusTag } from '../components/StatusTag';
 import { UpdateBadge } from '../components/UpdateBadge';
 import { ClientCell } from '../components/ClientCell';
 import { TableSkeleton } from '../components/ui';
+import { QuotationsChart } from '../components/QuotationsChart';
 import { useT } from '../lib/i18n';
 import { DeleteQuotationButton } from '../components/DeleteQuotationButton';
 
@@ -65,6 +66,7 @@ export function Dashboard({
             <div className="stat-trend">{s.trend}</div>
           </div>
         ))}
+        {!loading && <QuotationsChart quotations={quotations} />}
       </div>
 
       <div className="card">
