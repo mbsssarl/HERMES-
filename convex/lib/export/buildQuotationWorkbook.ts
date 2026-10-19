@@ -162,47 +162,67 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
     }
   }
 
-  // --- en-tête : coordonnées de l'entreprise à droite du logo
+  // --- en-tête : coordonnées de l'entreprise à droite du logo (une icône devant chaque ligne)
+  const BLUE = "FF1E4C9E";
+  const GREEN = "FF1F9D3F";
   const plain: Partial<ExcelJS.Font> = { name: "Calibri", size: 10, color: { argb: "FF000000" } };
   const bold: Partial<ExcelJS.Font> = { ...plain, bold: true };
   const company = data.company;
-  const companyLines: Array<{ value: string; link?: boolean }> = [];
-  const addLine = (value: string | undefined, link = false) => {
-    if (value && value.trim()) companyLines.push({ value: value.trim(), link });
+  const companyLines: Array<{ value: string; kind: "name" | "text" | "link" }> = [];
+  const addLine = (value: string | undefined, kind: "name" | "text" | "link", icon?: string) => {
+    if (value && value.trim()) companyLines.push({ value: icon ? `${icon}  ${value.trim()}` : value.trim(), kind });
   };
-  addLine(company.name);
-  addLine(company.address);
-  addLine(company.postal);
-  addLine(company.email ? `Email : ${company.email.trim()}` : undefined);
-  addLine(company.phones ? `Operation Dept : ${company.phones.trim()}` : undefined);
-  addLine(company.website, true);
+  addLine(company.name, "name");
+  addLine(company.address, "text", "\u{1F4CD}"); // 📍
+  addLine(company.postal, "text", "\u{1F3E2}"); // 🏢
+  addLine(company.email ? `Email : ${company.email.trim()}` : undefined, "text", "\u2709"); // ✉
+  addLine(company.phones ? `Operation Dept : ${company.phones.trim()}` : undefined, "text", "\u{1F4DE}"); // 📞
+  addLine(company.website, "link", "\u{1F310}"); // 🌐
   companyLines.forEach((line, i) => {
     const r = HEADER_FIRST_LINE + i;
     ws.mergeCells(`C${r}:D${r}`);
     const cell = ws.getCell(`C${r}`);
-    cell.value = line.link ? { text: line.value, hyperlink: line.value } : line.value;
-    cell.font = line.link ? { ...plain, underline: true, color: { argb: "FF0563C1" } } : bold;
+    // Le lien pointe vers l'adresse seule, sans l'icône.
+    cell.value = line.kind === "link" ? { text: line.value, hyperlink: company.website?.trim() ?? line.value } : line.value;
+    cell.font = line.kind === "link" ? { ...plain, underline: true, color: { argb: "FF0563C1" } } : line.kind === "name" ? { ...bold, size: 11 } : bold;
     cell.alignment = { horizontal: "left", vertical: "middle" };
   });
 
-  // --- grille de la demande : libellé (E, G) + valeur en gras (F, H) ; conditions laissées vides pour le fournisseur
+  // --- grille de la demande : libellé (E, G) + valeur (F, H), chaque ligne soulignée ; « — » pour les conditions que le
+  // fournisseur complète lui-même
   const upper = (text?: string) => (text?.trim() ? text.trim().toUpperCase() : "");
   const grid: Array<[string, string, string, string]> = [
-    ["COUNTRY :", upper(data.country), "REF NO:", data.refNo?.trim() ?? ""],
-    ["DELIVERY PORT :", upper(data.deliveryPort), "Payment terms:", ""],
-    ["VESSEL NAME :", upper(data.vessel), "Delivery time:", ""],
-    ["ETA :", formatDate(data.eta) ?? "", "Offer Validity :", ""],
+    ["COUNTRY :", upper(data.country), "REF NO :", data.refNo?.trim() ?? ""],
+    ["DELIVERY PORT :", upper(data.deliveryPort), "Payment terms :", "\u2014"],
+    ["VESSEL NAME :", upper(data.vessel), "Delivery time :", "\u2014"],
+    ["ETA :", formatDate(data.eta) ?? "", "Offer Validity :", "\u2014"],
   ];
+  const gridFont: Partial<ExcelJS.Font> = { name: "Calibri", size: 12, color: { argb: "FF000000" } };
+  const underline: Partial<ExcelJS.Borders> = { bottom: { style: "thin", color: { argb: "FF000000" } } };
   grid.forEach(([leftLabel, leftValue, rightLabel, rightValue], i) => {
     const r = HEADER_FIRST_LINE + 1 + i;
-    const cells: Array<[string, string, boolean]> = [["E", leftLabel, false], ["F", leftValue, true], ["G", rightLabel, false], ["H", rightValue, true]];
-    for (const [col, text, isValue] of cells) {
+    const cells: Array<[string, string]> = [["E", leftLabel], ["F", leftValue], ["G", rightLabel], ["H", rightValue]];
+    for (const [col, text] of cells) {
       const cell = ws.getCell(`${col}${r}`);
       cell.value = text || null;
-      cell.font = isValue ? bold : plain;
-      cell.alignment = { horizontal: "left", vertical: "middle" };
+      cell.font = gridFont;
+      // Colonnes étroites (celles du tableau) : le texte rétrécit plutôt que d'être coupé (ex. « DOUALA, CAMEROUN »).
+      cell.alignment = { horizontal: "left", vertical: "middle", shrinkToFit: true };
+      cell.border = underline;
     }
   });
+
+  // --- hauteurs : un peu d'air autour des lignes, comme sur le modèle
+  const rowHeights: Record<number, number> = { 1: 8, 2: 21, 3: 21, 4: 21, 5: 21, 6: 21, 7: 21, 8: 8, 11: 6 };
+  for (const [row, height] of Object.entries(rowHeights)) ws.getRow(Number(row)).height = height;
+
+  // --- double filet vertical entre le logo et le texte : bleu (bord droit de B) puis vert (bord gauche de C)
+  for (let r = 1; r <= 12; r++) {
+    const left = ws.getCell(`B${r}`);
+    left.border = { ...(left.border ?? {}), right: { style: "thick", color: { argb: BLUE } } };
+    const right = ws.getCell(`C${r}`);
+    right.border = { ...(right.border ?? {}), left: { style: "medium", color: { argb: GREEN } } };
+  }
 
   // --- mention en rouge, sous le bloc d'en-tête
   ws.mergeCells(`C${NOTICE_ROW}:G${NOTICE_ROW}`);
@@ -212,16 +232,16 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
   notice.alignment = { horizontal: "center", vertical: "middle" };
   ws.getRow(NOTICE_ROW).height = 26;
 
-  // --- bandeau titre « REQUEST FOR … » sur toute la largeur (teinte claire du vert de l'en-tête du tableau)
+  // --- bandeau titre « REQUEST FOR … » : vert plein sur toute la largeur, texte blanc
   ws.mergeCells(`A${TITLE_ROW}:H${TITLE_ROW}`);
   for (let c = 1; c <= COLS; c++) {
-    ws.getRow(TITLE_ROW).getCell(c).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFD3ECB9" } };
+    ws.getRow(TITLE_ROW).getCell(c).fill = { type: "pattern", pattern: "solid", fgColor: { argb: GREEN } };
   }
   const title = ws.getCell(`A${TITLE_ROW}`);
   title.value = `REQUEST FOR ${(data.requestFor.trim() || "QUOTATION").toUpperCase()}`;
-  title.font = { name: "Arial", size: 14, bold: true, color: { argb: "FF000000" } };
+  title.font = { name: "Arial", size: 16, bold: true, color: { argb: "FFFFFFFF" } };
   title.alignment = { horizontal: "center", vertical: "middle" };
-  ws.getRow(TITLE_ROW).height = 24;
+  ws.getRow(TITLE_ROW).height = 30;
   // Lignes 14 et 15 (espace sous le bandeau, ancienne ligne « Request for … ») : vides, sans fond ni bordure hérités du gabarit.
   for (const blankRow of [14, 15]) {
     for (let c = 1; c <= COLS; c++) {
