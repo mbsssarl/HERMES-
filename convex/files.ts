@@ -111,9 +111,10 @@ export const setFileStatusInternal = internalMutation({
       v.literal("error"),
     ),
     extractionError: v.optional(v.string()),
+    extractionNote: v.optional(v.string()),
   },
-  handler: async (ctx, { uploadedFileId, status, extractionError }) => {
-    await ctx.db.patch(uploadedFileId, { status, extractionError });
+  handler: async (ctx, { uploadedFileId, status, extractionError, extractionNote }) => {
+    await ctx.db.patch(uploadedFileId, { status, extractionError, extractionNote });
   },
 });
 

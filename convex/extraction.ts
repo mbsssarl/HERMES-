@@ -37,9 +37,14 @@ export const extractClientDocument = internalAction({
         metadata,
       });
 
+      // Lignes masquées dans le fichier (filtre actif...) : non importées, l'utilisateur en est informé.
+      const hidden = table.hiddenRowsIgnored ?? 0;
       await ctx.runMutation(internal.files.setFileStatusInternal, {
         uploadedFileId,
         status: "extracted",
+        extractionNote: hidden > 0
+          ? `${hidden} ligne(s) masquée(s) dans le fichier (filtre actif ou lignes masquées) n'ont pas été importées : seules les lignes visibles ont été lues. Pour les ajouter, affichez-les dans Excel puis réimportez le fichier.`
+          : undefined,
       });
     } catch (err) {
       await ctx.runMutation(internal.files.setFileStatusInternal, {

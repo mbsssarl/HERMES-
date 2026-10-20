@@ -236,7 +236,7 @@ export async function fillClientWorkbook(
 
       const lines: [string, number][] = [[`GROSS TOTAL${cur}`, gross]];
       if (!discountDone) lines.push([`DISCOUNT ${discountPercent}%`, -discount]);
-      if (!feeDone) lines.push(["(+) DELIVERY + LAUNCH SERVICE", fee]);
+      if (!feeDone) lines.push(["DELIVERY CHARGES", fee]);
       lines.push([`TOTAL NET${cur}`, net]);
 
       // Emplacement : juste sous le dernier article si les lignes sont libres, sinon tout en bas de la feuille

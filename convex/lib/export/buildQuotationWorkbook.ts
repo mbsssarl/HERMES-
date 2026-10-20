@@ -319,7 +319,7 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
   ws.getCell(`F${discountRow}`).alignment = { horizontal: "center" };
   ws.getCell(`F${discountRow}`).style = { ...clone(ws.getCell(`E${discountRow}`).style), numFmt: "0%", alignment: { horizontal: "center" } };
   ws.getCell(`G${discountRow}`).value = { formula: `G${at(F_GROSS)}*F${discountRow}`, result: discountAmount };
-  ws.getCell(`E${at(F_TRANSPORT)}`).value = "(+) DELIVERY + LAUNCH SERVICE";
+  ws.getCell(`E${at(F_TRANSPORT)}`).value = "DELIVERY CHARGES";
   ws.getCell(`G${at(F_TRANSPORT)}`).value = fee;
   ws.getCell(`G${at(F_NET)}`).value = {
     formula: `G${at(F_GROSS)}-G${at(F_DISCOUNT)}+G${at(F_TRANSPORT)}`,

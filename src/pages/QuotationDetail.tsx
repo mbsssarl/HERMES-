@@ -1,5 +1,5 @@
 import React from 'react';
-import { useAction, useMutation } from 'convex/react';
+import { useAction, useMutation, useQuery } from 'convex/react';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
 import type { Currency, OrderValidation, PendingEdit, ProductWithPrices, QuotationWithRelations } from '../types';
 import { MATCH_LABELS, formatPrice, formatAmount, formatDate } from '../lib/format';
@@ -62,6 +62,9 @@ export function QuotationDetail({
   const setTransportFee = useMutation(api.orders.setTransportFee);
   const markSeen = useMutation(api.orders.markSeen);
   const updateLogistics = useMutation(api.orders.updateLogistics);
+  // Information laissée par la lecture du fichier du client (ex. lignes masquées dans Excel, non importées).
+  const importFiles = useQuery(api.files.listByOrder, quotation ? { orderId: quotation.id as Id<'orders'> } : 'skip');
+  const importNote = importFiles?.find((f) => f.kind === 'client_request' && f.extractionNote)?.extractionNote;
   const setExcluded = useMutation(api.orderItems.setExcluded).withOptimisticUpdate((store, { orderItemIds, excluded }) => {
     const ids = new Set<string>(orderItemIds);
     for (const { args, value } of store.getAllQueries(api.orderItems.listByOrder)) {
@@ -297,6 +300,12 @@ export function QuotationDetail({
           <h1 className="page-title" style={{ fontSize: 18, fontWeight: 500, letterSpacing: 0, color: 'var(--color-text-muted)' }}>{quotation.quotation_number}</h1>
         </div>
       </div>
+
+      {importNote && (
+        <div className="card card-pad" role="status" style={{ marginBottom: 16, borderColor: '#f59e0b' }}>
+          {importNote}
+        </div>
+      )}
 
       <div className="card summary-bar">
         <div className="summary-item">

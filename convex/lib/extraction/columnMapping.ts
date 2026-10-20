@@ -159,6 +159,22 @@ export function toImpaCode(value: CellValue): string | undefined {
  * in its code/unit/origin as in its description. Real rows never repeat the
  * exact same string across unrelated columns, so treat that as the tell.
  */
+/**
+ * Une cellule fusionnée sur plusieurs colonnes (note, date, signature...) se relit comme la MÊME valeur dans chacune :
+ * une vraie ligne d'article ne répète jamais une valeur identique dans 4 colonnes ou plus.
+ */
+export function repeatsAcrossRow(row: CellValue[]): boolean {
+  const counts = new Map<string, number>();
+  for (const cell of row) {
+    if (cell === null || cell === undefined || cell === "") continue;
+    const key = String(cell).trim().toLowerCase();
+    // Les zéros (remise 0, prix 0, total 0...) et les valeurs d'un caractère se répètent naturellement : ignorés.
+    if (key.length < 2 || Number(key) === 0) continue;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts.values()].some((n) => n >= 4);
+}
+
 function looksLikeMergedArtifactRow(description: string, otherFields: (string | undefined)[]): boolean {
   const duplicates = otherFields.filter((v) => v !== undefined && v === description).length;
   return duplicates >= 2;
@@ -243,6 +259,8 @@ function extractClientRows(
   for (let rowIndex = 0; rowIndex < dataRows.length; rowIndex++) {
     const row = dataRows[rowIndex];
     if (isRowEmpty(row)) continue;
+    // Cellule fusionnée relue dans chaque colonne (ex. une année « 2026 » dans 9 colonnes) : ce n'est pas un article.
+    if (repeatsAcrossRow(row)) continue;
 
     const description =
       columns.rawDescription !== -1 ? toStringOrUndefined(row[columns.rawDescription]) : undefined;

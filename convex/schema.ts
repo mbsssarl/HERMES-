@@ -561,6 +561,8 @@ const schema = defineSchema({
       v.literal("error"), // échec (ex: PDF scanné sans texte exploitable)
     ),
     extractionError: v.optional(v.string()), // message d'erreur lisible, affiché à l'utilisateur
+    // Information (pas une erreur) sur la lecture du fichier, affichée sur la quotation : ex. lignes masquées ignorées.
+    extractionNote: v.optional(v.string()),
     uploadedBy: v.id("users"),
     uploadedAt: v.number(),
   })

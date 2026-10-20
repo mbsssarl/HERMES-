@@ -72,29 +72,42 @@ export interface RawTable {
   // N° de ligne de la feuille Excel pour chaque entrée de dataRows (Excel uniquement) : permet de retrouver où
   // réécrire le prix d'un article dans le fichier d'origine du client.
   dataRowNumbers?: number[];
+  // Nombre de lignes non vides masquées dans la feuille (filtre actif, lignes masquées à la main) : elles ne sont pas
+  // lues, on importe ce que l'utilisateur voit dans Excel.
+  hiddenRowsIgnored?: number;
 }
 
 function cellToPrimitive(value: ExcelJS.CellValue): string | number | null {
   if (value === null || value === undefined) return null;
   if (value instanceof Date) return value.toISOString();
   if (typeof value === "object") {
+    // Texte à mise en forme riche (plusieurs polices dans une même cellule) : on en garde le texte.
+    if ("richText" in value && Array.isArray(value.richText)) return value.richText.map((part) => part.text).join("");
     if ("text" in value && typeof value.text === "string") return value.text;
+    // Erreur de formule (#VALUE!, #REF!...) : pas une valeur lisible, la cellule est traitée comme vide.
+    if ("error" in value) return null;
     if ("result" in value) return cellToPrimitive((value as { result: ExcelJS.CellValue }).result);
-    return String(value);
+    return null;
   }
   return value as string | number;
 }
 
-export function sheetRowsWithNumbers(worksheet: ExcelJS.Worksheet): { rows: (string | number | null)[][]; numbers: number[] } {
+export function sheetRowsWithNumbers(worksheet: ExcelJS.Worksheet): { rows: (string | number | null)[][]; numbers: number[]; hidden: number } {
   const rows: (string | number | null)[][] = [];
   const numbers: number[] = [];
+  let hidden = 0;
   worksheet.eachRow({ includeEmpty: false }, (row) => {
+    // Ligne masquée (filtre automatique ou masquage manuel) : ce n'est pas ce que le client voit, on l'ignore.
+    if (row.hidden) {
+      hidden++;
+      return;
+    }
     const values = row.values as ExcelJS.CellValue[];
     // exceljs returns sparse arrays (holes for empty cells): make them dense so every column has a value.
     rows.push(Array.from({ length: Math.max(values.length - 1, 0) }, (_, i) => cellToPrimitive(values[i + 1])));
     numbers.push(row.number);
   });
-  return { rows, numbers };
+  return { rows, numbers, hidden };
 }
 
 function sheetRows(worksheet: ExcelJS.Worksheet): (string | number | null)[][] {
@@ -106,9 +119,10 @@ function sheetRows(worksheet: ExcelJS.Worksheet): (string | number | null)[][] {
  * en-tête (n° de ligne et libellés) + lignes de données. Même logique que parseExcelToTable.
  */
 export function locateTable(worksheet: ExcelJS.Worksheet): { headerRowNumber: number; table: RawTable } | null {
-  const { rows, numbers } = sheetRowsWithNumbers(worksheet);
+  const { rows, numbers, hidden } = sheetRowsWithNumbers(worksheet);
   const table = tableFromRows(rows, numbers);
   if (!table) return null;
+  table.hiddenRowsIgnored = hidden;
   const headerIndex = table.preambleRows.length;
   return { headerRowNumber: numbers[headerIndex], table };
 }
@@ -133,7 +147,7 @@ export async function parseExcelToTable(buffer: ArrayBuffer): Promise<RawTable> 
   const worksheet = workbook.worksheets[0];
   if (!worksheet) throw new Error("Le fichier Excel ne contient aucune feuille.");
 
-  const { rows, numbers } = sheetRowsWithNumbers(worksheet);
+  const { rows, numbers, hidden } = sheetRowsWithNumbers(worksheet);
   if (rows.length < 2) {
     throw new Error("Le fichier Excel ne contient pas assez de lignes (en-tête + données attendues).");
   }
@@ -143,6 +157,7 @@ export async function parseExcelToTable(buffer: ArrayBuffer): Promise<RawTable> 
       "Impossible d'identifier l'en-tête du tableau dans ce fichier Excel. Vérifiez le document ou saisissez les lignes manuellement.",
     );
   }
+  table.hiddenRowsIgnored = hidden;
   return table;
 }
 
