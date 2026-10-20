@@ -67,6 +67,8 @@ import type * as orders from "../orders.js";
 import type * as platform from "../platform.js";
 import type * as productBackups from "../productBackups.js";
 import type * as productCategories from "../productCategories.js";
+import type * as productExport from "../productExport.js";
+import type * as productExportData from "../productExportData.js";
 import type * as productPrices from "../productPrices.js";
 import type * as products from "../products.js";
 import type * as quotationGeneration from "../quotationGeneration.js";
@@ -141,6 +143,8 @@ declare const fullApi: ApiFromModules<{
   platform: typeof platform;
   productBackups: typeof productBackups;
   productCategories: typeof productCategories;
+  productExport: typeof productExport;
+  productExportData: typeof productExportData;
   productPrices: typeof productPrices;
   products: typeof products;
   quotationGeneration: typeof quotationGeneration;

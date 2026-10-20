@@ -1,6 +1,6 @@
 import React from 'react';
-import { useMutation, usePaginatedQuery, useQueries, useQuery } from 'convex/react';
-import { ArrowLeft, CheckSquare, Plus, Trash2, Upload } from 'lucide-react';
+import { useAction, useMutation, usePaginatedQuery, useQueries, useQuery } from 'convex/react';
+import { ArrowLeft, CheckSquare, Download, Plus, Trash2, Upload } from 'lucide-react';
 import type { Country, ProductCategory, ProductWithPrices } from '../types';
 import { api, type Id } from '../lib/convex';
 import { Modal, StateBox } from '../components/ui';
@@ -10,6 +10,7 @@ import { CatalogImportModal } from '../components/CatalogImportModal';
 import { Pager, usePage } from '../components/Pager';
 import { formatPrice, regionLabel } from '../lib/format';
 import { mapProduct } from '../lib/mappers';
+import { downloadBlob } from '../lib/exportFile';
 
 const errMsg = (err: unknown) => (err instanceof Error ? err.message : String(err));
 const NO_CATEGORY = '__none__'; // valeur du filtre/classement « sans catégorie »
@@ -244,6 +245,25 @@ export function Products({
   // Seules 100 lignes sont dessinées à la fois (la liste complète reste filtrable/sélectionnable).
   const paged = usePage(rows, `${search}|${countryFilter}|${categoryFilter}|${priceView}`);
 
+  // Export Excel de tout le catalogue (produits + prix en vigueur) : le fichier est préparé côté serveur puis téléchargé.
+  const exportCatalog = useAction(api.productExport.exportCatalogXlsx);
+  const [exporting, setExporting] = React.useState(false);
+  const runExport = async () => {
+    setExporting(true);
+    toast('Préparation du fichier Excel… cela peut prendre une minute pour un grand catalogue.', 'info');
+    try {
+      const res = await exportCatalog({});
+      const file = await fetch(res.url);
+      if (!file.ok) throw new Error('Téléchargement du fichier impossible.');
+      downloadBlob(await file.blob(), res.fileName);
+      toast(`Catalogue exporté : ${res.products} produit(s), dont ${res.priced} avec un prix.`, 'success');
+    } catch (err) {
+      toast('Erreur: ' + (err instanceof Error ? err.message.replace(/^.*Uncaught Error:\s*/s, '').split('\n')[0] : String(err)), 'error');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   if (loading) return <StateBox loading title="Chargement du catalogue…" />;
 
   return (
@@ -264,6 +284,9 @@ export function Products({
             <button className="btn" onClick={() => { setNewCountryId(countryFilter || priceCountries[0]?.id || ''); setShowAdd(true); }}><Plus size={16} /> Ajouter un produit</button>
             <button className={`btn ${selectMode ? 'btn-primary' : ''}`} onClick={() => (selectMode ? exitSelection() : setSelectMode(true))}>
               <CheckSquare size={16} /> {selectMode ? 'Terminer la sélection' : 'Sélectionner'}
+            </button>
+            <button className="btn" onClick={() => void runExport()} disabled={exporting} title="Télécharge tous les produits et leurs prix en vigueur dans un fichier Excel">
+              <Download size={16} /> {exporting ? 'Export en cours…' : 'Exporter en Excel'}
             </button>
             <button className="btn" onClick={() => setShowClearPrices(true)} title="Supprime tous les prix de tous les produits, dans toutes les régions"><Trash2 size={16} /> Supprimer tous les prix</button>
             <button className="btn btn-primary" onClick={() => setShowImport(true)}><Upload size={16} /> Importer un catalogue</button>

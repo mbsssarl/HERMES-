@@ -1,6 +1,7 @@
 export const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
-function downloadBlob(blob: Blob, fileName: string) {
+/** Enregistre un fichier déjà reçu en mémoire (téléchargement du navigateur). */
+export function downloadBlob(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
