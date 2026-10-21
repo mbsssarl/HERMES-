@@ -40,7 +40,9 @@ function tableFromHtml(html: string): RawTable | null {
 
 /** Word moderne (.docx) : premier tableau du document, ou à défaut le texte des paragraphes. */
 export async function extractWordTable(buffer: Buffer): Promise<RawTable> {
-  const mammoth = await import("mammoth");
+  // Une fois empaqueté, le module CommonJS arrive sous « default » : sans cela, convertToHtml est introuvable.
+  const imported = await import("mammoth");
+  const mammoth = imported.default ?? imported;
   const { value: html } = await mammoth.convertToHtml({ buffer });
   const fromHtml = tableFromHtml(html);
   if (fromHtml) return fromHtml;
