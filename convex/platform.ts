@@ -122,13 +122,15 @@ export const createCompany = mutation({
     // Référentiels de départ, indépendants de toute autre entreprise (supprimer une entreprise n'en prive aucune) :
     //  - devises : toutes les devises ISO, seules les devises usuelles (CORE_CURRENCIES) étant actives ;
     //  - catégories : celles du catalogue IMPA, plus « No IMPA » ;
-    //  - régions : aucune, l'administrateur de l'entreprise les crée lui-même (Admin > Régions).
+    //  - régions : une seule au départ, le Cameroun (CMR, USD), pour que l'entreprise puisse coter dès la création ;
+    //    l'administrateur ajoute les autres lui-même (Admin > Régions).
     for (const [currencyCode, currencyName] of Object.entries(KNOWN_CURRENCIES)) {
       await ctx.db.insert("currencies", { companyId, code: currencyCode, name: currencyName, active: CORE_CURRENCIES.includes(currencyCode) });
     }
     for (const categoryName of [...IMPA_CATEGORIES, NO_IMPA_CATEGORY]) {
       await ctx.db.insert("productCategories", { companyId, name: categoryName, active: true });
     }
+    await ctx.db.insert("countries", { companyId, code: "CMR", name: "Cameroun", currency: "USD", active: true });
 
     const tempPassword = generateTempPassword();
     const { user } = await createAccount(asAuthCtx(ctx), {

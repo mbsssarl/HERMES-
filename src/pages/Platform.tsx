@@ -443,8 +443,9 @@ function CompaniesView() {
             </span>
           </div>
           <p className="text-muted" style={{ fontSize: 13 }}>
-            Le catalogue produits et les régions commencent vides : l'administrateur de l'entreprise les crée lui-même. Les devises (liste ISO, les
-            usuelles activées) et les catégories du catalogue IMPA sont créées automatiquement.
+            Le catalogue produits commence vide. Une région est créée au départ, le Cameroun (CMR, USD), pour pouvoir coter tout de suite ;
+            l'administrateur ajoute les autres lui-même. Les devises (liste ISO, les usuelles activées) et les catégories du catalogue IMPA sont
+            créées automatiquement.
           </p>
         </Modal>
       )}
