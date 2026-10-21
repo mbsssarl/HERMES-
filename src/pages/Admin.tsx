@@ -11,6 +11,7 @@ import { BackupsTab } from './BackupsTab';
 import { CategoriesTab } from './CategoriesTab';
 import { BrandingTab } from './BrandingTab';
 import { CompanyInfoCard } from '../components/CompanyInfoCard';
+import { copyText } from '../lib/clipboard';
 import { SubscriptionCountdown } from '../components/SubscriptionCountdown';
 import type { Country, Currency, ProductCategory } from '../types';
 import { useToast } from '../components/Toast';
@@ -330,7 +331,7 @@ function UsersTab({
               <input className="input mono" readOnly value={created.password} onFocus={(e) => e.target.select()} />
               <button
                 className="btn"
-                onClick={() => { void navigator.clipboard.writeText(created.password); toast('Mot de passe copié.', 'success'); }}
+                onClick={() => { void copyText(created.password).then((ok) => toast(ok ? 'Mot de passe copié.' : 'Copie impossible : sélectionnez le mot de passe et copiez-le avec Ctrl+C.', ok ? 'success' : 'error')); }}
               >
                 <Copy size={14} /> Copier
               </button>

@@ -10,6 +10,7 @@ import { formatDate } from '../lib/format';
 import { Modal, StateBox } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { BrandingTab } from './BrandingTab';
+import { copyText } from '../lib/clipboard';
 import { SubscriptionCountdown } from '../components/SubscriptionCountdown';
 import { Settings } from './Settings';
 import type { AppUser } from '../types';
@@ -539,7 +540,7 @@ function CompaniesView() {
             <label>Mot de passe à usage unique</label>
             <div style={{ display: 'flex', gap: 8 }}>
               <input className="input mono" readOnly value={secret.password} onFocus={(e) => e.target.select()} />
-              <button className="btn" onClick={() => { void navigator.clipboard.writeText(secret.password); toast('Mot de passe copié.', 'success'); }}>
+              <button className="btn" onClick={() => { void copyText(secret.password).then((ok) => toast(ok ? 'Mot de passe copié.' : 'Copie impossible : sélectionnez le mot de passe et copiez-le avec Ctrl+C.', ok ? 'success' : 'error')); }}>
                 <Copy size={14} /> Copier
               </button>
             </div>
