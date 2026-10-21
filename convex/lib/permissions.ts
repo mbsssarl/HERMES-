@@ -86,7 +86,6 @@ export type TenantTable =
   | "products"
   | "productAliases"
   | "productPrices"
-  | "productBackups"
   | "orders"
   | "orderItems";
 

@@ -249,23 +249,6 @@ const schema = defineSchema({
     .index("by_company_and_normalizedAlias", ["companyId", "normalizedAlias"]),
 
   // ------------------------------------------------------------------
-  // SAUVEGARDE DES PRODUITS SUPPRIMÉS
-  // Un produit supprimé l'est définitivement de `products` (avec ses prix et alias). Avant cela, une copie
-  // complète est conservée ici, sans aucun lien avec les autres tables (ni v.id, ni index sur elles) : elle
-  // ne sert qu'à pouvoir récupérer un produit supprimé par erreur (fonction interne `restoreProductBackup`).
-  // ------------------------------------------------------------------
-  productBackups: defineTable({
-    // Entreprise propriétaire de la ligne (multi-entreprises). Absent le temps de la reprise des données.
-    companyId: v.optional(v.id("companies")),
-    originalId: v.string(), // ancien _id du produit
-    product: v.any(), // document produit tel qu'il était
-    prices: v.array(v.any()), // toutes ses lignes de prix (historique compris)
-    aliases: v.array(v.any()),
-    deletedAt: v.number(),
-    deletedBy: v.string(), // email de l'admin
-  }).index("by_company_and_deletedAt", ["companyId", "deletedAt"]),
-
-  // ------------------------------------------------------------------
   // PRIX PRODUITS (par pays)
   // Le prix dépend toujours du pays de cotation. Un changement de prix
   // NE remplace PAS la ligne existante : on clôture l'ancienne

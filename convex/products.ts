@@ -255,26 +255,15 @@ export const setCategoryMany = mutation({
 });
 
 /**
- * Absolute deletion of one product: a full copy (product, every price row, aliases) is first written to the
- * independent `productBackups` table, then the product and its prices and aliases are removed for good.
+ * Absolute deletion of one product: the product and its prices and aliases are removed for good (no copy is kept).
  * Quotation lines that pointed to it go back to "unmatched" (a line with a manual price keeps that price).
  * Returns the number of quotation lines affected.
  */
-async function deleteProductForGood(ctx: MutationCtx, product: Doc<"products">, adminEmail: string): Promise<number> {
+async function deleteProductForGood(ctx: MutationCtx, product: Doc<"products">): Promise<number> {
   const productId = product._id;
 
   const prices = await ctx.db.query("productPrices").withIndex("by_product", (q) => q.eq("productId", productId)).collect();
   const aliases = await ctx.db.query("productAliases").withIndex("by_product", (q) => q.eq("productId", productId)).collect();
-
-  await ctx.db.insert("productBackups", {
-    companyId: product.companyId,
-    originalId: productId,
-    product,
-    prices,
-    aliases,
-    deletedAt: Date.now(),
-    deletedBy: adminEmail,
-  });
 
   // Quotation lines that used this product no longer have a product: back to "unknown".
   const lines = await ctx.db.query("orderItems").withIndex("by_product", (q) => q.eq("productId", productId)).collect();
@@ -302,7 +291,7 @@ export const remove = mutation({
   handler: async (ctx, { productId }) => {
     const admin = await requireAdmin(ctx);
     const product = await requireOwned(ctx, admin, "products", productId, "Produit introuvable.");
-    const affectedLines = await deleteProductForGood(ctx, product, admin.email ?? "");
+    const affectedLines = await deleteProductForGood(ctx, product);
     await logActivity(ctx, {
       userId: admin._id,
       action: "product.deleted",
@@ -324,7 +313,7 @@ export const removeMany = mutation({
     for (const productId of productIds) {
       const product = await getOwned(ctx, admin, "products", productId);
       if (!product) continue;
-      affectedLines += await deleteProductForGood(ctx, product, admin.email ?? "");
+      affectedLines += await deleteProductForGood(ctx, product);
       deleted++;
     }
     await logActivity(ctx, {
@@ -338,36 +327,12 @@ export const removeMany = mutation({
   },
 });
 
-/**
- * Restores a deleted product from its backup (run by hand, e.g. `npx convex run products:restoreProductBackup`).
- * The product gets a new id; its prices and aliases are recreated. The backup row is kept.
- */
-export const restoreProductBackup = internalMutation({
-  args: { backupId: v.id("productBackups") },
-  handler: async (ctx, { backupId }) => {
-    const backup = await ctx.db.get(backupId);
-    if (!backup) throw new Error("Sauvegarde introuvable.");
-
-    const { _id: _oldId, _creationTime: _oldTime, ...productFields } = backup.product as Record<string, unknown>;
-    const newId = await ctx.db.insert("products", { ...(productFields as Omit<Doc<"products">, "_id" | "_creationTime">), deletedAt: undefined, active: true });
-    for (const price of backup.prices as Record<string, unknown>[]) {
-      const { _id, _creationTime, ...fields } = price;
-      await ctx.db.insert("productPrices", { ...(fields as Omit<Doc<"productPrices">, "_id" | "_creationTime">), productId: newId });
-    }
-    for (const alias of backup.aliases as Record<string, unknown>[]) {
-      const { _id, _creationTime, ...fields } = alias;
-      await ctx.db.insert("productAliases", { ...(fields as Omit<Doc<"productAliases">, "_id" | "_creationTime">), productId: newId });
-    }
-    return newId;
-  },
-});
-
-/** One-off: hard-deletes (after backup) every product that had been "soft deleted" by the previous logic. */
+/** One-off: hard-deletes every product that had been "soft deleted" by the previous logic. */
 export const purgeSoftDeleted = internalMutation({
   args: {},
   handler: async (ctx) => {
     const soft = await ctx.db.query("products").filter((q) => q.neq(q.field("deletedAt"), undefined)).take(100);
-    for (const product of soft) await deleteProductForGood(ctx, product, "migration");
+    for (const product of soft) await deleteProductForGood(ctx, product);
     return { purged: soft.length, more: soft.length === 100 };
   },
 });

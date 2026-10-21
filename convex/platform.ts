@@ -336,7 +336,7 @@ export const deleteCompany = mutation({
   },
 });
 
-const PURGE_PHASES = ["orders", "orphanItems", "prices", "aliases", "products", "backups", "categories", "currencies", "countries", "clients", "settings", "logs", "users", "finish"] as const;
+const PURGE_PHASES = ["orders", "orphanItems", "prices", "aliases", "products", "categories", "currencies", "countries", "clients", "settings", "logs", "users", "finish"] as const;
 type PurgePhase = (typeof PURGE_PHASES)[number];
 
 /** Supprime un fichier du stockage sans échouer s'il n'existe plus. */
@@ -387,11 +387,6 @@ async function runPurgePhase(ctx: MutationCtx, company: Doc<"companies">, phase:
       const rows = await ctx.db.query("products").withIndex("by_company", (q) => q.eq("companyId", companyId)).take(300);
       for (const row of rows) await ctx.db.delete(row._id);
       return rows.length === 300;
-    }
-    case "backups": {
-      const rows = await ctx.db.query("productBackups").withIndex("by_company_and_deletedAt", (q) => q.eq("companyId", companyId)).take(60);
-      for (const row of rows) await ctx.db.delete(row._id);
-      return rows.length === 60;
     }
     case "categories": {
       const rows = await ctx.db.query("productCategories").withIndex("by_company_and_name", (q) => q.eq("companyId", companyId)).take(400);

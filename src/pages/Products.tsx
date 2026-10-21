@@ -516,8 +516,7 @@ export function Products({
         >
           <p><strong>{selected.size} produit(s)</strong> seront supprimés définitivement, avec tous leurs prix par région.</p>
           <p className="text-muted" style={{ fontSize: 13, marginTop: 8 }}>
-            Les lignes de quotation qui les utilisent repasseront en « Inconnu ». Une copie de sauvegarde est conservée à
-            part, hors de l'application, pour pouvoir les récupérer en cas d'erreur.
+            Les lignes de quotation qui les utilisent repasseront en « Inconnu ». Cette action est irréversible.
           </p>
         </Modal>
       )}
@@ -537,8 +536,7 @@ export function Products({
             <strong>{toDelete.reference ? `${toDelete.reference} · ` : ''}{toDelete.name}</strong> sera supprimé définitivement, avec ses prix par région.
           </p>
           <p className="text-muted" style={{ fontSize: 13, marginTop: 8 }}>
-            Les lignes de quotation qui l'utilisent repasseront en « Inconnu ». Une copie de sauvegarde est conservée à
-            part, hors de l'application, pour pouvoir le récupérer en cas d'erreur.
+            Les lignes de quotation qui l'utilisent repasseront en « Inconnu ». Cette action est irréversible.
           </p>
         </Modal>
       )}

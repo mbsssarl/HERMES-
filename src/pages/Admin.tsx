@@ -7,7 +7,6 @@ import { formatAmount, formatDate } from '../lib/format';
 import { Modal, StateBox } from '../components/ui';
 import { StatusTag } from '../components/StatusTag';
 import { Countries } from './Countries';
-import { BackupsTab } from './BackupsTab';
 import { CategoriesTab } from './CategoriesTab';
 import { BrandingTab } from './BrandingTab';
 import { CompanyInfoCard } from '../components/CompanyInfoCard';
@@ -91,7 +90,7 @@ export function Admin({
   loadingCountries: boolean;
   onOpen: (q: QuotationWithRelations) => void;
 }) {
-  const [tab, setTab] = React.useState<'users' | 'logs' | 'countries' | 'currencies' | 'categories' | 'backups' | 'branding'>('users');
+  const [tab, setTab] = React.useState<'users' | 'logs' | 'countries' | 'currencies' | 'categories' | 'branding'>('users');
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const users = useQuery(api.users.listUsers);
 
@@ -130,7 +129,6 @@ export function Admin({
             <button className={`btn btn-sm ${tab === 'countries' ? 'btn-primary' : ''}`} onClick={() => setTab('countries')}>Régions</button>
             <button className={`btn btn-sm ${tab === 'currencies' ? 'btn-primary' : ''}`} onClick={() => setTab('currencies')}>Devises</button>
             <button className={`btn btn-sm ${tab === 'categories' ? 'btn-primary' : ''}`} onClick={() => setTab('categories')}>Catégories</button>
-            <button className={`btn btn-sm ${tab === 'backups' ? 'btn-primary' : ''}`} onClick={() => setTab('backups')}>Sauvegardes</button>
             <button className={`btn btn-sm ${tab === 'branding' ? 'btn-primary' : ''}`} onClick={() => setTab('branding')}>Personnalisation</button>
           </div>
         )}
@@ -144,7 +142,6 @@ export function Admin({
           {tab === 'logs' && <LogsTab users={users} />}
           {tab === 'currencies' && <CurrenciesTab currencies={currencies} />}
           {tab === 'categories' && <CategoriesTab categories={categories} />}
-          {tab === 'backups' && <BackupsTab countries={countries} />}
           {tab === 'branding' && (
             <>
               <BrandingTab />

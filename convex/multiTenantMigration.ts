@@ -19,7 +19,6 @@ const TABLES = [
   "clients",
   "products",
   "productAliases",
-  "productBackups",
   "productPrices",
   "productCategories",
   "currencies",
