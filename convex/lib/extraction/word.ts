@@ -12,21 +12,30 @@ function stripTags(html: string): string {
 }
 
 function tableFromHtml(html: string): RawTable | null {
-  const tableMatch = html.match(/<table[\s\S]*?<\/table>/i);
-  if (!tableMatch) return null;
-  const rowMatches = [...tableMatch[0].matchAll(/<tr[\s\S]*?<\/tr>/gi)];
-  if (rowMatches.length < 2) return null;
-  const rows = rowMatches.map((rowMatch) =>
-    [...rowMatch[0].matchAll(/<t[dh][\s\S]*?<\/t[dh]>/gi)].map((cellMatch) => stripTags(cellMatch[0])),
-  );
-  // Texte qui précède le tableau : en-tête de société / navire / référence.
-  const before = html.slice(0, html.search(/<table/i));
-  const preambleRows = before
-    .split(/<\/p>|<br\s*\/?>|<\/h\d>/i)
-    .map(stripTags)
-    .filter((l) => l.length > 0)
-    .map((l) => [l]);
-  return { headerRow: rows[0], dataRows: rows.slice(1), preambleRows };
+  // Plusieurs tableaux possibles (ex. petit tableau « Navire / Date » puis tableau des articles) : on prend le plus long.
+  const tables = [...html.matchAll(/<table[\s\S]*?<\/table>/gi)].map((m) => ({ html: m[0], index: m.index ?? 0 }));
+  let best: { rows: string[][]; index: number } | null = null;
+  for (const t of tables) {
+    const rows = [...t.html.matchAll(/<tr[\s\S]*?<\/tr>/gi)].map((rowMatch) =>
+      [...rowMatch[0].matchAll(/<t[dh][\s\S]*?<\/t[dh]>/gi)].map((cellMatch) => stripTags(cellMatch[0])),
+    );
+    if (!best || rows.length > best.rows.length) best = { rows, index: t.index };
+  }
+  if (!best || best.rows.length < 2) return null;
+  // En-tête = première ligne comportant au moins 2 cellules renseignées (les lignes vides / fusionnées sont ignorées).
+  const headerAt = best.rows.findIndex((r) => r.filter((c) => c.length > 0).length >= 2);
+  if (headerAt < 0 || headerAt === best.rows.length - 1) return null;
+  // Texte qui précède le tableau (y compris les petits tableaux d'en-tête) : société / navire / référence.
+  const before = html.slice(0, best.index);
+  const preambleRows: string[][] = [];
+  for (const chunk of before.split(/<\/tr>/i)) {
+    const parts = /<t[dh][\s>]/i.test(chunk) ? [chunk] : chunk.split(/<\/p>|<br\s*\/?>|<\/h\d>/i);
+    for (const part of parts) {
+      const cells = part.split(/<\/t[dh]>/i).map(stripTags).filter((c) => c.length > 0);
+      if (cells.length > 0) preambleRows.push(cells);
+    }
+  }
+  return { headerRow: best.rows[headerAt], dataRows: best.rows.slice(headerAt + 1), preambleRows };
 }
 
 /** Word moderne (.docx) : premier tableau du document, ou à défaut le texte des paragraphes. */
