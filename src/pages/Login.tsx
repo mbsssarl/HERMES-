@@ -297,6 +297,7 @@ export function Login() {
         return (
           <Modal
             title={expired ? t.suspExpiredTitle : t.suspTitle}
+            danger
             onClose={clearSuspension}
             footer={<button className="btn btn-primary" onClick={clearSuspension}>{t.understood}</button>}
           >

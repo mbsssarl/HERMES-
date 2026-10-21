@@ -16,6 +16,7 @@ export function Modal({
   footer,
   wide,
   actions,
+  danger,
 }: {
   title: string;
   onClose: () => void;
@@ -24,6 +25,8 @@ export function Modal({
   wide?: boolean;
   /** Boutons affichés à droite du titre, avant la croix. */
   actions?: React.ReactNode;
+  /** Titre en rouge : pour une fenêtre qui annonce un blocage ou une action grave. */
+  danger?: boolean;
 }) {
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -35,7 +38,7 @@ export function Modal({
     <div className="modal-overlay" onMouseDown={onClose}>
       <div className={`modal ${wide ? 'modal-wide' : ''}`} onMouseDown={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <h3>{title}</h3>
+          <h3 style={danger ? { color: 'var(--color-error)' } : undefined}>{title}</h3>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {actions}
             <button className="btn btn-ghost btn-icon" onClick={onClose} aria-label="Fermer">✕</button>
