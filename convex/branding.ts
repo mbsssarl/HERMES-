@@ -5,7 +5,7 @@ import { logActivity } from "./lib/audit";
 import { companyIdOf, getAnyUser, requireAdmin, requireSuperadmin } from "./lib/permissions";
 
 const KEY = "branding";
-const DEFAULT_NAME = "M.B.S.S Sarl";
+const DEFAULT_NAME = "ERP";
 const MAX_NAME_LENGTH = 60;
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
 const LOGO_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/svg+xml"]);

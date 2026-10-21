@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="Logo par défaut">
+  <!-- Logo neutre, volontairement sans signification : remplacé par le logo de l'entreprise dans Admin > Personnalisation. -->
+  <rect width="96" height="96" rx="22" fill="#eef1f6"/>
+  <rect x="22" y="22" width="34" height="34" rx="9" fill="#9aa7bb"/>
+  <circle cx="58" cy="58" r="18" fill="#556176"/>
+</svg>

@@ -18,11 +18,11 @@ const KEY = 'companyInfo';
 const errMsg = (err: unknown) => (err instanceof Error ? err.message.replace(/^.*Uncaught Error:\s*/s, '').split('\n')[0] : String(err));
 
 const FIELDS: Array<{ key: keyof CompanyInfo; label: string; placeholder: string }> = [
-  { key: 'name', label: 'Raison sociale', placeholder: 'MARINI AND BRICE SHIPSCHANDLER SUPPLIER MBSS SARL' },
-  { key: 'address', label: 'Adresse', placeholder: 'RUE 533 CHARLEY EYOUM EBELLE DEIDO' },
-  { key: 'postal', label: 'BP, ville, pays', placeholder: 'BP : 3057 DOUALA CAMEROUN' },
+  { key: 'name', label: 'Raison sociale', placeholder: "Nom complet de l'entreprise" },
+  { key: 'address', label: 'Adresse', placeholder: 'Rue, quartier' },
+  { key: 'postal', label: 'BP, ville, pays', placeholder: 'BP, ville, pays' },
   { key: 'email', label: 'Email', placeholder: 'contact@entreprise.com' },
-  { key: 'phones', label: 'Téléphone(s) — « Operation Dept »', placeholder: '+237 600000000 / +237 600000001' },
+  { key: 'phones', label: 'Téléphone(s) — « Operation Dept »', placeholder: 'Numéro(s) de téléphone' },
   { key: 'website', label: 'Site web', placeholder: 'https://www.entreprise.com/' },
 ];
 

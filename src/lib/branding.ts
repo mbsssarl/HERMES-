@@ -3,8 +3,9 @@ import { useQuery } from 'convex/react';
 import { api } from './convex';
 import { applyAccent } from './accent';
 
-export const DEFAULT_LOGO = '/logo-mbss.webp';
-const DEFAULT_NAME = 'M.B.S.S Sarl';
+// Logo neutre, sans signification : une entreprise sans logo à elle n'hérite jamais de celui d'une autre.
+export const DEFAULT_LOGO = '/logo-default.svg';
+const DEFAULT_NAME = 'ERP';
 const CACHE_KEY = 'branding';
 
 export interface Branding {
