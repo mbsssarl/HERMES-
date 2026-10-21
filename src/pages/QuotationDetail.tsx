@@ -79,6 +79,8 @@ export function QuotationDetail({
     }
   });
   const dismissProposal = useMutation(api.orderItems.dismissProposal);
+  // Bouton « Laisser tel quel » (ligne « À confirmer » -> inconnue, en un clic)
+  const leaveLineAsIs = useMutation(api.orderItems.leaveLineAsIs);
   const decideEdit = useMutation(api.orderItemEdits.decide);
   const withdrawEdit = useMutation(api.orderItemEdits.withdraw);
   // Incrémenté quand une modification est seulement proposée (pas appliquée) : les cellules reprennent la valeur actuelle.
@@ -370,6 +372,10 @@ export function QuotationDetail({
             countryId={quotation.country_id}
             onDismiss={(it, productId) =>
               dismissProposal({ orderItemId: it.id as Id<'orderItems'>, productId: productId as Id<'products'> })
+                .catch((err) => toast('Erreur: ' + errMsg(err), 'error'))
+            }
+            onLeaveAsIs={(it) =>
+              leaveLineAsIs({ orderItemId: it.id as Id<'orderItems'> })
                 .catch((err) => toast('Erreur: ' + errMsg(err), 'error'))
             }
             edits={edits}

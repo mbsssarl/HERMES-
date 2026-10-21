@@ -84,6 +84,7 @@ export function LinesTable({
   countryId,
   onConfirm,
   onDismiss,
+  onLeaveAsIs,
   onToggle,
   edits,
   meId,
@@ -112,6 +113,8 @@ export function LinesTable({
   onConfirm: (item: QuotationItem, productId: string) => void;
   /** Ignore une proposition de correspondance. */
   onDismiss: (item: QuotationItem, productId: string) => void;
+  /** « Laisser tel quel » : aucune proposition ne convient, la ligne reste telle que le client l'a écrite et devient inconnue. */
+  onLeaveAsIs: (item: QuotationItem) => void;
   /** Inclut / exclut des lignes du devis (totaux, statistiques, PDF, fichier exporté). */
   onToggle: (items: QuotationItem[], included: boolean) => void;
 }) {
@@ -201,8 +204,20 @@ export function LinesTable({
                 <td className="text-right mono nowrap">{it.unit_price !== null ? formatAmount(it.unit_price) : '·'}</td>
                 <td className="text-right mono nowrap" style={{ fontWeight: 700 }}>{formatAmount(it.total_price)}</td>
                 <td style={{ minWidth: 150 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                     <MatchTag item={it} />
+                    {/* BOUTON « LAISSER TEL QUEL » : à côté du badge « À confirmer ». Un clic rend la ligne inconnue tout de suite
+                        (elle part alors dans le fichier fournisseur). Visible seulement si la ligne a des propositions. */}
+                    {proposals.length > 0 && (
+                      <button
+                        className="btn btn-sm"
+                        style={{ padding: '2px 8px', whiteSpace: 'nowrap' }}
+                        onClick={() => onLeaveAsIs(it)}
+                        title="Aucun produit du catalogue ne correspond. La ligne devient inconnue et sera demandée au fournisseur."
+                      >
+                        Laisser tel quel
+                      </button>
+                    )}
                     {proposals.length > 0 && (
                       <button
                         className="btn btn-ghost btn-sm"

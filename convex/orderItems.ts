@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { looksLikeSectionHeader } from "./lib/sectionHeaders";
 import { noteCatalogUpdate } from "./lib/catalogUpdates";
+import { refreshOrderStatus } from "./lib/orderStatus"; // état automatique En cours <-> En attente du fournisseur
 import { applyMatchedProduct, computeItemPricing, matchOrderItem, refreshCataloguePrice, rematchOrderItem } from "./lib/matching";
 import { learnAlias } from "./lib/productAliases";
 import { logActivity } from "./lib/audit";
@@ -61,6 +62,8 @@ export const confirmAmbiguousMatch = mutation({
     // No code was supplied for this line (that's why it was ambiguous) -
     // teach the wording so the same client phrasing matches instantly next time.
     if (!item.rawCode) await learnAlias(ctx, companyIdOf(user), productId, item.rawDescription, user._id);
+    // ÉTAT AUTOMATIQUE : la ligne a peut-être maintenant un prix (ou reste sans prix) : on recalcule l'état de la commande.
+    await refreshOrderStatus(ctx, item.orderId);
   },
 });
 
@@ -74,6 +77,8 @@ export const setManualMatch = mutation({
     await applyMatchedProduct(ctx, item, product, "manual", 1);
     await ctx.db.patch(orderItemId, { updatedBy: user._id });
     if (!item.rawCode) await learnAlias(ctx, companyIdOf(user), productId, item.rawDescription, user._id);
+    // ÉTAT AUTOMATIQUE : recalcul de l'état de la commande (voir lib/orderStatus.ts).
+    await refreshOrderStatus(ctx, item.orderId);
   },
 });
 
@@ -92,6 +97,8 @@ export const clearMatch = mutation({
       updatedAt: Date.now(),
       updatedBy: user._id,
     });
+    // ÉTAT AUTOMATIQUE : la ligne perd son produit (donc son prix du catalogue) : l'état de la commande peut changer.
+    await refreshOrderStatus(ctx, item.orderId);
   },
 });
 
@@ -212,6 +219,9 @@ export const saveExtractedItemsInternal = internalMutation({
     if (order.status === "draft") {
       await ctx.db.patch(orderId, { status: "processing", updatedAt: Date.now() });
     }
+    // ÉTAT AUTOMATIQUE : une fois les lignes importées et rapprochées du catalogue, la commande passe tout de suite
+    // « En attente du fournisseur » s'il reste des lignes sans prix (appelé APRÈS le passage brouillon -> en cours).
+    await refreshOrderStatus(ctx, orderId);
   },
 });
 
@@ -232,6 +242,8 @@ export const update = mutation({
     const order = await ctx.db.get(item.orderId);
     if (!order || order.createdBy === user._id) {
       await applyLineChanges(ctx, item, edits, user._id);
+      // ÉTAT AUTOMATIQUE : un prix saisi (ou effacé) change peut-être l'état de la commande.
+      await refreshOrderStatus(ctx, item.orderId);
       return { applied: true };
     }
 
@@ -301,6 +313,9 @@ export const rematchPendingInternal = internalMutation({
       if (nowMatched || nowPriced) improved.set(item.orderId, (improved.get(item.orderId) ?? 0) + 1);
     }
     for (const [orderId, lines] of improved) await noteCatalogUpdate(ctx, orderId, lines, actorEmail, wave);
+    // ÉTAT AUTOMATIQUE : des lignes viennent de trouver leur produit ou leur prix (ex. retour du fichier fournisseur) :
+    // les commandes concernées reviennent « En cours » quand plus aucune ligne ne manque de prix.
+    for (const orderId of improved.keys()) await refreshOrderStatus(ctx, orderId);
 
     if (!page.isDone) {
       await ctx.scheduler.runAfter(0, internal.orderItems.rematchPendingInternal, {
@@ -347,6 +362,8 @@ export const refreshOrder = mutation({
         repriced++;
       }
     }
+    // ÉTAT AUTOMATIQUE : après ce paquet de lignes, on recalcule l'état de la commande (aucune écriture s'il ne change pas).
+    await refreshOrderStatus(ctx, orderId);
     return { done: page.isDone, cursor: page.continueCursor, matched, repriced };
   },
 });
@@ -359,6 +376,8 @@ export const clearCataloguePricesInternal = internalMutation({
       .query("orderItems")
       .withIndex("by_company", (q) => q.eq("companyId", companyId))
       .paginate({ numItems: 100, cursor: cursor ?? null });
+    // ÉTAT AUTOMATIQUE : commandes dont au moins une ligne perd son prix (elles repassent « En attente du fournisseur »).
+    const touched = new Set<Id<"orders">>();
     for (const item of page.page) {
       if (!item.productId || item.unitPriceManual !== undefined || item.unitPriceOriginal === undefined) continue;
       const order = await ctx.db.get(item.orderId);
@@ -373,7 +392,9 @@ export const clearCataloguePricesInternal = internalMutation({
         total: undefined,
         updatedAt: Date.now(),
       });
+      touched.add(item.orderId);
     }
+    for (const orderId of touched) await refreshOrderStatus(ctx, orderId);
     if (!page.isDone) await ctx.scheduler.runAfter(0, internal.orderItems.clearCataloguePricesInternal, { companyId, cursor: page.continueCursor });
   },
 });
@@ -434,5 +455,41 @@ export const dismissProposal = mutation({
       updatedAt: Date.now(),
       updatedBy: user._id,
     });
+  },
+});
+
+/**
+ * BOUTON « LAISSER TEL QUEL » (ligne « À confirmer ») : l'employé a vu les propositions et aucune ne convient.
+ * La ligne reste telle que le client l'a écrite et devient INCONNUE tout de suite (matchStatus "unmatched"), sans produit,
+ * et n'est plus reproposée automatiquement ; elle part donc dans le fichier fournisseur. C'est le même résultat que de
+ * cliquer sur la croix de chaque proposition (dismissProposal), en un seul clic.
+ *
+ * Refusé si la commande est dans la corbeille, validée, envoyée ou archivée (ses lignes sont figées, comme pour
+ * « Actualiser »). Une ligne qui n'est pas « À confirmer » est laissée telle quelle (rien à faire).
+ */
+export const leaveLineAsIs = mutation({
+  args: { orderItemId: v.id("orderItems") },
+  handler: async (ctx, { orderItemId }) => {
+    const user = await requireUser(ctx);
+    const item = await requireItem(ctx, user, orderItemId);
+
+    const order = await ctx.db.get(item.orderId);
+    if (!order) throw new Error("Commande introuvable.");
+    if (order.deletedAt !== undefined) throw new Error("Cette quotation est dans la corbeille.");
+    if (order.validatedAt !== undefined || order.status === "po" || order.status === "sent" || order.status === "archived") {
+      throw new Error("Cette quotation est validée ou envoyée : ses lignes sont figées.");
+    }
+
+    if (item.matchStatus !== "ambiguous") return;
+    await ctx.db.patch(orderItemId, {
+      matchStatus: "unmatched",
+      productId: undefined,
+      matchConfidence: undefined,
+      ambiguousCandidates: undefined,
+      proposalsDismissed: true,
+      updatedAt: Date.now(),
+      updatedBy: user._id,
+    });
+    // Aucun recalcul d'état ici : une ligne « À confirmer » n'avait déjà pas de prix, elle n'en a toujours pas.
   },
 });
