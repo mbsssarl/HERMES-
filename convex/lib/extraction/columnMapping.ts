@@ -269,8 +269,10 @@ function extractClientRows(
     // simply failed to map to "description".
     if (!description) continue;
 
+    // Le code brut du client est conservé tel quel (affichage + matching par code produit, pas seulement IMPA) :
+    // le restreindre aux seules formes IMPA (ancien comportement) effaçait toute référence interne du client
+    // qui n'avait pas cette forme, même quand elle correspondait au champ « code » (non-IMPA) d'un produit du catalogue.
     const codeText = columns.rawCode !== -1 ? toCodeOrUndefined(row[columns.rawCode]) : undefined;
-    const rawCode = columns.rawCode !== -1 ? toImpaCode(row[columns.rawCode]) : undefined;
     const rawUnit = columns.rawUnit !== -1 ? toStringOrUndefined(row[columns.rawUnit]) : undefined;
     const rawOrigin = columns.rawOrigin !== -1 ? toStringOrUndefined(row[columns.rawOrigin]) : undefined;
 
@@ -280,7 +282,7 @@ function extractClientRows(
     if (looksLikeMergedArtifactRow(description, [codeText, rawUnit, rawOrigin])) continue;
 
     items.push({ rowIndex, item: {
-      rawCode,
+      rawCode: codeText,
       rawDescription: description,
       rawQuantity: columns.rawQuantity !== -1 ? toNumberOrUndefined(row[columns.rawQuantity]) : undefined,
       rawUnit,
