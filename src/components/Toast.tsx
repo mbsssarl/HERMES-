@@ -1,4 +1,5 @@
 import React from 'react';
+import { humanizeError } from '../lib/errors';
 
 type ToastType = 'default' | 'error' | 'success' | 'info';
 
@@ -18,7 +19,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const timer = React.useRef<number | undefined>(undefined);
 
   const show = React.useCallback<ShowToast>((msg, type = 'default', options) => {
-    setToast({ msg, type, action: options?.action });
+    // Une erreur du serveur est nettoyée de son enveloppe technique (identifiants de requête, trace...).
+    let text = msg;
+    if (type === 'error') {
+      const prefix = msg.startsWith('Erreur: ') ? 'Erreur: ' : '';
+      text = prefix + humanizeError(msg.slice(prefix.length));
+    }
+    setToast({ msg: text, type, action: options?.action });
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => setToast(null), options?.duration ?? (options?.action ? 9000 : 3200));
   }, []);

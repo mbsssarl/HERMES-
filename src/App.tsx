@@ -193,7 +193,7 @@ function AppInner() {
         )}
         {view === 'settings' && <Settings me={me} />}
         {view === 'admin' && me.role === 'admin' && (
-          <Admin subscriptionEndsAt={me.companySubscriptionEndsAt} quotations={quotations} countries={countries} loadingCountries={loadingCountries} currencies={currencies} categories={categories} onOpen={(q) => openQuotation(q.id)} />
+          <Admin meId={me.id} subscriptionEndsAt={me.companySubscriptionEndsAt} quotations={quotations} countries={countries} loadingCountries={loadingCountries} currencies={currencies} categories={categories} onOpen={(q) => openQuotation(q.id)} />
         )}
       </main>
     </div>

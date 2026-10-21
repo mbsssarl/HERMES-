@@ -73,6 +73,7 @@ type UserDoc = Doc<'users'>;
  * aux quotations de chacun.
  */
 export function Admin({
+  meId,
   subscriptionEndsAt,
   quotations,
   countries,
@@ -81,6 +82,8 @@ export function Admin({
   loadingCountries,
   onOpen,
 }: {
+  /** Compte connecté : il ne peut ni se désactiver ni réinitialiser son propre mot de passe ici. */
+  meId: string;
   /** Fin de l'abonnement de l'entreprise (ms) ; null = sans échéance. */
   subscriptionEndsAt: number | null;
   quotations: QuotationWithRelations[];
@@ -138,7 +141,7 @@ export function Admin({
         <UserDetail user={selected} quotations={quotations} onBack={() => setSelectedId(null)} onOpen={onOpen} users={users} />
       ) : (
         <>
-          {tab === 'users' && <UsersTab users={users} quotations={quotations} onSelect={setSelectedId} />}
+          {tab === 'users' && <UsersTab users={users} quotations={quotations} onSelect={setSelectedId} meId={meId} />}
           {tab === 'logs' && <LogsTab users={users} />}
           {tab === 'currencies' && <CurrenciesTab currencies={currencies} />}
           {tab === 'categories' && <CategoriesTab categories={categories} />}
@@ -165,10 +168,12 @@ function UsersTab({
   users,
   quotations,
   onSelect,
+  meId,
 }: {
   users: UserDoc[];
   quotations: QuotationWithRelations[];
   onSelect: (id: string) => void;
+  meId: string;
 }) {
   const toast = useToast();
   const createUser = useMutation(api.users.createUser);
@@ -253,12 +258,19 @@ function UsersTab({
                   <td className="text-muted nowrap" data-label="Dernière connexion">{u.lastLoginAt ? formatDate(new Date(u.lastLoginAt).toISOString()) : 'Jamais'}</td>
                   <td className="text-right mono" data-label="Quotations">{countBy.get(u._id) ?? 0}</td>
                   <td className="text-right nowrap c-actions" onClick={(e) => e.stopPropagation()}>
-                    <button className="btn btn-ghost btn-sm" onClick={() => setToReset(u)} title="Générer un mot de passe à usage unique">
-                      <KeyRound size={14} /> Réinitialiser le mot de passe
-                    </button>
-                    {u.status === 'active'
-                      ? <button className="btn btn-ghost btn-sm" onClick={() => void setStatus(u, 'disabled')}>Désactiver</button>
-                      : <button className="btn btn-ghost btn-sm" onClick={() => void setStatus(u, 'active')}>Réactiver</button>}
+                    {u._id === meId ? (
+                      // Son propre compte : aucune action possible ici (le mot de passe se change dans Réglages).
+                      <span className="text-muted" style={{ fontSize: 13 }}>Votre compte</span>
+                    ) : (
+                      <>
+                        <button className="btn btn-ghost btn-sm" onClick={() => setToReset(u)} title="Générer un mot de passe à usage unique">
+                          <KeyRound size={14} /> Réinitialiser le mot de passe
+                        </button>
+                        {u.status === 'active'
+                          ? <button className="btn btn-ghost btn-sm" onClick={() => void setStatus(u, 'disabled')}>Désactiver</button>
+                          : <button className="btn btn-ghost btn-sm" onClick={() => void setStatus(u, 'active')}>Réactiver</button>}
+                      </>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -508,9 +520,6 @@ function CurrenciesTab({ currencies }: { currencies: Currency[] }) {
         <div className="card-pad card-head">
           <div>
             <h3 style={{ fontSize: 16 }}>Devises</h3>
-            <span className="text-muted" style={{ fontSize: 13 }}>
-              Devises disponibles pour les régions et pour la conversion du fichier exporté (code ISO 4217 exact requis : le taux de change en ligne s'appuie dessus).
-            </span>
           </div>
           <div className="toolbar-actions">
             <button className="btn" onClick={() => void seedAll()} disabled={seeding} title="Ajoute toutes les devises ISO 4217 manquantes, sans toucher à celles déjà présentes.">
