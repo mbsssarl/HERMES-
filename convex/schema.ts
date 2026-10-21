@@ -35,7 +35,7 @@ const schema = defineSchema({
     suspendReason: v.optional(v.string()),
     // Pourquoi l'entreprise est suspendue : décision du super admin, ou abonnement arrivé à échéance (levée par le
     // renouvellement). Absent = suspension antérieure à cette distinction, traitée comme manuelle.
-    suspendKind: v.optional(v.union(v.literal("manual"), v.literal("subscription"))),
+    suspendKind: v.optional(v.union(v.literal("manual"), v.literal("subscription"), v.literal("deleting"))),
     // Fin de l'abonnement mensuel (30 jours, renouvelable par le super admin). À l'échéance, l'entreprise est
     // suspendue automatiquement. Absent = pas d'échéance (entreprise historique).
     subscriptionEndsAt: v.optional(v.number()),

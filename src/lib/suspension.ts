@@ -4,7 +4,7 @@ import React from 'react';
 export interface SuspensionNotice {
   name: string | null;
   /** « subscription » : abonnement échu ; « manual » : décision du super admin. */
-  kind: 'manual' | 'subscription' | null;
+  kind: 'manual' | 'subscription' | 'deleting' | null;
   /** Motif saisi par le super admin (absent pour un abonnement échu). */
   reason: string | null;
   /** Fin de l'abonnement (ms). */

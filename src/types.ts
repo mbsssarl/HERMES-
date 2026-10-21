@@ -181,7 +181,7 @@ export interface AppUser {
   companySuspended: boolean;
   companyName: string | null;
   /** « subscription » : abonnement échu ; « manual » : décision du super admin ; null : pas suspendue (ou ancienne suspension). */
-  companySuspendKind: 'manual' | 'subscription' | null;
+  companySuspendKind: 'manual' | 'subscription' | 'deleting' | null;
   /** Fin de l'abonnement (ms), null = pas d'échéance. */
   companySubscriptionEndsAt: number | null;
   /** Motif de la suspension saisi par le super admin (null pour un abonnement échu). */

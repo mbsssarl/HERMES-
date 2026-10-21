@@ -1,7 +1,7 @@
 import React from 'react';
 import { useMutation, useQuery } from 'convex/react';
 import { useAuthActions } from '@convex-dev/auth/react';
-import { Building2, CalendarPlus, Copy, KeyRound, LogOut, Palette, Pencil, PauseCircle, PlayCircle, Plus, Settings as SettingsIcon } from 'lucide-react';
+import { Ban, Building2, CalendarPlus, Copy, KeyRound, LogOut, Palette, Pencil, PauseCircle, PlayCircle, Plus, Settings as SettingsIcon, Trash2 } from 'lucide-react';
 import { api, type Id } from '../lib/convex';
 import { applyTheme } from '../lib/theme';
 import { setLanguage } from '../lib/i18n';
@@ -115,12 +115,21 @@ function CompaniesView() {
   const setStatus = useMutation(api.platform.setCompanyStatus);
   const resetAdmin = useMutation(api.platform.resetCompanyAdminPassword);
   const renew = useMutation(api.platform.renewSubscription);
+  const terminate = useMutation(api.platform.terminateSubscription);
+  const removeCompany = useMutation(api.platform.deleteCompany);
 
   type Company = NonNullable<typeof companies>[number];
   const [showCreate, setShowCreate] = React.useState(false);
   const [toRename, setToRename] = React.useState<Company | null>(null);
   const [toSuspend, setToSuspend] = React.useState<Company | null>(null);
   const [toReset, setToReset] = React.useState<Company | null>(null);
+  // Actions confirmées par le mot de passe du super admin : renouveler (nombre de mois), résilier, supprimer.
+  const [toRenew, setToRenew] = React.useState<Company | null>(null);
+  const [toTerminate, setToTerminate] = React.useState<Company | null>(null);
+  const [toDelete, setToDelete] = React.useState<Company | null>(null);
+  const [toReactivate, setToReactivate] = React.useState<Company | null>(null);
+  const [months, setMonths] = React.useState('1');
+  const [password, setPassword] = React.useState('');
   const [secret, setSecret] = React.useState<Secret | null>(null);
   const [busy, setBusy] = React.useState(false);
 
@@ -163,15 +172,16 @@ function CompaniesView() {
 
   const submitSuspend = () => run(async () => {
     if (!toSuspend) return;
-    await setStatus({ companyId: toSuspend.id as Id<'companies'>, status: 'suspended', reason });
+    await setStatus({ companyId: toSuspend.id as Id<'companies'>, status: 'suspended', reason, password });
     toast(`${toSuspend.name} est suspendue : ses utilisateurs sont déconnectés.`, 'success');
-    setToSuspend(null);
-    setReason('');
+    closeSecure();
   });
 
-  const reactivate = (c: Company) => run(async () => {
-    await setStatus({ companyId: c.id as Id<'companies'>, status: 'active' });
-    toast(`${c.name} est réactivée.`, 'success');
+  const submitReactivate = () => run(async () => {
+    if (!toReactivate) return;
+    await setStatus({ companyId: toReactivate.id as Id<'companies'>, status: 'active', password });
+    toast(`${toReactivate.name} est réactivée.`, 'success');
+    closeSecure();
   });
 
   const submitReset = () => run(async () => {
@@ -181,9 +191,35 @@ function CompaniesView() {
     setSecret({ title: 'Mot de passe réinitialisé', email: res.email, password: res.tempPassword, intro: 'Mot de passe à usage unique pour' });
   });
 
-  const renewOne = (c: Company) => run(async () => {
-    const res = await renew({ companyId: c.id as Id<'companies'> });
-    toast(`Abonnement de ${c.name} renouvelé jusqu'au ${longDate(res.subscriptionEndsAt)}${res.reactivated ? ' : entreprise réactivée.' : '.'}`, 'success');
+  const closeSecure = () => { setToRenew(null); setToTerminate(null); setToDelete(null); setToReactivate(null); setToSuspend(null); setPassword(''); setMonths('1'); setReason(''); };
+
+  const monthsNumber = Number(months);
+  const monthsValid = Number.isInteger(monthsNumber) && monthsNumber >= 1 && monthsNumber <= 36;
+  // Aperçu de la nouvelle échéance : à partir de l'échéance actuelle si elle n'est pas dépassée, sinon d'aujourd'hui.
+  const renewPreview = (c: Company) => {
+    const base = c.subscriptionEndsAt !== null && c.subscriptionEndsAt > Date.now() ? c.subscriptionEndsAt : Date.now();
+    return base + monthsNumber * 30 * 86_400_000;
+  };
+
+  const submitRenew = () => run(async () => {
+    if (!toRenew || !monthsValid) return;
+    const res = await renew({ companyId: toRenew.id as Id<'companies'>, months: monthsNumber, password });
+    toast(`Abonnement de ${toRenew.name} prolongé de ${monthsNumber} mois, jusqu'au ${longDate(res.subscriptionEndsAt)}${res.reactivated ? ' : entreprise réactivée.' : '.'}`, 'success');
+    closeSecure();
+  });
+
+  const submitTerminate = () => run(async () => {
+    if (!toTerminate) return;
+    await terminate({ companyId: toTerminate.id as Id<'companies'>, password });
+    toast(`Abonnement de ${toTerminate.name} résilié : l'accès est coupé.`, 'success');
+    closeSecure();
+  });
+
+  const submitDelete = () => run(async () => {
+    if (!toDelete) return;
+    const res = await removeCompany({ companyId: toDelete.id as Id<'companies'>, password });
+    toast(`Suppression de ${res.name} lancée : ses données sont effacées en arrière-plan.`, 'success');
+    closeSecure();
   });
 
   const adminPreview = `admin@${(code || 'code').trim().toLowerCase()}.dev`;
@@ -227,7 +263,7 @@ function CompaniesView() {
                     </td>
                     <td className="text-muted">{c.adminEmail ?? '·'}</td>
                     <td>
-                      <span className={`tag ${c.status === 'active' ? 'tag-new' : 'tag-warn'}`}>{c.status === 'active' ? 'Active' : c.suspendKind === 'subscription' ? 'Abonnement expiré' : 'Suspendue'}</span>
+                      <span className={`tag ${c.status === 'active' ? 'tag-new' : 'tag-warn'}`}>{c.status === 'active' ? 'Active' : c.suspendKind === 'deleting' ? 'Suppression en cours' : c.suspendKind === 'subscription' ? 'Abonnement expiré' : 'Suspendue'}</span>
                       {c.status === 'suspended' && c.suspendReason && (
                         <div className="text-muted" style={{ fontSize: 12, marginTop: 4, maxWidth: 220 }}>{c.suspendReason}</div>
                       )}
@@ -246,23 +282,37 @@ function CompaniesView() {
                     <td className="text-right mono">{c.orders}{c.ordersCapped ? '+' : ''}</td>
                     <td className="text-muted nowrap">{c.lastLoginAt ? formatDate(new Date(c.lastLoginAt).toISOString()) : 'Jamais'}</td>
                     <td className="text-right nowrap">
-                      <button className="btn btn-ghost btn-sm" title="Renouveler l'abonnement de 30 jours" onClick={() => void renewOne(c)} disabled={busy}>
-                        <CalendarPlus size={14} /> Renouveler
-                      </button>
-                      <button className="btn btn-ghost btn-sm" title="Renommer" onClick={() => { setToRename(c); setNewName(c.name); }}>
-                        <Pencil size={14} />
-                      </button>
-                      <button className="btn btn-ghost btn-sm" title="Générer un mot de passe à usage unique pour l'administrateur" onClick={() => setToReset(c)} disabled={!c.adminEmail}>
-                        <KeyRound size={14} />
-                      </button>
-                      {c.status === 'active' ? (
-                        <button className="btn btn-ghost btn-sm" style={{ color: '#b91c1c' }} onClick={() => { setToSuspend(c); setReason(''); }}>
-                          <PauseCircle size={14} /> Suspendre
-                        </button>
+                      {c.suspendKind === 'deleting' ? (
+                        <span className="text-muted" style={{ fontSize: 13 }}>Suppression en cours…</span>
                       ) : (
-                        <button className="btn btn-ghost btn-sm" onClick={() => void reactivate(c)} disabled={busy}>
-                          <PlayCircle size={14} /> Réactiver
-                        </button>
+                        <>
+                          <button className="btn btn-ghost btn-sm" title="Prolonger l'abonnement (nombre de mois au choix)" onClick={() => { setToRenew(c); setMonths('1'); setPassword(''); }} disabled={busy}>
+                            <CalendarPlus size={14} /> Renouveler
+                          </button>
+                          {c.status === 'active' && c.subscriptionEndsAt !== null && (
+                            <button className="btn btn-ghost btn-sm" title="Résilier l'abonnement : l'accès est coupé tout de suite" onClick={() => { setToTerminate(c); setPassword(''); }} disabled={busy}>
+                              <Ban size={14} /> Résilier
+                            </button>
+                          )}
+                          <button className="btn btn-ghost btn-sm" title="Renommer" onClick={() => { setToRename(c); setNewName(c.name); }}>
+                            <Pencil size={14} />
+                          </button>
+                          <button className="btn btn-ghost btn-sm" title="Générer un mot de passe à usage unique pour l'administrateur" onClick={() => setToReset(c)} disabled={!c.adminEmail}>
+                            <KeyRound size={14} />
+                          </button>
+                          {c.status === 'active' ? (
+                            <button className="btn btn-ghost btn-sm" style={{ color: '#b91c1c' }} onClick={() => { setToSuspend(c); setReason(''); setPassword(''); }}>
+                              <PauseCircle size={14} /> Suspendre
+                            </button>
+                          ) : (
+                            <button className="btn btn-ghost btn-sm" onClick={() => { setToReactivate(c); setPassword(''); }} disabled={busy}>
+                              <PlayCircle size={14} /> Réactiver
+                            </button>
+                          )}
+                          <button className="btn btn-ghost btn-sm" style={{ color: '#b91c1c' }} title="Supprimer définitivement l'entreprise et toutes ses données" onClick={() => { setToDelete(c); setPassword(''); }} disabled={busy}>
+                            <Trash2 size={14} />
+                          </button>
+                        </>
                       )}
                     </td>
                   </tr>
@@ -272,6 +322,91 @@ function CompaniesView() {
           </div>
         )}
       </div>
+
+      {toRenew && (
+        <Modal
+          title={`Renouveler l'abonnement de ${toRenew.name}`}
+          onClose={() => !busy && closeSecure()}
+          footer={<>
+            <button className="btn" onClick={closeSecure} disabled={busy}>Annuler</button>
+            <button className="btn btn-primary" onClick={() => void submitRenew()} disabled={busy || !monthsValid || !password}>
+              {busy ? 'Renouvellement…' : 'Renouveler'}
+            </button>
+          </>}
+        >
+          <div className="form-field" style={{ marginBottom: 8 }}>
+            <label>Nombre de mois (1 mois = 30 jours)</label>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              {[1, 3, 6, 12].map((m) => (
+                <button key={m} type="button" className={`btn btn-sm ${monthsNumber === m ? 'btn-primary' : ''}`} onClick={() => setMonths(String(m))}>{m}</button>
+              ))}
+              <input className="input" type="number" min={1} max={36} step={1} style={{ width: 90 }} value={months} onChange={(e) => setMonths(e.target.value)} aria-label="Nombre de mois" />
+            </div>
+            {!monthsValid && <span style={{ fontSize: 12, color: 'var(--color-error)' }}>Entre 1 et 36 mois.</span>}
+          </div>
+          {monthsValid && (
+            <p style={{ margin: '8px 0 0' }}>
+              Nouvelle échéance : <strong>{longDate(renewPreview(toRenew))}</strong>
+              {toRenew.status === 'suspended' && toRenew.suspendKind === 'subscription' ? ' — l\'entreprise sera réactivée.' : '.'}
+            </p>
+          )}
+          <div className="form-field" style={{ marginTop: 12, marginBottom: 0 }}>
+            <label>Votre mot de passe (super administrateur)</label>
+            <input className="input" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+            <span className="text-muted" style={{ fontSize: 12 }}>Pour confirmer cette action.</span>
+          </div>
+        </Modal>
+      )}
+
+      {toTerminate && (
+        <Modal
+          title={`Résilier l'abonnement de ${toTerminate.name} ?`}
+          onClose={() => !busy && closeSecure()}
+          footer={<>
+            <button className="btn" onClick={closeSecure} disabled={busy}>Annuler</button>
+            <button className="btn btn-primary" style={{ background: '#dc2626', borderColor: '#dc2626' }} onClick={() => void submitTerminate()} disabled={busy || !password}>
+              {busy ? 'Résiliation…' : 'Résilier'}
+            </button>
+          </>}
+        >
+          <p>
+            L'abonnement prend fin <strong>immédiatement</strong> : les {toTerminate.activeUsers} compte(s) actif(s) sont déconnectés et ne peuvent plus
+            se connecter. Aucune donnée n'est supprimée ; un renouvellement rétablit l'accès.
+          </p>
+          <div className="form-field" style={{ marginTop: 12, marginBottom: 0 }}>
+            <label>Votre mot de passe (super administrateur)</label>
+            <input className="input" type="password" autoComplete="current-password" value={password} autoFocus onChange={(e) => setPassword(e.target.value)} />
+            <span className="text-muted" style={{ fontSize: 12 }}>Pour confirmer cette action.</span>
+          </div>
+        </Modal>
+      )}
+
+      {toDelete && (
+        <Modal
+          title={`Supprimer définitivement ${toDelete.name} ?`}
+          onClose={() => !busy && closeSecure()}
+          footer={<>
+            <button className="btn" onClick={closeSecure} disabled={busy}>Annuler</button>
+            <button className="btn btn-primary" style={{ background: '#dc2626', borderColor: '#dc2626' }} onClick={() => void submitDelete()} disabled={busy || !password}>
+              {busy ? 'Suppression…' : 'Supprimer définitivement'}
+            </button>
+          </>}
+        >
+          <p>
+            <strong>Action irréversible.</strong> Seront effacés pour toujours : les {toDelete.users} compte(s) et leurs connexions, les clients, le catalogue
+            et les prix, les {toDelete.orders}{toDelete.ordersCapped ? '+' : ''} quotation(s) avec leurs fichiers, les réglages et le journal de {toDelete.name}.
+          </p>
+          <p className="text-muted" style={{ fontSize: 13, marginTop: 8 }}>
+            L'entreprise est bloquée aussitôt ; l'effacement se fait en arrière-plan et peut prendre quelques minutes pour un grand catalogue.
+            Pensez à faire une sauvegarde avant.
+          </p>
+          <div className="form-field" style={{ marginTop: 12, marginBottom: 0 }}>
+            <label>Votre mot de passe (super administrateur)</label>
+            <input className="input" type="password" autoComplete="current-password" value={password} autoFocus onChange={(e) => setPassword(e.target.value)} />
+            <span className="text-muted" style={{ fontSize: 12 }}>Pour confirmer cette action.</span>
+          </div>
+        </Modal>
+      )}
 
       {showCreate && (
         <Modal
@@ -332,10 +467,10 @@ function CompaniesView() {
       {toSuspend && (
         <Modal
           title={`Suspendre ${toSuspend.name} ?`}
-          onClose={() => !busy && setToSuspend(null)}
+          onClose={() => !busy && closeSecure()}
           footer={<>
-            <button className="btn" onClick={() => setToSuspend(null)} disabled={busy}>Annuler</button>
-            <button className="btn btn-primary" style={{ background: '#dc2626', borderColor: '#dc2626' }} onClick={() => void submitSuspend()} disabled={busy || reason.trim().length < 3}>
+            <button className="btn" onClick={closeSecure} disabled={busy}>Annuler</button>
+            <button className="btn btn-primary" style={{ background: '#dc2626', borderColor: '#dc2626' }} onClick={() => void submitSuspend()} disabled={busy || reason.trim().length < 3 || !password}>
               {busy ? 'Suspension…' : 'Suspendre'}
             </button>
           </>}
@@ -348,6 +483,31 @@ function CompaniesView() {
             <label>Motif de la suspension</label>
             <input className="input" value={reason} maxLength={300} autoFocus placeholder="Ex. : paiement non reçu, demande du client…" onChange={(e) => setReason(e.target.value)} />
             <span className="text-muted" style={{ fontSize: 12 }}>Obligatoire. Ce texte sera montré aux personnes qui tentent de se connecter à cette entreprise.</span>
+          </div>
+          <div className="form-field" style={{ marginTop: 12, marginBottom: 0 }}>
+            <label>Votre mot de passe (super administrateur)</label>
+            <input className="input" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+            <span className="text-muted" style={{ fontSize: 12 }}>Pour confirmer cette action.</span>
+          </div>
+        </Modal>
+      )}
+
+      {toReactivate && (
+        <Modal
+          title={`Réactiver ${toReactivate.name} ?`}
+          onClose={() => !busy && closeSecure()}
+          footer={<>
+            <button className="btn" onClick={closeSecure} disabled={busy}>Annuler</button>
+            <button className="btn btn-primary" onClick={() => void submitReactivate()} disabled={busy || !password}>
+              {busy ? 'Réactivation…' : 'Réactiver'}
+            </button>
+          </>}
+        >
+          <p>Les comptes de l'entreprise pourront de nouveau se connecter et retrouveront leurs données.</p>
+          <div className="form-field" style={{ marginTop: 12, marginBottom: 0 }}>
+            <label>Votre mot de passe (super administrateur)</label>
+            <input className="input" type="password" autoComplete="current-password" value={password} autoFocus onChange={(e) => setPassword(e.target.value)} />
+            <span className="text-muted" style={{ fontSize: 12 }}>Pour confirmer cette action.</span>
           </div>
         </Modal>
       )}
