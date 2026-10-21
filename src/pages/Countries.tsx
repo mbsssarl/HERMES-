@@ -46,7 +46,7 @@ export function Countries({ countries, loading, isAdmin }: { countries: Country[
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
         <p className="text-muted" style={{ fontSize: 13 }}>
-          Régions de cotation (un pays peut en compter plusieurs, une par ville de cotation) et leur devise : tout article ajouté à une région hérite automatiquement de sa devise.
+          Un pays peut avoir plusieurs régions de cotation (une par ville).
           {isAdmin ? ' Cliquez sur une cellule pour la modifier.' : ''}
         </p>
         {isAdmin && <button className="btn btn-primary" onClick={() => setShowAdd(true)}><Plus size={16} /> Ajouter une région</button>}
