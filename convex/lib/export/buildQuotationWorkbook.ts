@@ -237,6 +237,12 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
     }
   }
 
+  // Espacement réduit : une seule ligne vide (au lieu de deux) sous la mention rouge (11-12) et sous le bandeau (14-15).
+  for (const [kept, dropped] of [[11, 12], [14, 15]]) {
+    ws.getRow(kept).height = 12;
+    ws.getRow(dropped).hidden = true;
+  }
+
   // --- logo : l'image du gabarit (slogan + logo) est remplacée par le logo seul, à gauche des 6 lignes
   (ws as unknown as { _media: unknown[] })._media = [];
   (workbook as unknown as { media: unknown[] }).media = [];
