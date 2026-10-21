@@ -93,9 +93,8 @@ export const listCompanies = query({
  * catégories de la première entreprise servent de point de départ ; le catalogue produits, lui, commence vide.
  */
 export const createCompany = mutation({
-  // copyRegionsFrom : entreprise dont on reprend la liste des régions (facultatif ; sinon la liste commence vide).
-  args: { name: v.string(), code: v.string(), copyRegionsFrom: v.optional(v.id("companies")) },
-  handler: async (ctx, { name, code, copyRegionsFrom }) => {
+  args: { name: v.string(), code: v.string() },
+  handler: async (ctx, { name, code }) => {
     const root = await requireSuperadmin(ctx);
     const cleanName = name.trim();
     const cleanCode = code.trim().toLowerCase();
@@ -123,19 +122,12 @@ export const createCompany = mutation({
     // Référentiels de départ, indépendants de toute autre entreprise (supprimer une entreprise n'en prive aucune) :
     //  - devises : toutes les devises ISO, seules les devises usuelles (CORE_CURRENCIES) étant actives ;
     //  - catégories : celles du catalogue IMPA, plus « No IMPA » ;
-    //  - régions : reprises d'une entreprise choisie par le super admin, sinon liste vide (l'admin les crée).
+    //  - régions : aucune, l'administrateur de l'entreprise les crée lui-même (Admin > Régions).
     for (const [currencyCode, currencyName] of Object.entries(KNOWN_CURRENCIES)) {
       await ctx.db.insert("currencies", { companyId, code: currencyCode, name: currencyName, active: CORE_CURRENCIES.includes(currencyCode) });
     }
     for (const categoryName of [...IMPA_CATEGORIES, NO_IMPA_CATEGORY]) {
       await ctx.db.insert("productCategories", { companyId, name: categoryName, active: true });
-    }
-    if (copyRegionsFrom) {
-      const source = await ctx.db.get(copyRegionsFrom);
-      if (!source) throw new Error("Entreprise source des régions introuvable.");
-      for (const c of await ctx.db.query("countries").withIndex("by_company_and_code", (q) => q.eq("companyId", copyRegionsFrom)).take(500)) {
-        await ctx.db.insert("countries", { companyId, code: c.code, name: c.name, city: c.city, active: c.active });
-      }
     }
 
     const tempPassword = generateTempPassword();
