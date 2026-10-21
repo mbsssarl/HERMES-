@@ -537,15 +537,8 @@ input[type='checkbox'] { accent-color: var(--color-primary); width: 16px; height
 /* ---------- Responsive ---------- */
 
 /* Points de rupture du projet : téléphone ≤ 640 px, tablette ≤ 1024 px, ordinateur au-delà. */
-@media (max-width: 1024px) {
-  .app { grid-template-columns: 1fr; }
-  .sidebar { position: relative; height: auto; flex-direction: row; overflow-x: auto; padding: 12px; }
-  .sidebar .brand { padding: 0 12px 0 6px; }
-  .sidebar .brand-text { display: none; }
-  .nav-item { white-space: nowrap; width: auto; }
-  .sidebar-foot { margin-top: 0; padding-top: 0; display: flex; align-items: center; }
-  .sidebar-foot .who { display: none; }
-}
+/* Le menu sur tablette et téléphone (≤ 1024 px) n'est plus une barre : c'est un tiroir ouvert par le hamburger.
+   Voir la section « Menu repliable » à la fin de ce fichier. */
 
 /* Tableau à défilement vertical : l'en-tête reste visible comme repère */
 .table-scroll { overflow: auto; border-radius: var(--radius-md); }
@@ -808,11 +801,7 @@ table.data.list tbody tr:hover td { background: var(--color-surface-2); }
   box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
 }
 
-@media (max-width: 1024px) {
-  .app { grid-template-columns: 1fr; }
-  .sidebar { margin: 10px; top: 0; height: auto; border-radius: 22px; padding: 10px 12px; }
-  .sidebar-foot { border-top: none; }
-}
+/* (Menu ≤ 1024 px : voir la section « Menu repliable » à la fin du fichier.) */
 
 /* ---------- Commutateur segmenté (filtres à choix unique) ---------- */
 
@@ -980,43 +969,9 @@ table.data.list tbody tr:hover td { background: var(--color-surface-2); }
   .actions-bar .btn { flex: 1 1 140px; }
   .upload-zone { padding: 32px 16px; }
 
-  /* --- Navigation : barre fixe en bas de l'écran, atteignable au pouce --- */
-  .sidebar {
-    position: fixed;
-    inset: auto 0 0 0;
-    margin: 0;
-    height: auto;
-    z-index: 40;
-    border-radius: 20px 20px 0 0;
-    padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
-    gap: 2px;
-    justify-content: space-around;
-    overflow: visible;
-  }
-  .sidebar .brand { display: none; }
-  .sidebar .nav-item {
-    position: relative;
-    flex: 1 1 0;
-    min-width: 0;
-    flex-direction: column;
-    justify-content: center;
-    gap: 3px;
-    padding: 6px 2px;
-    font-size: 10.5px;
-    line-height: 1.15;
-    text-align: center;
-    white-space: normal;
-    overflow-wrap: anywhere;
-  }
-  .sidebar-foot { flex: 1 1 0; min-width: 0; }
-  .sidebar-foot .nav-item { width: 100%; }
-  /* Pastilles de comptage : posées en coin de l'icône pour ne pas élargir l'onglet */
-  .sidebar .nav-item .count,
-  .sidebar .nav-item .nav-dot { position: absolute; top: 2px; right: 8%; margin: 0; padding: 0 5px; min-width: 16px; height: 16px; font-size: 10px; }
-  /* Le contenu ne doit pas passer sous la barre fixe */
-  .main { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
-  /* Les notifications se posent au-dessus de la barre */
-  .toast { left: 12px; right: 12px; bottom: calc(84px + env(safe-area-inset-bottom)); max-width: none; }
+  /* (L'ancienne barre de navigation fixe en bas de l'écran est remplacée par le menu en tiroir : voir « Menu repliable ».) */
+  /* Les notifications prennent toute la largeur */
+  .toast { left: 12px; right: 12px; bottom: calc(16px + env(safe-area-inset-bottom)); max-width: none; }
 
   /* --- Fenêtres modales : plein écran utile, boutons toujours visibles --- */
   .modal-overlay { padding: 8px; }
@@ -1266,4 +1221,115 @@ table.data.list tbody tr:hover td { background: var(--color-surface-2); }
   .filter-input { width: 100%; }
   .toolbar-actions .btn { flex: 1 1 100%; }
   table.data.cards .c-actions .btn { flex: 1 1 140px; }
+}
+
+/* ====================================================================================
+   MENU REPLIABLE (hamburger)
+   - Ordinateur (> 1024 px) : un bouton hamburger dans le menu le replie en colonne d'icônes, ou le déplie.
+   - Tablette et téléphone (≤ 1024 px) : le menu est un tiroir ouvert par le hamburger de la barre du haut.
+   Les classes .menu-collapsed et .menu-open sont posées sur .app par useSidebar (lib/sidebarState.ts) ; le même mécanisme
+   sert le menu des utilisateurs (Sidebar.tsx) et celui du super admin (Platform.tsx).
+   ==================================================================================== */
+
+/* En-tête du menu : identité de l'entreprise + bouton (hamburger ou croix) */
+.sidebar-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 26px; }
+.sidebar .sidebar-head .brand { padding: 0 0 0 10px; min-width: 0; flex: 1 1 auto; }
+
+/* Boutons hamburger et croix (zone tactile de 40 px) */
+.menu-btn { flex: none; display: inline-grid; place-items: center; width: 40px; height: 40px; border: none; border-radius: 12px; background: transparent; color: inherit; cursor: pointer; transition: background 0.15s; }
+.sidebar .menu-btn { color: #ffffff; }
+.sidebar .menu-btn:hover { background: rgba(255, 255, 255, 0.14); }
+.sidebar .menu-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.35); }
+.menu-bar .menu-btn { color: var(--color-text); }
+.menu-bar .menu-btn:hover { background: var(--color-surface-3); }
+.menu-bar .menu-btn:focus-visible { outline: none; box-shadow: var(--ring); }
+.sidebar-close { display: none; }
+
+/* Barre du haut et fond sombre : invisibles sur ordinateur */
+.menu-bar { display: none; }
+.menu-backdrop { display: none; }
+
+/* Les fenêtres (déconnexion...) s'ouvrent AU-DESSUS du tiroir ouvert */
+.modal-overlay { z-index: 70; }
+
+/* --- Ordinateur : menu replié en colonne d'icônes --- */
+@media (min-width: 1025px) {
+  .app { transition: grid-template-columns 0.2s ease; }
+  .app.menu-collapsed { grid-template-columns: 92px minmax(0, 1fr); }
+  .app.menu-collapsed .sidebar { padding: 22px 10px 14px; align-items: center; }
+  .app.menu-collapsed .sidebar-head { flex-direction: column; padding-bottom: 18px; gap: 10px; }
+  .app.menu-collapsed .sidebar .sidebar-head .brand { padding: 0; flex: none; }
+  .app.menu-collapsed .brand-text,
+  .app.menu-collapsed .nav-label,
+  .app.menu-collapsed .sidebar-foot .who { display: none; }
+  .app.menu-collapsed .nav-item { position: relative; justify-content: center; width: 48px; padding: 12px 0; }
+  /* Pastilles de comptage : posées en coin de l'icône */
+  .app.menu-collapsed .nav-item .count,
+  .app.menu-collapsed .nav-item .nav-dot { position: absolute; top: 4px; right: 2px; margin: 0; min-width: 16px; height: 16px; padding: 0 4px; font-size: 10px; }
+  .app.menu-collapsed .sidebar-foot { width: 100%; display: flex; flex-direction: column; align-items: center; }
+  /* Menu replié : le contenu n'est plus plafonné à 1320 px et occupe toute la place libérée (sinon un espace vide
+     apparaissait à droite sur les grands écrans). Menu déplié : la limite habituelle reste en place. */
+  .app.menu-collapsed .main { max-width: none; }
+}
+
+/* --- Tablette et téléphone : le menu est un tiroir --- */
+@media (max-width: 1024px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+
+  /* Barre fine en haut : hamburger + identité de l'entreprise (reste visible en défilant) */
+  .menu-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    padding: calc(8px + env(safe-area-inset-top)) 12px 8px;
+    background: var(--color-bg);
+    border-bottom: 1px solid var(--color-border);
+  }
+  .menu-bar-logo { width: 32px; height: 32px; flex: none; border-radius: 9px; background: #ffffff; padding: 3px; object-fit: contain; box-shadow: var(--shadow-sm); }
+  .menu-bar-name { min-width: 0; font-weight: 700; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Le menu sort de l'écran à gauche ; fermé, il n'est plus atteignable au clavier (visibility) */
+  .sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 60;
+    width: min(300px, 86vw);
+    height: auto;
+    /* Sans cela, le « align-self: start » du menu de bureau le réduirait à la hauteur de son contenu au lieu de tout l'écran */
+    align-self: stretch;
+    margin: 0;
+    border-radius: 0 24px 24px 0;
+    padding: calc(22px + env(safe-area-inset-top)) 14px calc(16px + env(safe-area-inset-bottom));
+    overflow-y: auto;
+    transform: translateX(-105%);
+    visibility: hidden;
+    transition: transform 0.22s ease, visibility 0s linear 0.22s;
+  }
+  .app.menu-open .sidebar { transform: none; visibility: visible; transition-delay: 0s; }
+
+  /* Fond sombre : un clic dessus ferme le menu */
+  .menu-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: rgba(0, 0, 0, 0.4);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+  .app.menu-open .menu-backdrop { opacity: 1; pointer-events: auto; }
+
+  /* Dans le tiroir : la croix remplace le hamburger de repli */
+  .sidebar-toggle { display: none; }
+  .sidebar-close { display: inline-grid; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app, .sidebar, .menu-backdrop { transition: none !important; }
 }

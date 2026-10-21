@@ -49,6 +49,11 @@ const fr = {
   'nav.settings': 'Réglages',
   'nav.admin': 'Admin',
   'nav.logout': 'Déconnexion',
+  // Menu repliable (hamburger)
+  'nav.openMenu': 'Ouvrir le menu',
+  'nav.closeMenu': 'Fermer le menu',
+  'nav.collapseMenu': 'Réduire le menu',
+  'nav.expandMenu': 'Agrandir le menu',
   'nav.logoutTitle': 'Se déconnecter ?',
   'nav.logoutBody': 'Vous devrez saisir à nouveau vos identifiants pour revenir.',
   'nav.logoutConfirm': 'Se déconnecter',
@@ -137,6 +142,11 @@ const en: Partial<Record<TextKey, string>> = {
   'nav.products': 'Products & prices',
   'nav.settings': 'Settings',
   'nav.logout': 'Sign out',
+  // Menu repliable (hamburger)
+  'nav.openMenu': 'Open menu',
+  'nav.closeMenu': 'Close menu',
+  'nav.collapseMenu': 'Collapse menu',
+  'nav.expandMenu': 'Expand menu',
   'nav.logoutTitle': 'Sign out?',
   'nav.logoutBody': 'You will need to enter your credentials again to come back.',
   'nav.logoutConfirm': 'Sign out',
