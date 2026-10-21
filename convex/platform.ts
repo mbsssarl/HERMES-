@@ -5,6 +5,9 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalMutation, mutation, type MutationCtx, query } from "./_generated/server";
 import { logActivity } from "./lib/audit";
+import { CORE_CURRENCIES } from "./currencies";
+import { KNOWN_CURRENCIES } from "./lib/currencyCodes";
+import { IMPA_CATEGORIES, NO_IMPA_CATEGORY } from "./lib/impaCategories";
 import { requireSuperadmin } from "./lib/permissions";
 import { generateTempPassword } from "./lib/tokens";
 
@@ -90,8 +93,9 @@ export const listCompanies = query({
  * catégories de la première entreprise servent de point de départ ; le catalogue produits, lui, commence vide.
  */
 export const createCompany = mutation({
-  args: { name: v.string(), code: v.string() },
-  handler: async (ctx, { name, code }) => {
+  // copyRegionsFrom : entreprise dont on reprend la liste des régions (facultatif ; sinon la liste commence vide).
+  args: { name: v.string(), code: v.string(), copyRegionsFrom: v.optional(v.id("companies")) },
+  handler: async (ctx, { name, code, copyRegionsFrom }) => {
     const root = await requireSuperadmin(ctx);
     const cleanName = name.trim();
     const cleanCode = code.trim().toLowerCase();
@@ -105,7 +109,6 @@ export const createCompany = mutation({
       throw new Error(`Le compte ${adminEmail} existe déjà.`);
     }
 
-    const template = await ctx.db.query("companies").order("asc").first();
     const subscriptionEndsAt = Date.now() + SUBSCRIPTION_MS;
     const companyId = await ctx.db.insert("companies", {
       name: cleanName,
@@ -117,16 +120,21 @@ export const createCompany = mutation({
     });
     await scheduleExpiry(ctx, companyId, subscriptionEndsAt);
 
-    // Référentiels de départ copiés de la première entreprise (le super admin n'y lit rien d'autre que des listes).
-    if (template) {
-      for (const c of await ctx.db.query("currencies").withIndex("by_company_and_code", (q) => q.eq("companyId", template._id)).take(500)) {
-        await ctx.db.insert("currencies", { companyId, code: c.code, name: c.name, active: c.active });
-      }
-      for (const c of await ctx.db.query("countries").withIndex("by_company_and_code", (q) => q.eq("companyId", template._id)).take(500)) {
+    // Référentiels de départ, indépendants de toute autre entreprise (supprimer une entreprise n'en prive aucune) :
+    //  - devises : toutes les devises ISO, seules les devises usuelles (CORE_CURRENCIES) étant actives ;
+    //  - catégories : celles du catalogue IMPA, plus « No IMPA » ;
+    //  - régions : reprises d'une entreprise choisie par le super admin, sinon liste vide (l'admin les crée).
+    for (const [currencyCode, currencyName] of Object.entries(KNOWN_CURRENCIES)) {
+      await ctx.db.insert("currencies", { companyId, code: currencyCode, name: currencyName, active: CORE_CURRENCIES.includes(currencyCode) });
+    }
+    for (const categoryName of [...IMPA_CATEGORIES, NO_IMPA_CATEGORY]) {
+      await ctx.db.insert("productCategories", { companyId, name: categoryName, active: true });
+    }
+    if (copyRegionsFrom) {
+      const source = await ctx.db.get(copyRegionsFrom);
+      if (!source) throw new Error("Entreprise source des régions introuvable.");
+      for (const c of await ctx.db.query("countries").withIndex("by_company_and_code", (q) => q.eq("companyId", copyRegionsFrom)).take(500)) {
         await ctx.db.insert("countries", { companyId, code: c.code, name: c.name, city: c.city, active: c.active });
-      }
-      for (const c of await ctx.db.query("productCategories").withIndex("by_company_and_name", (q) => q.eq("companyId", template._id)).take(500)) {
-        await ctx.db.insert("productCategories", { companyId, name: c.name, active: c.active });
       }
     }
 

@@ -98,7 +98,7 @@ export const seedAllKnownFromAdmin = mutation({
 // Devises réellement utilisées par l'entreprise d'origine (ship-chandler basé à Douala, clients internationaux) -
 // les seules à proposer par défaut dans les sélecteurs. Les autres devises ISO restent en base
 // (désactivées, jamais supprimées) au cas où un prix existant y ferait encore référence.
-const CORE_CURRENCIES = ["CAD", "USD", "EUR", "GBP", "XAF", "XOF"];
+export const CORE_CURRENCIES = ["CAD", "USD", "EUR", "GBP", "XAF", "XOF"];
 
 /** CLI/migration ponctuelle : ne laisse actives que les devises listées dans CORE_CURRENCIES pour une entreprise. */
 export const restrictToCoreCurrencies = internalMutation({

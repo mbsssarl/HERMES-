@@ -137,6 +137,7 @@ function CompaniesView() {
   const [name, setName] = React.useState('');
   const [code, setCode] = React.useState('');
   const [codeEdited, setCodeEdited] = React.useState(false);
+  const [copyRegionsFrom, setCopyRegionsFrom] = React.useState('');
   const [newName, setNewName] = React.useState('');
   const [reason, setReason] = React.useState('');
 
@@ -150,10 +151,10 @@ function CompaniesView() {
   const active = companies.filter((c) => c.status === 'active').length;
   const totalUsers = companies.reduce((n, c) => n + c.users, 0);
 
-  const closeCreate = () => { setShowCreate(false); setName(''); setCode(''); setCodeEdited(false); };
+  const closeCreate = () => { setShowCreate(false); setName(''); setCode(''); setCodeEdited(false); setCopyRegionsFrom(''); };
 
   const submitCreate = () => run(async () => {
-    const res = await createCompany({ name, code });
+    const res = await createCompany({ name, code, copyRegionsFrom: copyRegionsFrom ? (copyRegionsFrom as Id<'companies'>) : undefined });
     closeCreate();
     setSecret({
       title: 'Entreprise créée',
@@ -442,8 +443,16 @@ function CompaniesView() {
               suivent de préférence le modèle prenom@{code || 'code'}.dev.
             </span>
           </div>
+          <div className="form-field">
+            <label>Régions de départ</label>
+            <select className="select" value={copyRegionsFrom} onChange={(e) => setCopyRegionsFrom(e.target.value)}>
+              <option value="">Aucune : l'administrateur les créera lui-même</option>
+              {companies.map((c) => <option key={c.id} value={c.id}>Reprendre celles de {c.name}</option>)}
+            </select>
+          </div>
           <p className="text-muted" style={{ fontSize: 13 }}>
-            Le catalogue produits de la nouvelle entreprise commence vide ; les devises, régions et catégories sont reprises de la première entreprise.
+            Le catalogue produits commence vide. Les devises (liste ISO, les usuelles activées) et les catégories du catalogue IMPA sont créées
+            automatiquement, sans dépendre d'aucune autre entreprise.
           </p>
         </Modal>
       )}
