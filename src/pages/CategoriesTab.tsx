@@ -56,10 +56,7 @@ export function CategoriesTab({ categories }: { categories: ProductCategory[] })
       <div className="card">
         <div className="card-pad card-head">
           <div>
-            <h3 style={{ fontSize: 16 }}>Catégories</h3>
-            <span className="text-muted" style={{ fontSize: 13 }}>
-              {categories.length} · classement des articles du catalogue (Produits & prix), comme sur impa.services. Pas de suppression : renommez ou désactivez.
-            </span>
+            <h3 style={{ fontSize: 16 }}>Catégories · {categories.length}</h3>
           </div>
           <div className="toolbar-actions">
             <button className="btn" onClick={() => void loadImpa()} disabled={seeding} title="Ajoute les 36 catégories du catalogue IMPA manquantes, sans toucher aux existantes.">
