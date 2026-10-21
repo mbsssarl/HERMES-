@@ -97,7 +97,9 @@ export function RequestInfoCard({
   };
   const cot = parse(cotation);
   const dis = parse(discount);
-  const invalid = (cot !== undefined && !Number.isFinite(cot)) || (dis !== undefined && !Number.isFinite(dis));
+  const cotBad = cot !== undefined && !(Number.isFinite(cot) && cot >= 0 && cot <= 1000);
+  const disBad = dis !== undefined && !(Number.isFinite(dis) && dis >= 0 && dis <= 100);
+  const invalid = cotBad || disBad;
 
   // Changement de devise « sans conversion » : taux 1 enregistré pour chaque devise d'origine (étiquette seule).
   const relabelOnly = Boolean(currentTarget && quotation.usd_rate?.source === 'sans conversion');
@@ -124,11 +126,11 @@ export function RequestInfoCard({
           <div className="panel-fields">
             <div className="form-field">
               <label>Global Cotation (%)</label>
-              <input className="input" inputMode="decimal" value={cotation} placeholder="inchangée" onChange={(e) => setCotation(e.target.value)} />
+              <input className="input" inputMode="decimal" value={cotation} placeholder="inchangée" aria-invalid={cotBad} title={cotBad ? 'Pourcentage entre 0 et 1000' : undefined} style={cotBad ? { borderColor: '#b91c1c' } : undefined} onChange={(e) => setCotation(e.target.value)} />
             </div>
             <div className="form-field">
               <label>Global Discount (%)</label>
-              <input className="input" inputMode="decimal" value={discount} placeholder="inchangé" onChange={(e) => setDiscount(e.target.value)} />
+              <input className="input" inputMode="decimal" value={discount} placeholder="inchangé" aria-invalid={disBad} title={disBad ? 'Pourcentage entre 0 et 100' : undefined} style={disBad ? { borderColor: '#b91c1c' } : undefined} onChange={(e) => setDiscount(e.target.value)} />
             </div>
           </div>
           <div className="panel-foot">

@@ -30,10 +30,10 @@ export function validateLineChanges(edits: LineChanges) {
   if (edits.quotedQuantity !== undefined && !(edits.quotedQuantity > 0)) throw new Error("Quantité invalide.");
   if (typeof edits.unitPrice === "number" && edits.unitPrice < 0) throw new Error("Prix invalide.");
   if (edits.quotationAmount !== undefined && !(Number.isFinite(edits.quotationAmount) && edits.quotationAmount >= 0)) {
-    throw new Error("Cotation invalide.");
+    throw new Error("Cotation invalide : saisissez un montant positif ou nul.");
   }
   if (edits.quotationPercent !== undefined && (edits.quotationPercent < 0 || edits.quotationPercent > 1000)) {
-    throw new Error("Cotation invalide.");
+    throw new Error("Cotation invalide : saisissez un pourcentage entre 0 et 1000.");
   }
 }
 

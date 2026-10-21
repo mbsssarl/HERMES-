@@ -320,7 +320,7 @@ export const applyGlobalPricing = mutation({
     const admin = await requireAdmin(ctx);
     const order = await requireOrder(ctx, admin, orderId);
     if (quotationPercent !== undefined && (quotationPercent < 0 || quotationPercent > 1000)) {
-      throw new Error("Cotation invalide.");
+      throw new Error("Cotation invalide : saisissez un pourcentage entre 0 et 1000.");
     }
     if (discountPercent !== undefined && (discountPercent < 0 || discountPercent > 100)) {
       throw new Error("Remise invalide (0 à 100 %).");
