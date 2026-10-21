@@ -329,6 +329,24 @@ export const rematchPendingInternal = internalMutation({
 });
 
 /**
+ * CORRECTION UNIQUE DES ÉTATS : recalcule l'état (En cours <-> En attente du fournisseur) de TOUTES les quotations de
+ * TOUTES les entreprises, y compris celles créées avant l'état automatique et qu'aucun événement n'a touchées depuis.
+ * Elle ne modifie que cet état (jamais les lignes ni les prix), ne touche pas aux états devis prêt / envoyé / PO reçu /
+ * archivée, et peut être relancée sans risque. Elle traite 10 quotations par paquet et se relance seule jusqu'à la fin.
+ * À lancer UNE fois, à la main : npx convex run orderItems:refreshAllOrderStatusesInternal
+ */
+export const refreshAllOrderStatusesInternal = internalMutation({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (ctx, { cursor }): Promise<void> => {
+    const page = await ctx.db.query("orders").paginate({ numItems: 10, cursor: cursor ?? null });
+    for (const order of page.page) await refreshOrderStatus(ctx, order._id);
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.orderItems.refreshAllOrderStatusesInternal, { cursor: page.continueCursor });
+    }
+  },
+});
+
+/**
  * « Actualiser » : refait un tour en base pour UNE quotation. Les lignes encore sans correspondance ou sans prix
  * sont rapprochées du catalogue, et celles déjà chiffrées par le catalogue reprennent son prix courant (un prix
  * saisi à la main n'est jamais touché). Traite un paquet de lignes par appel : l'appelant rappelle avec le curseur
