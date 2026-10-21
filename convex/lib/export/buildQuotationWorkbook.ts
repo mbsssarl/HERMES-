@@ -3,6 +3,7 @@
 import ExcelJS from "exceljs";
 import { QUOTATION_TEMPLATE_BASE64 } from "./templateData";
 import { QUOTATION_LOGO_PNG_BASE64 } from "./logoData";
+import type { ExportLogo } from "./logoImage";
 import { moneyNumFmt, roundMoney } from "../pricing";
 import { adaptNumberFormats } from "./numberFormats";
 
@@ -39,6 +40,8 @@ export interface ExportData {
   /** Référence de la demande (case « REF NO »). */
   refNo?: string;
   company: ExportCompany;
+  /** Logo de l'entreprise ; absent = logo neutre par défaut. */
+  logo?: ExportLogo;
   /** Global discount in percent, applied on the total of the whole order. */
   discountPercent: number;
   /** Frais de livraison / mise à l'eau, dans la devise du fichier : ajoutés après le discount quand ils sont définis (> 0). */
@@ -207,12 +210,13 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
   });
 
   // --- mention en rouge, sous le bloc d'en-tête
-  ws.mergeCells(`C${NOTICE_ROW}:G${NOTICE_ROW}`);
-  const notice = ws.getCell(`C${NOTICE_ROW}`);
+  // Sur toute la largeur (de la cellule de gauche à celle de droite), centrée, en texte réduit.
+  ws.mergeCells(`A${NOTICE_ROW}:H${NOTICE_ROW}`);
+  const notice = ws.getCell(`A${NOTICE_ROW}`);
   notice.value = "PLEASE USE OUR OWN FORMAT";
-  notice.font = { name: "Calibri", size: 16, color: { argb: "FFFF0000" } };
+  notice.font = { name: "Calibri", size: 11, color: { argb: "FFFF0000" } };
   notice.alignment = { horizontal: "center", vertical: "middle" };
-  ws.getRow(NOTICE_ROW).height = 26;
+  ws.getRow(NOTICE_ROW).height = 20;
 
   // --- bandeau titre « REQUEST FOR … » sur toute la largeur (teinte claire du vert de l'en-tête du tableau)
   ws.mergeCells(`A${TITLE_ROW}:H${TITLE_ROW}`);
@@ -236,10 +240,15 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
   // --- logo : l'image du gabarit (slogan + logo) est remplacée par le logo seul, à gauche des 6 lignes
   (ws as unknown as { _media: unknown[] })._media = [];
   (workbook as unknown as { media: unknown[] }).media = [];
-  const logoId = workbook.addImage({ base64: QUOTATION_LOGO_PNG_BASE64, extension: "png" });
+  const logo: ExportLogo = data.logo ?? { base64: QUOTATION_LOGO_PNG_BASE64, extension: "png", width: 1, height: 1 };
+  const logoId = workbook.addImage({ base64: logo.base64, extension: logo.extension });
+  // Le logo tient dans un carré de LOGO_SIZE_PX, proportions conservées.
+  const fit = LOGO_SIZE_PX / Math.max(logo.width, logo.height);
+  const logoW = Math.round(logo.width * fit);
+  const logoH = Math.round(logo.height * fit);
   // Ancrage exact (colonne A + décalage en EMU, 9525 EMU par pixel), taille fixe en pixels.
   const logoAnchor = { nativeCol: 0, nativeColOff: LOGO_LEFT_PX * 9525, nativeRow: 0, nativeRowOff: LOGO_TOP_PX * 9525 };
-  ws.addImage(logoId, { tl: logoAnchor as unknown as ExcelJS.Anchor, ext: { width: LOGO_SIZE_PX, height: LOGO_SIZE_PX }, editAs: "oneCell" });
+  ws.addImage(logoId, { tl: logoAnchor as unknown as ExcelJS.Anchor, ext: { width: logoW, height: logoH }, editAs: "oneCell" });
 
   // --- article rows
   const currency = data.currency;
@@ -366,6 +375,14 @@ export async function buildQuotationWorkbook(data: ExportData): Promise<Buffer> 
   const today = new Date();
   const stamp = `${String(today.getDate()).padStart(2, "0")}-${String(today.getMonth() + 1).padStart(2, "0")}-${today.getFullYear()}`;
   ws.name = `${data.reference}-${stamp}`.replace(/[\[\]:*?/\\]/g, "-").slice(0, 31);
+
+  // En-tête verrouillé : la feuille est protégée (sans mot de passe) et seules les lignes du tableau et des totaux
+  // restent modifiables (prix, quantités, remarques). Le destinataire ne peut donc plus changer l'en-tête par erreur.
+  const lastRow = Math.max(footerStart + FOOTER_LAST - FOOTER_FIRST, lastItemRow);
+  for (let r = FIRST_ITEM_ROW; r <= lastRow; r++) {
+    for (let c = 1; c <= COLS; c++) ws.getRow(r).getCell(c).protection = { locked: false };
+  }
+  await ws.protect("", { selectLockedCells: true, selectUnlockedCells: true, formatColumns: true, formatRows: true });
 
   adaptNumberFormats(ws);
   return Buffer.from(await workbook.xlsx.writeBuffer());

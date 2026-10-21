@@ -5,6 +5,7 @@ import { api, internal } from "./_generated/api";
 import { action } from "./_generated/server";
 import { buildQuotationWorkbook, type ExportCompany } from "./lib/export/buildQuotationWorkbook";
 import { fillClientWorkbook } from "./lib/export/fillClientWorkbook";
+import { fetchCompanyLogo } from "./lib/export/logoImage";
 import * as XLSX from "xlsx";
 import { XLSX_MIME } from "./lib/extraction/fileKinds";
 
@@ -127,7 +128,11 @@ export const exportQuotationXlsx = action({
     // Coordonnées de l'entreprise (réglage « companyInfo », modifiable par son admin) : bloc à droite du logo.
     const company = ((await ctx.runQuery(api.settings.get, { key: "companyInfo" })) ?? {}) as ExportCompany;
 
+    // Logo de l'entreprise (Admin > Personnalisation), sinon logo neutre : jamais celui d'une autre entreprise.
+    const logo = (await fetchCompanyLogo(brand.logoUrl)) ?? undefined;
+
     const buffer = await buildQuotationWorkbook({
+      logo,
       reference: order.reference,
       currency,
       requestFor: header?.requestFor?.trim() || "Quotation",
