@@ -11,6 +11,7 @@ import { ExportModal, type ExportHeader } from '../components/ExportModal';
 import { ValidateOrderModal } from '../components/ValidateOrderModal';
 import { ValidationDetails } from '../components/ValidationDetails';
 import { api, type Id } from '../lib/convex';
+import { useBaseCurrency } from '../lib/currency';
 import { UI_TO_ORDER_STATUS } from '../lib/mappers';
 import { useToast } from '../components/Toast';
 
@@ -41,6 +42,7 @@ export function QuotationDetail({
   onBack: () => void;
 }) {
   const toast = useToast();
+  const baseCurrency = useBaseCurrency();
   const confirmMatch = useMutation(api.orderItems.confirmAmbiguousMatch);
   const updateItem = useMutation(api.orderItems.update);
   const refreshOrder = useMutation(api.orderItems.refreshOrder);
@@ -99,14 +101,14 @@ export function QuotationDetail({
     if (seenId) markSeen({ orderId: seenId as Id<'orders'> }).catch(() => {});
   }, [seenId, markSeen]);
 
-  // Étape 1 de la conversion : toutes les devises des lignes doivent avoir un taux vers l'USD (taux du jour par défaut,
-  // modifiable ensuite dans « Conversion en USD »). Rejoué quand l'ensemble des devises des lignes change.
+  // Étape 1 de la conversion : toutes les devises des lignes doivent avoir un taux vers la devise de l'entreprise (taux du jour par défaut,
+  // modifiable ensuite dans « Conversion »). Rejoué quand l'ensemble des devises des lignes change.
   const ensureKey = quotation
-    ? `${quotation.id}|${[...new Set(quotation.quotation_items.filter((it) => !it.excluded && it.total_price != null).map((it) => it.price_currency ?? 'USD'))].sort().join(',')}`
+    ? `${quotation.id}|${baseCurrency}|${[...new Set(quotation.quotation_items.filter((it) => !it.excluded && it.total_price != null).map((it) => it.price_currency ?? baseCurrency))].sort().join(',')}`
     : '';
   React.useEffect(() => {
     if (!quotation) return;
-    ensureBaseRates({ orderId: quotation.id as Id<'orders'> }).catch((err) => toast('Conversion en USD : ' + errMsg(err), 'error'));
+    ensureBaseRates({ orderId: quotation.id as Id<'orders'> }).catch((err) => toast(`Conversion en ${baseCurrency} : ` + errMsg(err), 'error'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ensureKey, ensureBaseRates]);
 
@@ -116,8 +118,8 @@ export function QuotationDetail({
   const orderId = quotation.id as Id<'orders'>;
   // Valider la commande engage la quotation : réservé à son propriétaire (et aux administrateurs).
   const canValidate = quotation.created_by === meId || isAdmin;
-  // Devise de base des quotations (indépendante du pays) : les lignes sans devise propre sont en USD.
-  const currency = 'USD';
+  // Devise de base des quotations (indépendante du pays) : les lignes sans devise propre sont dans la devise de l'entreprise.
+  const currency = baseCurrency;
 
   // Récapitulatif du bas de tableau : sous-total, discount, frais de transport, total. Les frais sont saisis dans la
   // devise du fichier exporté ; si une vraie conversion est appliquée, les montants affichés ici restent dans la devise
@@ -192,9 +194,9 @@ export function QuotationDetail({
     setConvertingCurrency(true);
     try {
       const rates = await applyExportCurrency({ orderId, targetCurrency, applyRate, ratePercent, manualRates });
-      const summary = rates?.map((r) => `1 USD = ${r.rate.toLocaleString('fr-FR', { maximumFractionDigits: 6 })} ${targetCurrency}`).join(', ');
+      const summary = rates?.map((r) => `1 ${baseCurrency} = ${r.rate.toLocaleString('fr-FR', { maximumFractionDigits: 6 })} ${targetCurrency}`).join(', ');
       toast(
-        !rates ? 'Quotation conservée en USD (aucune conversion supplémentaire).'
+        !rates ? `Quotation conservée en ${baseCurrency} (aucune conversion supplémentaire).`
           : applyRate ? `Taux appliqué : ${summary}.`
           : `Devise du fichier changée en ${targetCurrency} sans conversion : les montants restent inchangés.`,
         'success',
@@ -212,8 +214,8 @@ export function QuotationDetail({
       const rates = await applyBaseRates({ orderId, ratePercent, manualRates });
       toast(
         rates.length === 0
-          ? 'Toutes les lignes sont déjà en USD.'
-          : `Conversion en USD : ${rates.map((r) => `1 ${r.currency} = ${r.rate.toLocaleString('fr-FR', { maximumFractionDigits: 6 })} USD`).join(', ')}.`,
+          ? `Toutes les lignes sont déjà en ${baseCurrency}.`
+          : `Conversion en ${baseCurrency} : ${rates.map((r) => `1 ${r.currency} = ${r.rate.toLocaleString('fr-FR', { maximumFractionDigits: 6 })} ${baseCurrency}`).join(', ')}.`,
         'success',
       );
     } catch (err) {

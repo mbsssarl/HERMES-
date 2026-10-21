@@ -37,6 +37,8 @@ export const getCurrentUser = query({
       // et à l'alerte « abonnement bientôt échu » de l'administrateur.
       companySuspendKind: company?.suspendKind ?? null,
       companySubscriptionEndsAt: company?.subscriptionEndsAt ?? null,
+      // Devise utilisée par l'entreprise (USD par défaut) : celle de ses prix et de ses quotations.
+      companyCurrency: company?.baseCurrency ?? "USD",
       // Motif donné par le super admin, affiché à quiconque se connecte à l'entreprise suspendue.
       companySuspendReason: suspended ? (company?.suspendReason ?? null) : null,
     };

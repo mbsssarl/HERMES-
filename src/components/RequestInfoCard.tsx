@@ -3,6 +3,7 @@ import { RefreshCw } from 'lucide-react';
 import { useAction } from 'convex/react';
 import type { Currency, QuotationWithRelations } from '../types';
 import { api } from '../lib/convex';
+import { useBaseCurrency } from '../lib/currency';
 import { BaseRatesPanel } from './BaseRatesPanel';
 import { RateInputs, cleanServerError, parseRate } from './RateInputs';
 
@@ -48,10 +49,11 @@ export function RequestInfoCard({
   applying: boolean;
   onApply: (quotationPercent: number | undefined, discountPercent: number | undefined) => void;
 }) {
+  const baseCurrency = useBaseCurrency();
   const [cotation, setCotation] = React.useState(String(quotation.quotation_percent_override ?? ''));
   const [discount, setDiscount] = React.useState(String(quotation.global_discount_percent ?? ''));
   // « USD » = pas de conversion supplémentaire : le sélecteur reste alors vide.
-  const currentTarget = quotation.export_currency && quotation.export_currency !== 'USD' ? quotation.export_currency : '';
+  const currentTarget = quotation.export_currency && quotation.export_currency !== baseCurrency ? quotation.export_currency : '';
   const [target, setTarget] = React.useState(currentTarget);
   const [applyRate, setApplyRate] = React.useState(true);
   // Étape 2 : deux cases « 1 USD = [valeur exacte] devise cible ». `rateText` vide = taux du jour.
@@ -61,7 +63,7 @@ export function RequestInfoCard({
   const getRate = useAction(api.exchangeRates.getRate);
   const [fee, setFee] = React.useState(quotation.transport_fee ? String(quotation.transport_fee) : '');
 
-  const displayCurrency = 'USD';
+  const displayCurrency = baseCurrency;
 
   const usdManual = quotation.usd_rate?.source === MANUAL_SOURCE ? quotation.usd_rate.rate : undefined;
   // Les cases reprennent le taux saisi déjà enregistré si la devise cible est inchangée, sinon repartent du taux du jour.
@@ -74,11 +76,11 @@ export function RequestInfoCard({
     setLiveError(undefined);
     if (!target || !applyRate) return;
     let cancelled = false;
-    getRate({ from: 'USD', to: target })
+    getRate({ from: baseCurrency, to: target })
       .then((r) => { if (!cancelled) setLive(r.rate); })
       .catch((err) => { if (!cancelled) setLiveError(cleanServerError(err)); });
     return () => { cancelled = true; };
-  }, [target, applyRate, getRate]);
+  }, [target, applyRate, getRate, baseCurrency]);
   const overridden = rateText.trim() !== '';
   const typedRate = parseRate(rateText);
   const rateInvalid = applyRate && Boolean(target) && (overridden ? !(typedRate > 0) : liveError !== undefined);
@@ -165,7 +167,7 @@ export function RequestInfoCard({
             section « Panneau de conversion »). Sans cette classe, ces cases se superposaient aux champs. */}
         <section className={`panel panel-wide${applyRate && target ? ' has-rate' : ''}`}>
           <div className="panel-head">
-            <div className="panel-title">Convertir vers une autre devise (depuis l'USD)</div>
+            <div className="panel-title">Convertir vers une autre devise (depuis {baseCurrency})</div>
             <label className="switch">
               <input type="checkbox" role="switch" checked={applyRate} onChange={(e) => setApplyRate(e.target.checked)} />
               <span className="switch-track"><span className="switch-thumb" /></span>
@@ -184,7 +186,7 @@ export function RequestInfoCard({
               <select className="select" value={target} onChange={(e) => setTarget(e.target.value)}>
                 <option value="">Aucune conversion ({displayCurrency})</option>
                 {currencies
-                  .filter((c) => c.active && c.code !== 'USD')
+                  .filter((c) => c.active && c.code !== baseCurrency)
                   .map((c) => (
                     <option key={c.id} value={c.code}>{c.code} · {c.name}</option>
                   ))}
@@ -194,7 +196,7 @@ export function RequestInfoCard({
           {applyRate && target && (
             // panel-rate : occupe toute la largeur de la grille, sur sa propre ligne (correctif du bug d'affichage)
             <div className="panel-rate">
-              <RateInputs from="USD" to={target} live={live} value={rateText} onChange={setRateText} error={liveError} />
+              <RateInputs from={baseCurrency} to={target} live={live} value={rateText} onChange={setRateText} error={liveError} />
             </div>
           )}
           <div className="panel-foot">
@@ -210,7 +212,7 @@ export function RequestInfoCard({
                   target || undefined,
                   applyRate,
                   undefined,
-                  applyRate && target && overridden ? [{ currency: 'USD', rate: typedRate }] : undefined,
+                  applyRate && target && overridden ? [{ currency: baseCurrency, rate: typedRate }] : undefined,
                 )
               }
             >

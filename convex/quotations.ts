@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { logActivity } from "./lib/audit";
+import { baseCurrencyOf } from "./lib/baseCurrency";
 import { getOwned, requireAdmin, requireOrder, requireUser } from "./lib/permissions";
 import { COMPANY_INFO_KEY } from "./settings";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
@@ -54,7 +55,7 @@ export const getQuotationBuildDataInternal = internalQuery({
       companyInfo: companyInfoSetting?.value as
         | { name?: string; address?: string; email?: string }
         | undefined,
-      currency: order.exportCurrency ?? "USD",
+      currency: order.exportCurrency ?? (await baseCurrencyOf(ctx, order.companyId)),
     };
   },
 });

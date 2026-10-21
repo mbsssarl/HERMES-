@@ -4,6 +4,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { ActionCtx, MutationCtx } from "./_generated/server";
 import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { logActivity } from "./lib/audit";
+import { baseCurrencyOf } from "./lib/baseCurrency";
 import { computeItemPricing } from "./lib/matching";
 import { companyIdOf, getOwned, requireAdmin, requireOrder, requireOwned, requireUser } from "./lib/permissions";
 
@@ -363,7 +364,6 @@ export const applyGlobalPricing = mutation({
 // orders.exportRates en est le résultat composé, une entrée par devise d'origine des lignes : c'est elle que
 // lisent l'écran, l'export Excel et le PDF (taux effectif devise du prix -> devise affichée).
 // ---------------------------------------------------------------------------------------------------------
-const BASE_CURRENCY = "USD";
 const MANUAL_SOURCE = "Taux saisi manuellement";
 const rateEntryValidator = v.object({ currency: v.string(), rate: v.number(), ratePercent: v.optional(v.number()), asOf: v.string(), source: v.string() });
 const usdRateValidator = v.object({ rate: v.number(), ratePercent: v.optional(v.number()), asOf: v.string(), source: v.string() });
@@ -399,16 +399,18 @@ export const getExportCurrencyBasis = internalQuery({
     const order = await ctx.db.get(orderId);
     // Une commande d'une autre entreprise est traitée comme absente.
     if (!order || order.companyId !== companyId) return null;
+    const baseCurrency = await baseCurrencyOf(ctx, order.companyId);
     const items = await ctx.db.query("orderItems").withIndex("by_order", (q) => q.eq("orderId", orderId)).collect();
     const currencies = new Set<string>();
     for (const item of items) {
       if (item.priceAfterQuotation === undefined) continue; // pas de prix -> rien à convertir
-      currencies.add(item.priceCurrency ?? BASE_CURRENCY);
+      currencies.add(item.priceCurrency ?? baseCurrency);
     }
     // Quotation figée (envoyée, PO, archivée, validée, supprimée) : on ne lui recalcule jamais ses montants en tâche de fond.
     const frozen = order.deletedAt !== undefined || order.validatedAt !== undefined || ["po", "sent", "archived"].includes(order.status);
     return {
       frozen,
+      baseCurrency,
       currencies: [...currencies],
       baseRates: order.baseRates as RateEntry[] | undefined,
       usdRate: order.usdRate as UsdRate | undefined,
@@ -431,21 +433,22 @@ export const persistPipeline = internalMutation({
     const actor = await ctx.db.get(userId);
     const target = await ctx.db.get(orderId);
     if (!actor || !target || !actor.companyId || target.companyId !== actor.companyId) throw new Error("Commande introuvable.");
+    const baseCurrency = await baseCurrencyOf(ctx, target.companyId);
     const items = await ctx.db.query("orderItems").withIndex("by_order", (q) => q.eq("orderId", orderId)).collect();
     const currencies = new Set<string>();
     for (const item of items) {
-      if (item.priceAfterQuotation !== undefined) currencies.add(item.priceCurrency ?? BASE_CURRENCY);
+      if (item.priceAfterQuotation !== undefined) currencies.add(item.priceCurrency ?? baseCurrency);
     }
-    const toOther = exportCurrency !== BASE_CURRENCY;
+    const toOther = exportCurrency !== baseCurrency;
     const factor = toOther ? (usdRate?.rate ?? 1) : 1;
     const exportRates = [...currencies].map((currency) => {
-      const base = currency === BASE_CURRENCY ? undefined : baseRates?.find((r) => r.currency === currency);
+      const base = currency === baseCurrency ? undefined : baseRates?.find((r) => r.currency === currency);
       const stage2 = toOther ? usdRate : undefined;
       return {
         currency,
         rate: (base?.rate ?? 1) * factor,
         asOf: base?.asOf ?? stage2?.asOf ?? todayIso(),
-        source: base && stage2 ? `${base.source} puis ${stage2.source}` : (base ?? stage2)?.source ?? "USD",
+        source: base && stage2 ? `${base.source} puis ${stage2.source}` : (base ?? stage2)?.source ?? baseCurrency,
       };
     });
     await ctx.db.patch(orderId, {
@@ -475,16 +478,17 @@ async function ensureBase(ctx: ActionCtx, orderId: Id<"orders">, user: Doc<"user
   const companyId = companyIdOf(user);
   const basis = await ctx.runQuery(internal.orders.getExportCurrencyBasis, { orderId, companyId });
   if (!basis) throw new Error("Commande introuvable.");
+  const baseCurrency = basis.baseCurrency;
   const legacy = basis.baseRates === undefined && basis.exportCurrency !== undefined;
   if ((legacy || basis.frozen) && !migrate) return basis;
 
-  const needed = basis.currencies.filter((c) => c !== BASE_CURRENCY);
+  const needed = basis.currencies.filter((c) => c !== baseCurrency);
   const existing = (basis.baseRates ?? []).filter((r) => needed.includes(r.currency));
   const missing = needed.filter((c) => !existing.some((r) => r.currency === c));
   const exportUpToDate = basis.currencies.every((c) => basis.exportRates?.some((r) => r.currency === c));
   if (!legacy && missing.length === 0 && basis.exportCurrency !== undefined && exportUpToDate) return basis;
 
-  const settled = await Promise.allSettled(missing.map((c) => resolveRate(ctx, c, BASE_CURRENCY, 100)));
+  const settled = await Promise.allSettled(missing.map((c) => resolveRate(ctx, c, baseCurrency, 100)));
   const fresh: RateEntry[] = [];
   const failed: string[] = [];
   settled.forEach((res, i) => {
@@ -496,10 +500,10 @@ async function ensureBase(ctx: ActionCtx, orderId: Id<"orders">, user: Doc<"user
     userId,
     baseRates: [...existing, ...fresh],
     usdRate: legacy ? undefined : basis.usdRate,
-    exportCurrency: legacy ? BASE_CURRENCY : (basis.exportCurrency ?? BASE_CURRENCY),
+    exportCurrency: legacy ? baseCurrency : (basis.exportCurrency ?? baseCurrency),
   });
   if (failed.length > 0) {
-    throw new Error(`Taux en ligne indisponible pour ${failed.join(" ; ")}. Saisissez le taux dans « Conversion en USD ».`);
+    throw new Error(`Taux en ligne indisponible pour ${failed.join(" ; ")}. Saisissez le taux dans « Conversion en ${baseCurrency} ».`);
   }
   return await ctx.runQuery(internal.orders.getExportCurrencyBasis, { orderId, companyId });
 }
@@ -532,13 +536,14 @@ export const applyBaseRates = action({
     assertPercent(ratePercent);
     const basis = await ctx.runQuery(internal.orders.getExportCurrencyBasis, { orderId, companyId: companyIdOf(user) });
     if (!basis) throw new Error("Commande introuvable.");
+    const baseCurrency = basis.baseCurrency;
     const legacy = basis.baseRates === undefined && basis.exportCurrency !== undefined;
 
-    const needed = basis.currencies.filter((c) => c !== BASE_CURRENCY);
+    const needed = basis.currencies.filter((c) => c !== baseCurrency);
     const baseRates: RateEntry[] = await Promise.all(
       needed.map(async (currency) => ({
         currency,
-        ...(await resolveRate(ctx, currency, BASE_CURRENCY, ratePercent, manualRates?.find((m) => m.currency === currency)?.rate)),
+        ...(await resolveRate(ctx, currency, baseCurrency, ratePercent, manualRates?.find((m) => m.currency === currency)?.rate)),
       })),
     );
     await ctx.runMutation(internal.orders.persistPipeline, {
@@ -546,7 +551,7 @@ export const applyBaseRates = action({
       userId: user._id,
       baseRates,
       usdRate: legacy ? undefined : basis.usdRate,
-      exportCurrency: legacy ? BASE_CURRENCY : (basis.exportCurrency ?? BASE_CURRENCY),
+      exportCurrency: legacy ? baseCurrency : (basis.exportCurrency ?? baseCurrency),
     });
     return baseRates;
   },
@@ -573,10 +578,11 @@ export const applyExportCurrency = action({
     // L'étape 1 (vers l'USD) doit exister avant de convertir plus loin (y compris pour une quotation ancienne).
     const basis = await ensureBase(ctx, orderId, user, true);
     if (!basis) throw new Error("Commande introuvable.");
+    const baseCurrency = basis.baseCurrency;
 
-    if (!targetCurrency || targetCurrency === BASE_CURRENCY) {
+    if (!targetCurrency || targetCurrency === baseCurrency) {
       await ctx.runMutation(internal.orders.persistPipeline, {
-        orderId, userId: user._id, baseRates: basis.baseRates, usdRate: undefined, exportCurrency: BASE_CURRENCY,
+        orderId, userId: user._id, baseRates: basis.baseRates, usdRate: undefined, exportCurrency: baseCurrency,
       });
       return null;
     }
@@ -588,12 +594,12 @@ export const applyExportCurrency = action({
     const usdRate: UsdRate =
       applyRate === false
         ? { rate: 1, asOf: todayIso(), source: "sans conversion" }
-        : await resolveRate(ctx, BASE_CURRENCY, targetCurrency, ratePercent, manualRates?.find((m) => m.currency === BASE_CURRENCY)?.rate);
+        : await resolveRate(ctx, baseCurrency, targetCurrency, ratePercent, manualRates?.find((m) => m.currency === baseCurrency)?.rate);
 
     await ctx.runMutation(internal.orders.persistPipeline, {
       orderId, userId: user._id, baseRates: basis.baseRates, usdRate, exportCurrency: targetCurrency,
     });
-    return [{ currency: BASE_CURRENCY, ...usdRate }];
+    return [{ currency: baseCurrency, ...usdRate }];
   },
 });
 

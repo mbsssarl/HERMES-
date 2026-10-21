@@ -36,6 +36,18 @@ const schema = defineSchema({
     // Pourquoi l'entreprise est suspendue : décision du super admin, ou abonnement arrivé à échéance (levée par le
     // renouvellement). Absent = suspension antérieure à cette distinction, traitée comme manuelle.
     suspendKind: v.optional(v.union(v.literal("manual"), v.literal("subscription"), v.literal("deleting"))),
+    // Devise utilisée par l'entreprise (devise de ses prix et de ses quotations), choisie par son admin ; absente = USD.
+    baseCurrency: v.optional(v.string()),
+    // Changement de devise en cours (travail en arrière-plan) : sert à informer l'admin et à relancer au besoin.
+    currencyChange: v.optional(
+      v.object({
+        from: v.string(),
+        to: v.string(),
+        mode: v.union(v.literal("relabel"), v.literal("convert")),
+        rate: v.optional(v.number()),
+        startedAt: v.number(),
+      }),
+    ),
     // Fin de l'abonnement mensuel (30 jours, renouvelable par le super admin). À l'échéance, l'entreprise est
     // suspendue automatiquement. Absent = pas d'échéance (entreprise historique).
     subscriptionEndsAt: v.optional(v.number()),

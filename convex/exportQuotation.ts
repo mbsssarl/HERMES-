@@ -41,19 +41,19 @@ export const exportQuotationXlsx = action({
     const user = await ctx.runQuery(api.users.getBusinessUser, {});
     if (!user) throw new Error("Authentification requise.");
 
-    // Étape 1 de la conversion (devises des lignes -> USD) : complète les taux manquants avant de lire les montants.
+    // Étape 1 de la conversion (devises des lignes -> devise de l'entreprise) : complète les taux manquants avant de lire les montants.
     await ctx.runAction(api.orders.ensureBaseRates, { orderId });
     const data = await ctx.runQuery(internal.exportData.getForExport, { orderId, companyId: user.companyId! });
     const brand = await ctx.runQuery(api.branding.get, {});
     const brandFile = brand.name.replace(/[\\/:*?"<>|]/g, " ").trim() || "export";
     if (!data) throw new Error("Commande introuvable.");
-    const { order, client, country, currency } = data;
+    const { order, client, country, currency, baseCurrency } = data;
     // Taux figés au moment où l'admin a choisi la devise d'export (convex/orders.ts:applyExportCurrency) -
     // pas de conversion si aucune devise cible n'a été appliquée. Une ligne sans priceCurrency propre (prix
     // manuel ancien) retombe sur la devise du pays de cotation.
     const rateFor = (itemCurrency: string | undefined): number => {
       if (!order.exportRates) return 1;
-      const match = order.exportRates.find((r) => r.currency === (itemCurrency ?? "USD"));
+      const match = order.exportRates.find((r) => r.currency === (itemCurrency ?? baseCurrency));
       return match?.rate ?? 1;
     };
 

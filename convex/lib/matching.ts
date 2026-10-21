@@ -1,6 +1,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { normalizeCode, normalizeName } from "./normalize";
+import { baseCurrencyOf } from "./baseCurrency";
 import { computeLinePricing, round2 } from "./pricing";
 import { findProductByAlias } from "./productAliases";
 import { getCurrentPrice } from "./productPricing";
@@ -179,9 +180,9 @@ export async function computeItemPricing(
 
   if (item.unitPriceManual !== undefined) {
     base = item.unitPriceManual;
-    // Un prix saisi à la main ne référence aucune ligne de productPrices : il est saisi dans la devise de base
-    // des quotations (USD), indépendamment du pays.
-    priceCurrency = "USD";
+    // Un prix saisi à la main ne référence aucune ligne de productPrices : il est saisi dans la devise de
+    // l'entreprise (USD par défaut), indépendamment du pays.
+    priceCurrency = await baseCurrencyOf(ctx, order?.companyId);
   } else if (item.productId && order) {
     const current = await getCurrentPrice(ctx, item.productId, order.countryId);
     if (current) {

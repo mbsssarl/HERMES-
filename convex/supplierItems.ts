@@ -4,6 +4,7 @@ import { insertProduct } from "./products";
 import { normalizeCode, normalizeName } from "./lib/normalize";
 import { rematchOrderItem } from "./lib/matching";
 import { getCurrentPrice, setCurrentPrice } from "./lib/productPricing";
+import { baseCurrencyOf } from "./lib/baseCurrency";
 import { companyIdOf, getOwned, requireOrder, requireUser } from "./lib/permissions";
 import { logActivity } from "./lib/audit";
 import { internalMutation, mutation, query } from "./_generated/server";
@@ -96,7 +97,8 @@ export const saveToCatalog = mutation({
         productId,
         countryId: order.countryId,
         price: item.rawPrice,
-        currency: country.currency ?? "USD",
+        // Prix issu d'une réponse fournisseur : enregistré dans la devise de l'entreprise.
+        currency: await baseCurrencyOf(ctx, order.companyId),
         actorId: user._id,
       });
 

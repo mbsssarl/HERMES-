@@ -3,6 +3,7 @@ import { useAction, useMutation, useQuery } from 'convex/react';
 import { UploadCloud } from 'lucide-react';
 import type { Country } from '../types';
 import { api, type Id } from '../lib/convex';
+import { useBaseCurrency } from '../lib/currency';
 import { useToast } from '../components/Toast';
 import { ACCEPT_ATTRIBUTE } from '../../convex/lib/extraction/fileKinds';
 import { capitalizeWords, regionLabel } from '../lib/format';
@@ -53,8 +54,8 @@ export function NewQuotation({
   }, [countryId, activeCountries]);
 
   const country = countries.find((c) => c.id === countryId);
-  // Toutes les quotations sont d'abord converties en USD (indépendamment du pays) : la conversion choisie ici part de l'USD.
-  const sourceCurrency = 'USD';
+  // Toutes les quotations sont d'abord converties dans la devise de l'entreprise (indépendamment du pays) : la conversion choisie ici part d'elle.
+  const sourceCurrency = useBaseCurrency();
   const sourceSupported = supportedTargets?.includes(sourceCurrency) ?? false;
   const targetOptions = (currencies ?? []).filter(
     (c) => c.active && c.code !== sourceCurrency && (supportedTargets?.includes(c.code) ?? false),

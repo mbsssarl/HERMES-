@@ -10,6 +10,7 @@ import { Countries } from './Countries';
 import { CategoriesTab } from './CategoriesTab';
 import { BrandingTab } from './BrandingTab';
 import { CompanyInfoCard } from '../components/CompanyInfoCard';
+import { CompanyCurrencyCard } from '../components/CompanyCurrencyCard';
 import { copyText } from '../lib/clipboard';
 import { SubscriptionCountdown } from '../components/SubscriptionCountdown';
 import type { Country, Currency, ProductCategory } from '../types';
@@ -516,6 +517,7 @@ function CurrenciesTab({ currencies }: { currencies: Currency[] }) {
 
   return (
     <>
+      <CompanyCurrencyCard currencies={currencies} />
       <div className="card">
         <div className="card-pad card-head">
           <div>

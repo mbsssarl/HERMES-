@@ -11,6 +11,7 @@ import { Pager, usePage } from '../components/Pager';
 import { formatPrice, regionLabel } from '../lib/format';
 import { mapProduct } from '../lib/mappers';
 import { downloadBlob } from '../lib/exportFile';
+import { useBaseCurrency } from '../lib/currency';
 
 const errMsg = (err: unknown) => (err instanceof Error ? err.message : String(err));
 const NO_CATEGORY = '__none__'; // valeur du filtre/classement « sans catégorie »
@@ -47,6 +48,7 @@ export function Products({
   isAdmin: boolean;
 }) {
   const toast = useToast();
+  const baseCurrency = useBaseCurrency();
   const createProduct = useMutation(api.products.createManual);
   const updateProduct = useMutation(api.products.update);
   const removeProduct = useMutation(api.products.remove);
@@ -124,8 +126,8 @@ export function Products({
 
       const productId = await createProduct({ impaId: ref.trim() || undefined, name: name.trim(), unit: unit.trim() || 'PCS', category: newCategory || undefined });
       if (price !== undefined && country) {
-        // La devise n'est plus liée à la région : un prix saisi à la main est enregistré en USD (devise de base).
-        await setPrice({ productId, countryId: country.id as Id<'countries'>, price, currency: 'USD' });
+        // La devise n'est plus liée à la région : un prix saisi à la main est enregistré dans la devise de l'entreprise.
+        await setPrice({ productId, countryId: country.id as Id<'countries'>, price, currency: baseCurrency });
       }
       toast('Produit ajouté.', 'success');
       setShowAdd(false);
@@ -154,9 +156,9 @@ export function Products({
     }
   };
 
-  // La devise n'est plus liée à la région : on garde celle déjà enregistrée sur ce prix, sinon l'USD (devise de base).
+  // La devise n'est plus liée à la région : on garde celle déjà enregistrée sur ce prix, sinon la devise de l'entreprise.
   const savePrice = (p: ProductWithPrices, c: Country, price: number) => {
-    const currency = p.product_prices.find((pr) => pr.country_id === c.id)?.currency ?? 'USD';
+    const currency = p.product_prices.find((pr) => pr.country_id === c.id)?.currency ?? baseCurrency;
     return setPrice({
       productId: p.id as Id<'products'>,
       countryId: c.id as Id<'countries'>,

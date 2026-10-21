@@ -184,6 +184,8 @@ export interface AppUser {
   companySuspendKind: 'manual' | 'subscription' | 'deleting' | null;
   /** Fin de l'abonnement (ms), null = pas d'échéance. */
   companySubscriptionEndsAt: number | null;
+  /** Devise de l'entreprise (celle de ses prix et de ses quotations). */
+  companyCurrency: string;
   /** Motif de la suspension saisi par le super admin (null pour un abonnement échu). */
   companySuspendReason: string | null;
   theme: 'light' | 'dark';

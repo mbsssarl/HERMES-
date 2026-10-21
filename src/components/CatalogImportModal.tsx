@@ -3,6 +3,7 @@ import { useAction, useConvex, useMutation, useQuery } from 'convex/react';
 import { Check, ChevronDown, ChevronUp, Eraser, PlusCircle, RefreshCw, TriangleAlert, UploadCloud } from 'lucide-react';
 import type { Country } from '../types';
 import { api, type Id } from '../lib/convex';
+import { useBaseCurrency } from '../lib/currency';
 import { formatPrice, regionLabel } from '../lib/format';
 import { Modal } from './ui';
 import { RateInputs, cleanServerError, parseRate } from './RateInputs';
@@ -60,6 +61,7 @@ export function CatalogImportModal({
   onClose: () => void;
 }) {
   const toast = useToast();
+  const baseCurrency = useBaseCurrency();
   const convex = useConvex();
   const generateUploadUrl = useMutation(api.files.generateUploadUrl);
   const analyze = useAction(api.catalogImport.analyzeCatalogFile);
@@ -67,9 +69,9 @@ export function CatalogImportModal({
   const importCatalog = useMutation(api.products.importCatalog);
 
   const [countryId, setCountryId] = React.useState(countries[0]?.id ?? '');
-  const [sourceCurrency, setSourceCurrency] = React.useState('USD');
+  const [sourceCurrency, setSourceCurrency] = React.useState(baseCurrency);
   // La devise d'enregistrement est choisie ici, indépendamment du pays (région) sélectionné.
-  const [targetCurrency, setTargetCurrency] = React.useState('USD');
+  const [targetCurrency, setTargetCurrency] = React.useState(baseCurrency);
   const [appliedRate, setAppliedRate] = React.useState<number | undefined>(undefined);
   // Taux exact saisi (vide = taux du jour) : « 1 devise du catalogue = valeur devise d'enregistrement ».
   const [rateText, setRateText] = React.useState('');

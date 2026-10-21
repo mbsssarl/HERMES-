@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalQuery } from "./_generated/server";
+import { baseCurrencyOf } from "./lib/baseCurrency";
 
 /** Everything the Excel export of a quotation needs, in display order. */
 export const getForExport = internalQuery({
@@ -16,13 +17,14 @@ export const getForExport = internalQuery({
       .order("asc")
       .collect();
     items.sort((a, b) => a.lineNo - b.lineNo);
-    // Currency label of the exported file: the one chosen on the quotation, else USD (base currency).
-    const currency = order.exportCurrency ?? "USD";
+    // Currency label of the exported file: the one chosen on the quotation, else the company's currency.
+    const baseCurrency = await baseCurrencyOf(ctx, order.companyId);
+    const currency = order.exportCurrency ?? baseCurrency;
     // Fichier d'origine du client (le premier importé) : sert de gabarit à l'envoi au client.
     const files = await ctx.db.query("uploadedFiles").withIndex("by_order", (q) => q.eq("orderId", orderId)).order("asc").collect();
     // On préfère le premier fichier lu avec succès : un envoi précédent resté en erreur ne doit pas servir de gabarit.
     const clientFiles = files.filter((f) => f.kind === "client_request");
     const clientFile = clientFiles.find((f) => f.status === "extracted") ?? clientFiles[0] ?? null;
-    return { order, client, country, currency, items, clientFile };
+    return { order, client, country, currency, baseCurrency, items, clientFile };
   },
 });

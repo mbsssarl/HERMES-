@@ -2,6 +2,7 @@ import React from 'react';
 import { useAction } from 'convex/react';
 import type { QuotationWithRelations } from '../types';
 import { api } from '../lib/convex';
+import { useBaseCurrency } from '../lib/currency';
 import { RateInputs, cleanServerError, parseRate } from './RateInputs';
 
 const MANUAL_SOURCE = 'Taux saisi manuellement'; // doit rester identique à convex/orders.ts
@@ -21,17 +22,18 @@ export function BaseRatesPanel({
   onApply: (ratePercent: number | undefined, manualRates: { currency: string; rate: number }[]) => void;
 }) {
   const getRate = useAction(api.exchangeRates.getRate);
+  const baseCurrency = useBaseCurrency();
 
   // Devises réellement présentes sur les lignes chiffrées (hors USD : rien à convertir).
   const currencies = React.useMemo(() => {
     const set = new Set<string>();
     for (const it of quotation.quotation_items) {
       if (it.excluded || it.total_price == null) continue;
-      const c = it.price_currency ?? 'USD';
-      if (c !== 'USD') set.add(c);
+      const c = it.price_currency ?? baseCurrency;
+      if (c !== baseCurrency) set.add(c);
     }
     return [...set].sort();
-  }, [quotation.quotation_items]);
+  }, [quotation.quotation_items, baseCurrency]);
   const currenciesKey = currencies.join(',');
 
   const applied = quotation.base_rates;
@@ -56,13 +58,13 @@ export function BaseRatesPanel({
     setFailed({});
     let cancelled = false;
     for (const from of currencies) {
-      getRate({ from, to: 'USD' })
+      getRate({ from, to: baseCurrency })
         .then((r) => { if (!cancelled) setLive((prev) => ({ ...prev, [from]: r.rate })); })
         .catch((err) => { if (!cancelled) setFailed((prev) => ({ ...prev, [from]: cleanServerError(err) })); });
     }
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currenciesKey, getRate]);
+  }, [currenciesKey, getRate, baseCurrency]);
 
   const overridden = (c: string) => (typed[c] ?? '').trim() !== '';
   // Une saisie doit être un nombre > 0 ; une devise sans taux en ligne exige une saisie.
@@ -75,15 +77,15 @@ export function BaseRatesPanel({
 
   return (
     <section className="panel panel-wide">
-      <div className="panel-title">Conversion en USD</div>
+      <div className="panel-title">Conversion en {baseCurrency}</div>
       <div className="text-muted" style={{ fontSize: 12, margin: '8px 0' }}>
-        Toutes les lignes sont d'abord converties en USD. Pour chaque devise, la case de droite affiche le taux du jour : remplacez-la par la valeur exacte voulue (ex. 1 EUR = 1,1 USD).
+        Toutes les lignes sont d'abord converties en {baseCurrency}. Pour chaque devise, la case de droite affiche le taux du jour : remplacez-la par la valeur exacte voulue.
       </div>
       {currencies.map((c) => (
         <div key={c} style={{ marginTop: 12 }}>
           <RateInputs
             from={c}
-            to="USD"
+            to={baseCurrency}
             live={live[c]}
             value={typed[c] ?? ''}
             onChange={(value) => setTyped((prev) => ({ ...prev, [c]: value }))}
