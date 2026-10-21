@@ -53,8 +53,8 @@ export const saveValidation = internalMutation({
     if (!order || !user) throw new Error("Commande introuvable.");
     // La commande doit appartenir à l'entreprise de l'utilisateur qui valide.
     if (!user.companyId || order.companyId !== user.companyId) throw new Error("Commande introuvable.");
-    if (order.createdBy !== userId && user.role !== "admin") {
-      throw new Error("Seul le propriétaire de la quotation (ou un administrateur) peut valider la commande.");
+    if (order.createdBy !== userId) {
+      throw new Error("Seul l'auteur de la quotation peut valider la commande.");
     }
 
     // Validation précédente : lignes et fichier remplacés.

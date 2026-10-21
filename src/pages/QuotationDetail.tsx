@@ -116,8 +116,8 @@ export function QuotationDetail({
   if (!quotation) return <StateBox title="Quotation introuvable" />;
 
   const orderId = quotation.id as Id<'orders'>;
-  // Valider la commande engage la quotation : réservé à son propriétaire (et aux administrateurs).
-  const canValidate = quotation.created_by === meId || isAdmin;
+  // Valider la commande engage la quotation : réservé à son auteur : les autres peuvent proposer des modifications, qu'il approuve ou annule.
+  const canValidate = quotation.created_by === meId;
   // Devise de base des quotations (indépendante du pays) : les lignes sans devise propre sont dans la devise de l'entreprise.
   const currency = baseCurrency;
 
@@ -456,13 +456,13 @@ export function QuotationDetail({
           <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setShowValidation(true)}>
             Détails de validation
           </button>
-        ) : (
+        ) : canValidate && (
           <button
             className="btn btn-primary"
             style={{ marginLeft: 'auto' }}
             onClick={() => setValidateModal(true)}
-            disabled={quotation.status === 'DELETED' || !canValidate}
-            title={canValidate ? "Importer le fichier final du client (articles retenus, quantités, prix)" : 'Réservé au propriétaire de la quotation'}
+            disabled={quotation.status === 'DELETED'}
+            title="Importer le fichier final du client (articles retenus, quantités, prix)"
           >
             Valider la commande
           </button>
