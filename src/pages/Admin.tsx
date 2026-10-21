@@ -104,6 +104,24 @@ export function Admin({
       <div className="page-header">
         <div>
           <h1 className="page-title">Admin</h1>
+          {/* Abonnement : une ligne discrète ; elle ne se met en valeur (orange) que dans les 7 derniers jours. */}
+          {(() => {
+            const soon = subscriptionEndsAt !== null && subscriptionEndsAt - Date.now() <= 7 * 86_400_000;
+            return (
+              <div className={soon ? undefined : 'text-muted'} style={{ fontSize: 13, marginTop: 4, color: soon ? '#b45309' : undefined }} role="status">
+                Abonnement :{' '}
+                {subscriptionEndsAt === null ? (
+                  'sans échéance'
+                ) : (
+                  <>
+                    <SubscriptionCountdown endsAt={subscriptionEndsAt} compact /> · fin le{' '}
+                    {new Intl.DateTimeFormat('fr-FR', { dateStyle: 'medium' }).format(new Date(subscriptionEndsAt))}
+                    {soon ? " : l'accès sera suspendu à cette date" : ''}
+                  </>
+                )}
+              </div>
+            );
+          })()}
         </div>
         {!selected && (
           <div className="admin-tabs">
@@ -117,32 +135,6 @@ export function Admin({
           </div>
         )}
       </div>
-
-      {/* Abonnement de l'entreprise : compte à rebours en direct (orange sous 7 jours). */}
-      {!selected && (
-        <div
-          className="card card-pad"
-          role="status"
-          style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', justifyContent: 'space-between', borderColor: subscriptionEndsAt !== null && subscriptionEndsAt - Date.now() <= 7 * 86_400_000 ? '#f59e0b' : undefined }}
-        >
-          <div>
-            <div className="text-muted" style={{ fontSize: 12 }}>Abonnement de l'entreprise</div>
-            {subscriptionEndsAt === null ? (
-              <div style={{ fontWeight: 600 }}>Sans échéance</div>
-            ) : (
-              <div style={{ fontSize: 18 }}><SubscriptionCountdown endsAt={subscriptionEndsAt} /></div>
-            )}
-          </div>
-          {subscriptionEndsAt !== null && (
-            <div className="text-muted" style={{ fontSize: 13, maxWidth: 520 }}>
-              Fin le {new Intl.DateTimeFormat('fr-FR', { dateStyle: 'long' }).format(new Date(subscriptionEndsAt))}.
-              {subscriptionEndsAt - Date.now() <= 7 * 86_400_000
-                ? " Passé cette date, l'accès sera suspendu pour tous les comptes de l'entreprise ; vos données restent conservées intactes."
-                : ''}
-            </div>
-          )}
-        </div>
-      )}
 
       {selected ? (
         <UserDetail user={selected} quotations={quotations} onBack={() => setSelectedId(null)} onOpen={onOpen} users={users} />
