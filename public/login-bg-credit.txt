@@ -1,0 +1,6 @@
+Photo de fond de la page de connexion (public/login-bg.jpg)
+
+Titre   : PASSAT SPRING Container Ship (18671362921).jpg
+Source  : https://commons.wikimedia.org/wiki/File:PASSAT_SPRING_Container_Ship_(18671362921).jpg
+Licence : CC0 (domaine public) - aucune mention obligatoire.
+Fichier : redimensionné à 1600 px de large et recompressé.
