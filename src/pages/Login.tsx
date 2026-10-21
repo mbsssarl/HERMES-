@@ -136,13 +136,12 @@ function AuthShell({
   children: React.ReactNode;
 }) {
   const t = TEXTS[lang];
-  const brand = useBranding();
+  useBranding(); // applique la couleur de la plateforme à la page
   return (
     <main className="login-page">
-      <section className="welcome-panel" style={{ backgroundImage: "url('/bateau.jpg')" }}>
+      <section className="welcome-panel" style={{ backgroundImage: "url('/login-bg.jpg')" }}>
         <div className="welcome-overlay" />
         <div className="welcome-content">
-          <div className="company-logo-tile"><img src={brand.logoUrl} alt="" /></div>
           <div className="welcome-copy">
             <h1>
               {headline}
