@@ -136,7 +136,7 @@ export function Admin({
             <div className="text-muted" style={{ fontSize: 13, maxWidth: 520 }}>
               Fin le {new Intl.DateTimeFormat('fr-FR', { dateStyle: 'long' }).format(new Date(subscriptionEndsAt))}.
               {subscriptionEndsAt - Date.now() <= 7 * 86_400_000
-                ? " Passé cette date, plus aucun compte ne pourra se connecter : contactez l'administrateur de la plateforme pour renouveler l'abonnement."
+                ? " Passé cette date, l'accès sera suspendu pour tous les comptes de l'entreprise ; vos données restent conservées intactes."
                 : ''}
             </div>
           )}
