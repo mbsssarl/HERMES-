@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { logActivity } from "./lib/audit";
 import { applyLineChanges } from "./lib/lineEdits";
+import { refreshOrderStatus } from "./lib/orderStatus"; // état automatique En cours <-> En attente du fournisseur
 import { requireOrder, requireUser } from "./lib/permissions";
 
 /** Modifications en attente d'une quotation (tout le monde les voit ; seul le propriétaire les valide). */
@@ -36,6 +37,8 @@ export const decide = mutation({
       const item = await ctx.db.get(edit.orderItemId);
       if (!item) throw new Error("La ligne concernée n'existe plus.");
       await applyLineChanges(ctx, item, edit.changes, edit.proposedBy);
+      // ÉTAT AUTOMATIQUE : la modification validée (ex. un prix) change peut-être l'état de la commande.
+      await refreshOrderStatus(ctx, edit.orderId);
     }
     await ctx.db.patch(editId, { status: approve ? "approved" : "rejected", decidedBy: user._id, decidedAt: Date.now() });
     await logActivity(ctx, {

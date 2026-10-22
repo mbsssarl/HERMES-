@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { logActivity } from "./lib/audit";
 import { companyIdOf, requireAdmin, requireOwned, requireUser } from "./lib/permissions";
 import { noteCatalogUpdate } from "./lib/catalogUpdates";
+import { refreshOrderStatus } from "./lib/orderStatus"; // état automatique En cours <-> En attente du fournisseur
 import { refreshCataloguePrice, repriceOrderItem } from "./lib/matching";
 import { getCurrentPrice, setCurrentPrice } from "./lib/productPricing";
 import { internal } from "./_generated/api";
@@ -92,6 +93,9 @@ export const setPrice = mutation({
       if (updated) repriced.set(item.orderId, (repriced.get(item.orderId) ?? 0) + 1);
     }
     for (const [orderId, lines] of repriced) await noteCatalogUpdate(ctx, orderId, lines, admin.email ?? undefined, wave);
+    // ÉTAT EN TEMPS RÉEL : un prix tapé à la main au catalogue peut chiffrer la dernière ligne qui manquait : la commande
+    // repasse « En cours » tout de suite (voir lib/orderStatus.ts).
+    for (const orderId of repriced.keys()) await refreshOrderStatus(ctx, orderId);
   },
 });
 

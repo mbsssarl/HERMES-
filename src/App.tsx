@@ -2,6 +2,8 @@ import React from 'react';
 import { Authenticated, AuthLoading, Unauthenticated, useMutation } from 'convex/react';
 import { ToastProvider, useToast } from './components/Toast';
 import { Sidebar, type View } from './components/Sidebar';
+import { MenuBar } from './components/MenuBar';
+import { useSidebar } from './lib/sidebarState';
 import { Dashboard } from './pages/Dashboard';
 import { QuotationsList } from './pages/QuotationsList';
 import { NewQuotation } from './pages/NewQuotation';
@@ -65,6 +67,8 @@ function Gate() {
 function AppInner() {
   const me = useMe();
   useLanguage(); // redessine toute l'application quand la langue change
+  // MENU REPLIABLE (hamburger) : colonne d'icônes sur ordinateur, tiroir sur tablette et téléphone (voir lib/sidebarState.ts)
+  const menu = useSidebar();
   const [view, setView] = React.useState<View>('dashboard');
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const { countries, loading: loadingCountries } = useCountries();
@@ -149,8 +153,18 @@ function AppInner() {
   const loadingCatalog = loadingCountries || loadingProducts;
 
   return (
-    <div className="app">
-      <Sidebar current={view} onNavigate={goTo} pendingCount={pendingCount} updatedCount={updatedCount} me={me} />
+    <div className={menu.shellClass}>
+      <MenuBar open={menu.open} onOpen={menu.openMenu} />
+      <Sidebar
+        current={view}
+        onNavigate={goTo}
+        pendingCount={pendingCount}
+        updatedCount={updatedCount}
+        me={me}
+        collapsed={menu.collapsed}
+        onToggleCollapsed={menu.toggleCollapsed}
+        onClose={menu.closeMenu}
+      />
       <main className="main">
         {view === 'dashboard' && (
           <Dashboard

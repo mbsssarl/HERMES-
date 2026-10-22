@@ -12,6 +12,8 @@ import { useToast } from '../components/Toast';
 import { BrandingTab } from './BrandingTab';
 import { copyText } from '../lib/clipboard';
 import { SubscriptionCountdown } from '../components/SubscriptionCountdown';
+import { MenuBackdrop, MenuBar, SidebarToggles } from '../components/MenuBar';
+import { useSidebar } from '../lib/sidebarState';
 import { Settings } from './Settings';
 import type { AppUser } from '../types';
 
@@ -31,6 +33,8 @@ export function PlatformApp({ me }: { me: AppUser }) {
   const brand = useBranding();
   const [view, setView] = React.useState<PlatformView>('companies');
   const [confirmLogout, setConfirmLogout] = React.useState(false);
+  // MENU REPLIABLE : même comportement que le menu des utilisateurs (colonne d'icônes sur ordinateur, tiroir sur téléphone / tablette)
+  const menu = useSidebar();
 
   const items: Array<{ id: PlatformView; label: string; icon: React.ReactNode }> = [
     { id: 'companies', label: 'Entreprises', icon: <Building2 size={18} /> },
@@ -39,25 +43,36 @@ export function PlatformApp({ me }: { me: AppUser }) {
   ];
 
   return (
-    <div className="app">
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-logo"><img src={brand.logoUrl} alt={brand.name} /></div>
-          <div className="brand-text">
-            <div className="brand-name" title={brand.name}>{brand.name}</div>
-            <div className="brand-sub">Super administration</div>
+    <div className={menu.shellClass}>
+      <MenuBar open={menu.open} onOpen={menu.openMenu} />
+      <MenuBackdrop onClose={menu.closeMenu} />
+      <aside className="sidebar" id="app-sidebar">
+        <div className="sidebar-head">
+          <div className="brand">
+            <div className="brand-logo"><img src={brand.logoUrl} alt={brand.name} /></div>
+            <div className="brand-text">
+              <div className="brand-name" title={brand.name}>{brand.name}</div>
+              <div className="brand-sub">Super administration</div>
+            </div>
           </div>
+          <SidebarToggles collapsed={menu.collapsed} onToggleCollapsed={menu.toggleCollapsed} onClose={menu.closeMenu} />
         </div>
         {items.map((it) => (
-          <button key={it.id} className={`nav-item ${view === it.id ? 'active' : ''}`} onClick={() => setView(it.id)}>
+          <button
+            key={it.id}
+            className={`nav-item ${view === it.id ? 'active' : ''}`}
+            title={it.label}
+            aria-label={it.label}
+            onClick={() => { setView(it.id); menu.closeMenu(); }}
+          >
             {it.icon}
-            {it.label}
+            <span className="nav-label">{it.label}</span>
           </button>
         ))}
         <div className="sidebar-foot">
           <div className="who">{me.email}</div>
-          <button className="nav-item" onClick={() => setConfirmLogout(true)}>
-            <LogOut size={18} /> Déconnexion
+          <button className="nav-item" title="Déconnexion" aria-label="Déconnexion" onClick={() => setConfirmLogout(true)}>
+            <LogOut size={18} /> <span className="nav-label">Déconnexion</span>
           </button>
         </div>
       </aside>

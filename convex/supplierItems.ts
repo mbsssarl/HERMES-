@@ -3,6 +3,7 @@ import type { Id } from "./_generated/dataModel";
 import { insertProduct } from "./products";
 import { normalizeCode, normalizeName } from "./lib/normalize";
 import { rematchOrderItem } from "./lib/matching";
+import { refreshOrderStatus } from "./lib/orderStatus"; // état automatique En cours <-> En attente du fournisseur
 import { getCurrentPrice, setCurrentPrice } from "./lib/productPricing";
 import { baseCurrencyOf } from "./lib/baseCurrency";
 import { companyIdOf, getOwned, requireOrder, requireUser } from "./lib/permissions";
@@ -124,6 +125,9 @@ export const saveToCatalog = mutation({
       for (const orderItem of items) {
         await rematchOrderItem(ctx, orderItem);
       }
+      // ÉTAT EN TEMPS RÉEL : les prix du fournisseur viennent d'entrer au catalogue et les lignes sont rechiffrées ;
+      // la commande repasse « En cours » tout de suite s'il ne manque plus aucun prix (voir lib/orderStatus.ts).
+      await refreshOrderStatus(ctx, orderId);
     }
   },
 });
