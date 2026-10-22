@@ -36,7 +36,7 @@ export const register = action({
         endRow: v.number(),
         columns: v.record(v.string(), v.string()),
         fields: v.array(v.object({ cell: v.string(), token: v.string() })),
-        removeImages: v.optional(v.boolean()),
+        images: v.optional(v.array(v.object({ index: v.number(), action: v.union(v.literal("keep"), v.literal("remove"), v.literal("logo")) }))),
       }),
     ),
   },

@@ -10,6 +10,13 @@ import { ITEM_TOKENS, SCALAR_TOKENS } from "./templateTokens";
 
 export interface AnalysisColumn { col: string; header: string; sample: string; formula: boolean; token: string }
 export interface AnalysisField { label: string; cell: string; current: string; token: string }
+export interface AnalysisImage {
+  index: number;
+  /** Zone couverte par l'image, ex. « B2:C7 ». */
+  range: string;
+  /** Aperçu (data URL) quand l'image est assez légère. */
+  thumbnail?: string;
+}
 export interface TemplateAnalysis {
   sheet: string;
   headerRow: number;
@@ -17,7 +24,7 @@ export interface TemplateAnalysis {
   endRow: number;
   columns: AnalysisColumn[];
   fields: AnalysisField[];
-  imageCount: number;
+  images: AnalysisImage[];
 }
 export interface TemplateMapping {
   sheet: string;
@@ -29,8 +36,12 @@ export interface TemplateMapping {
   columns: Record<string, string>;
   /** Cellules d'information -> repère. */
   fields: { cell: string; token: string }[];
-  removeImages?: boolean;
+  /** Sort de chaque image du fichier : conservée, retirée, ou remplacée par le logo de l'entreprise. */
+  images?: { index: number; action: "keep" | "remove" | "logo" }[];
 }
+
+// PNG transparent de 1 x 1 pixel.
+const TINY_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
 const norm = (s: string): string =>
   s.toUpperCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Z0-9#° ]/g, " ").replace(/\s+/g, " ").trim();
@@ -91,6 +102,38 @@ function colLetters(n: number): string {
   for (let x = n; x > 0; x = Math.floor((x - 1) / 26)) s = String.fromCharCode(65 + ((x - 1) % 26)) + s;
   return s;
 }
+
+/** Zone de cellules (1-based) couverte par une image : de la cellule d'ancrage à celle où elle se termine. */
+type SheetImage = { imageId: string | number; range: unknown };
+const imagesOf = (ws: ExcelJS.Worksheet): SheetImage[] => ws.getImages() as unknown as SheetImage[];
+
+function imageBox(ws: ExcelJS.Worksheet, image: SheetImage): { top: number; left: number; bottom: number; right: number } {
+  const range = image.range as {
+    tl: { nativeCol: number; nativeRow: number; nativeColOff?: number; nativeRowOff?: number };
+    br?: { nativeCol: number; nativeRow: number; nativeColOff?: number; nativeRowOff?: number };
+    ext?: { width: number; height: number };
+  };
+  const left = range.tl.nativeCol + 1;
+  const top = range.tl.nativeRow + 1;
+  if (range.br) {
+    return {
+      top,
+      left,
+      right: Math.max(left, range.br.nativeCol + (range.br.nativeColOff ? 1 : 0)),
+      bottom: Math.max(top, range.br.nativeRow + (range.br.nativeRowOff ? 1 : 0)),
+    };
+  }
+  let right = left;
+  let remaining = (range.ext?.width ?? 0) - 0;
+  for (let c = left; remaining > 0 && c < left + 40; c++) { remaining -= Math.round((ws.getColumn(c).width ?? 8.43) * 7 + 5); right = c; }
+  let bottom = top;
+  remaining = range.ext?.height ?? 0;
+  for (let r = top; remaining > 0 && r < top + 200; r++) { remaining -= ((ws.getRow(r).height ?? 15) * 4) / 3; bottom = r; }
+  return { top, left, right, bottom };
+}
+
+const rangeText = (b: { top: number; left: number; bottom: number; right: number }): string =>
+  b.top === b.bottom && b.left === b.right ? `${colLetters(b.left)}${b.top}` : `${colLetters(b.left)}${b.top}:${colLetters(b.right)}${b.bottom}`;
 
 function mergeMasterOf(ws: ExcelJS.Worksheet, cell: ExcelJS.Cell): ExcelJS.Cell {
   return cell.type === ExcelJS.ValueType.Merge ? cell.master : cell;
@@ -163,7 +206,16 @@ export async function analyzeTemplate(buffer: Buffer): Promise<TemplateAnalysis>
     });
   }
 
-  return { sheet: ws.name, headerRow, modelRow, endRow, columns, fields, imageCount: ws.getImages().length };
+  const images: AnalysisImage[] = imagesOf(ws).map((image, index) => {
+    const media = workbook.getImage(Number(image.imageId)) as { buffer?: Buffer; extension?: string } | undefined;
+    const small = media?.buffer && media.buffer.length <= 250_000;
+    return {
+      index,
+      range: rangeText(imageBox(ws, image)),
+      thumbnail: small ? `data:image/${media?.extension === "jpeg" || media?.extension === "jpg" ? "jpeg" : "png"};base64,${Buffer.from(media!.buffer!).toString("base64")}` : undefined,
+    };
+  });
+  return { sheet: ws.name, headerRow, modelRow, endRow, columns, fields, images };
 }
 
 /** Écrit les repères dans le fichier selon l'association validée par l'admin ; renvoie le nouveau fichier. */
@@ -209,9 +261,39 @@ export async function applyMapping(buffer: Buffer, mapping: TemplateMapping): Pr
     master.value = `{{${token}}}`;
   }
 
-  if (mapping.removeImages) {
-    (ws as unknown as { _media: unknown[] })._media = [];
-    (workbook as unknown as { media: unknown[] }).media = [];
+  // Images : retirées, ou remplacées par le logo de l'entreprise (repère {{logo}} sur la zone qu'elles couvraient)
+  const decisions = mapping.images ?? [];
+  if (decisions.some((d) => d.action !== "keep")) {
+    const images = imagesOf(ws);
+    const dropped = new Set<unknown>();
+    for (const { index, action } of decisions) {
+      const image = images[index];
+      if (!image || action === "keep") continue;
+      dropped.add(image);
+      if (action === "logo") {
+        const box = imageBox(ws, image);
+        const boxes = internals.mergeBoxes(ws);
+        const exact = boxes.find((b) => b.top === box.top && b.left === box.left);
+        const overlaps = boxes.some((b) => b.top <= box.bottom && b.bottom >= box.top && b.left <= box.right && b.right >= box.left);
+        const single = box.top === box.bottom && box.left === box.right;
+        let free = true;
+        for (let r = box.top; r <= box.bottom && free; r++) for (let c = box.left; c <= box.right; c++) {
+          if ((r !== box.top || c !== box.left) && ws.getCell(r, c).value !== null) { free = false; break; }
+        }
+        if (!exact && !single && !overlaps && free) ws.mergeCellsWithoutStyle(box.top, box.left, box.bottom, box.right);
+        ws.getCell(box.top, box.left).value = "{{logo}}";
+      }
+    }
+    const media = (ws as unknown as { _media: unknown[] })._media;
+    (ws as unknown as { _media: unknown[] })._media = media.filter((m) => !dropped.has(m));
+    // Le contenu des images retirées ne reste pas dans le fichier : remplacé par une image minuscule (les numéros d'images restent valides).
+    const stillUsed = new Set<string>();
+    workbook.eachSheet((sheet) => { for (const im of imagesOf(sheet)) stillUsed.add(String(im.imageId)); });
+    for (const image of dropped as Set<SheetImage>) {
+      const id = String(image.imageId);
+      const entry = workbook.getImage(Number(id)) as { buffer?: Buffer; extension?: string } | undefined;
+      if (!stillUsed.has(id) && entry && entry.extension === "png") entry.buffer = Buffer.from(TINY_PNG_BASE64, "base64");
+    }
   }
 
   const out = Buffer.from(await workbook.xlsx.writeBuffer());

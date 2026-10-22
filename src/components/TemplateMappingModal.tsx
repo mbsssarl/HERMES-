@@ -26,7 +26,10 @@ export function TemplateMappingModal({
   const [modelRow, setModelRow] = React.useState(String(analysis.modelRow));
   const [endRow, setEndRow] = React.useState(String(analysis.endRow));
   const [fields, setFields] = React.useState(() => analysis.fields.map((f) => ({ id: nextId++, cell: f.cell, token: f.token, label: f.label, current: f.current })));
-  const [removeImages, setRemoveImages] = React.useState(false);
+  // Sort de chaque image du fichier : la première (en général le logo) est proposée remplacée par le logo de l'entreprise.
+  const [imageActions, setImageActions] = React.useState<Record<number, 'keep' | 'remove' | 'logo'>>(() =>
+    Object.fromEntries(analysis.images.map((img, i) => [img.index, i === 0 ? 'logo' : 'keep'])),
+  );
 
   const first = Number(modelRow);
   const last = Number(endRow);
@@ -42,7 +45,7 @@ export function TemplateMappingModal({
       endRow: last,
       columns,
       fields: fields.filter((f) => f.token).map((f) => ({ cell: f.cell.trim().toUpperCase(), token: f.token })),
-      removeImages: removeImages || undefined,
+      images: analysis.images.map((img) => ({ index: img.index, action: imageActions[img.index] ?? 'keep' })),
     });
 
   return (
@@ -114,11 +117,23 @@ export function TemplateMappingModal({
         <Plus size={14} /> Ajouter une cellule
       </button>
 
-      {analysis.imageCount > 0 && (
-        <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 14, cursor: 'pointer' }}>
-          <input type="checkbox" checked={removeImages} onChange={(e) => setRemoveImages(e.target.checked)} />
-          <span>Retirer les images du fichier ({analysis.imageCount}) — le logo de l'entreprise se place avec le repère « Logo »</span>
-        </label>
+      {analysis.images.length > 0 && (
+        <>
+          <div className="section-title" style={{ marginTop: 16 }}>Images du fichier</div>
+          {analysis.images.map((img, i) => (
+            <div key={img.index} style={{ display: 'flex', gap: 12, alignItems: 'center', margin: '8px 0', flexWrap: 'wrap' }}>
+              {img.thumbnail
+                ? <img src={img.thumbnail} alt="" style={{ height: 44, maxWidth: 110, objectFit: 'contain', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6 }} />
+                : <div style={{ height: 44, width: 60, background: '#f3f4f6', borderRadius: 6 }} />}
+              <span className="text-muted" style={{ fontSize: 13, minWidth: 90 }}>Image {i + 1} · {img.range}</span>
+              <select className="select" value={imageActions[img.index] ?? 'keep'} onChange={(e) => setImageActions((prev) => ({ ...prev, [img.index]: e.target.value as 'keep' | 'remove' | 'logo' }))}>
+                <option value="logo">Remplacer par le logo de l'entreprise</option>
+                <option value="keep">Conserver</option>
+                <option value="remove">Retirer</option>
+              </select>
+            </div>
+          ))}
+        </>
       )}
       {!hasDescription && <p style={{ color: '#b91c1c', fontSize: 13, marginBottom: 0 }}>Choisissez la colonne de la désignation des articles.</p>}
       {!rowsOk && <p style={{ color: '#b91c1c', fontSize: 13, marginBottom: 0 }}>Lignes d'exemple invalides.</p>}
