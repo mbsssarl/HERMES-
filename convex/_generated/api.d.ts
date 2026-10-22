@@ -59,6 +59,7 @@ import type * as lib_lineEdits from "../lib/lineEdits.js";
 import type * as lib_matching from "../lib/matching.js";
 import type * as lib_names from "../lib/names.js";
 import type * as lib_normalize from "../lib/normalize.js";
+import type * as lib_orderStatus from "../lib/orderStatus.js";
 import type * as lib_pdf_quotationPdf from "../lib/pdf/quotationPdf.js";
 import type * as lib_permissions from "../lib/permissions.js";
 import type * as lib_pricing from "../lib/pricing.js";
@@ -143,6 +144,7 @@ declare const fullApi: ApiFromModules<{
   "lib/matching": typeof lib_matching;
   "lib/names": typeof lib_names;
   "lib/normalize": typeof lib_normalize;
+  "lib/orderStatus": typeof lib_orderStatus;
   "lib/pdf/quotationPdf": typeof lib_pdf_quotationPdf;
   "lib/permissions": typeof lib_permissions;
   "lib/pricing": typeof lib_pricing;
