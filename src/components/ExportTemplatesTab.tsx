@@ -4,7 +4,9 @@ import { Download, FlaskConical, Plus, Trash2 } from 'lucide-react';
 import { api, type Id } from '../lib/convex';
 import { saveBase64File } from '../lib/exportFile';
 import { ITEM_TOKENS, SCALAR_TOKENS } from '../../convex/lib/export/templateTokens';
+import type { TemplateAnalysis, TemplateMapping } from '../../convex/lib/export/templateAuthoring';
 import { Modal, StateBox } from './ui';
+import { TemplateMappingModal } from './TemplateMappingModal';
 import { useToast } from './Toast';
 
 const errMsg = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -21,6 +23,8 @@ export function ExportTemplatesTab() {
   const remove = useMutation(api.exportTemplates.remove);
   const generateUploadUrl = useMutation(api.files.generateUploadUrl);
   const register = useAction(api.exportTemplatesNode.register);
+  const analyze = useAction(api.exportTemplatesNode.analyze);
+  const discard = useAction(api.exportTemplatesNode.discard);
   const download = useAction(api.exportTemplatesNode.download);
   const baseTemplate = useAction(api.exportTemplatesNode.baseTemplate);
   const test = useAction(api.exportTemplatesNode.test);
@@ -32,6 +36,8 @@ export function ExportTemplatesTab() {
   const [busy, setBusy] = React.useState<string | null>(null); // action en cours (identifiant du modèle ou « import »)
   const [toDelete, setToDelete] = React.useState<{ id: string; name: string } | null>(null);
   const input = React.useRef<HTMLInputElement>(null);
+  // Fichier envoyé sans repères : en attente de l'association validée par l'admin.
+  const [pending, setPending] = React.useState<{ storageId: Id<'_storage'>; fileName: string; analysis: TemplateAnalysis } | null>(null);
 
   if (templates === undefined) return <StateBox loading variant="table" title="Chargement…" />;
   const builtinIsDefault = !templates.some((t) => t.isDefault);
@@ -50,11 +56,32 @@ export function ExportTemplatesTab() {
       const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
       if (!res.ok) throw new Error("Échec de l'envoi du fichier.");
       const { storageId } = (await res.json()) as { storageId: Id<'_storage'> };
+      const result = await analyze({ storageId, fileName: file.name });
+      if (!result.hasTokens) {
+        // Pas de repères : l'application propose une association à valider.
+        setPending({ storageId, fileName: file.name, analysis: result.analysis });
+        setShowImport(false);
+        return;
+      }
       const { warnings } = await register({ storageId, name: name.trim(), fileName: file.name });
       toast('Modèle importé.', 'success');
       if (warnings.length > 0) toast(warnings.join(' '), 'info', { duration: 10000 });
       setShowImport(false); setFile(null); setName('');
     });
+
+  const submitMapping = (mapping: TemplateMapping) =>
+    run('import', async () => {
+      if (!pending) return;
+      const { warnings } = await register({ storageId: pending.storageId, name: name.trim(), fileName: pending.fileName, mapping });
+      toast('Modèle créé.', 'success');
+      if (warnings.length > 0) toast(warnings.join(' '), 'info', { duration: 10000 });
+      setPending(null); setFile(null); setName('');
+    });
+
+  const cancelMapping = () => {
+    if (pending) void discard({ storageId: pending.storageId }).catch(() => {});
+    setPending(null); setFile(null); setName('');
+  };
 
   return (
     <>
@@ -117,7 +144,7 @@ export function ExportTemplatesTab() {
           onClose={closeImport}
           footer={<>
             <button className="btn" onClick={closeImport} disabled={busy === 'import'}>Annuler</button>
-            <button className="btn btn-primary" onClick={() => void submitImport()} disabled={!file || busy === 'import'}>{busy === 'import' ? 'Import…' : 'Importer'}</button>
+            <button className="btn btn-primary" onClick={() => void submitImport()} disabled={!file || busy === 'import'}>{busy === 'import' ? 'Analyse…' : 'Importer'}</button>
           </>}
         >
           <div className="form-field">
@@ -139,6 +166,8 @@ export function ExportTemplatesTab() {
           </div>
         </Modal>
       )}
+
+      {pending && <TemplateMappingModal analysis={pending.analysis} busy={busy === 'import'} onSubmit={(m) => void submitMapping(m)} onCancel={cancelMapping} />}
 
       {showTokens && (
         <Modal title="Repères d'un modèle" onClose={() => setShowTokens(false)} wide footer={<button className="btn" onClick={() => setShowTokens(false)}>Fermer</button>}>

@@ -492,4 +492,4 @@ export async function renderTemplate(buffer: Buffer, data: ExportData): Promise<
 }
 
 /** Pour les tests et la préparation de fichiers d'essai. */
-export const internals = { resizeRows, unmergeAll, normalizeSharedFormulas };
+export const internals = { resizeRows, unmergeAll, normalizeSharedFormulas, mergeBoxes };

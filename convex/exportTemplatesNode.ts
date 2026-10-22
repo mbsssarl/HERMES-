@@ -5,6 +5,7 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { action, type ActionCtx } from "./_generated/server";
 import { fetchCompanyLogo } from "./lib/export/logoImage";
+import { analyzeTemplate, applyMapping, type TemplateAnalysis } from "./lib/export/templateAuthoring";
 import { inspectTemplate, renderTemplate } from "./lib/export/templateEngine";
 import { buildBaseTemplate, SAMPLE_EXPORT } from "./lib/export/templateSample";
 
@@ -23,8 +24,23 @@ async function requireAdminUser(ctx: ActionCtx): Promise<{ _id: Id<"users">; com
  * une ligne d'articles) ; s'il est refusé, le fichier est supprimé du stockage.
  */
 export const register = action({
-  args: { storageId: v.id("_storage"), name: v.string(), fileName: v.string() },
-  handler: async (ctx, { storageId, name, fileName }): Promise<{ warnings: string[] }> => {
+  args: {
+    storageId: v.id("_storage"),
+    name: v.string(),
+    fileName: v.string(),
+    // Association saisie par l'admin pour un fichier sans repères : l'application écrit elle-même les repères.
+    mapping: v.optional(
+      v.object({
+        sheet: v.string(),
+        modelRow: v.number(),
+        endRow: v.number(),
+        columns: v.record(v.string(), v.string()),
+        fields: v.array(v.object({ cell: v.string(), token: v.string() })),
+        removeImages: v.optional(v.boolean()),
+      }),
+    ),
+  },
+  handler: async (ctx, { storageId, name, fileName, mapping }): Promise<{ warnings: string[] }> => {
     const reject = async (message: string): Promise<never> => {
       await ctx.storage.delete(storageId);
       throw new Error(message);
@@ -38,7 +54,19 @@ export const register = action({
     if (blob.size > MAX_TEMPLATE_BYTES) return reject("Fichier trop volumineux (5 Mo maximum).");
     if (!/\.xlsx$/i.test(fileName)) return reject("Le modèle doit être un fichier Excel .xlsx.");
 
-    const report = await inspectTemplate(Buffer.from(await blob.arrayBuffer()));
+    let source: Buffer = Buffer.from(await blob.arrayBuffer());
+    if (mapping) {
+      try {
+        source = await applyMapping(source, mapping);
+      } catch (err) {
+        return reject(err instanceof Error ? err.message : String(err));
+      }
+      // Le fichier balisé remplace le fichier envoyé.
+      const prepared = await ctx.storage.store(new Blob([new Uint8Array(source)], { type: XLSX_MIME }));
+      await ctx.storage.delete(storageId);
+      storageId = prepared;
+    }
+    const report = await inspectTemplate(source);
     if (!report.ok) return reject(report.errors.join(" "));
 
     const cleanName = name.trim() || fileName.replace(/\.xlsx$/i, "");
@@ -48,9 +76,48 @@ export const register = action({
       name: cleanName.slice(0, 80),
       fileName: fileName.slice(0, 200),
       storageId,
-      size: blob.size,
+      size: source.length,
     });
     return { warnings: report.warnings };
+  },
+});
+
+/**
+ * Regarde un fichier envoyé : s'il contient déjà des repères, il peut être enregistré tel quel ; sinon l'application
+ * propose une association (colonnes du tableau, cases d'information) à faire valider.
+ */
+export const analyze = action({
+  args: { storageId: v.id("_storage"), fileName: v.string() },
+  handler: async (ctx, { storageId, fileName }): Promise<{ hasTokens: true } | { hasTokens: false; analysis: TemplateAnalysis }> => {
+    const reject = async (message: string): Promise<never> => {
+      await ctx.storage.delete(storageId);
+      throw new Error(message);
+    };
+    const user = await ctx.runQuery(api.users.getBusinessUser, {});
+    if (!user) return reject("Authentification requise.");
+    if (user.role !== "admin" || !user.companyId) return reject("Action réservée aux administrateurs.");
+    const blob = await ctx.storage.get(storageId);
+    if (!blob) return reject("Fichier introuvable dans le stockage.");
+    if (blob.size > MAX_TEMPLATE_BYTES) return reject("Fichier trop volumineux (5 Mo maximum).");
+    if (!/\.xlsx$/i.test(fileName)) return reject("Le modèle doit être un fichier Excel .xlsx.");
+    const buffer = Buffer.from(await blob.arrayBuffer());
+    const report = await inspectTemplate(buffer);
+    if (report.tokens.length > 0) return { hasTokens: true };
+    try {
+      return { hasTokens: false, analysis: await analyzeTemplate(buffer) };
+    } catch (err) {
+      return reject(err instanceof Error ? err.message : String(err));
+    }
+  },
+});
+
+/** Abandon d'un import : supprime le fichier envoyé. */
+export const discard = action({
+  args: { storageId: v.id("_storage") },
+  handler: async (ctx, { storageId }): Promise<null> => {
+    await requireAdminUser(ctx);
+    await ctx.storage.delete(storageId);
+    return null;
   },
 });
 

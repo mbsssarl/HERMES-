@@ -40,6 +40,7 @@ import type * as lib_export_logoData from "../lib/export/logoData.js";
 import type * as lib_export_logoImage from "../lib/export/logoImage.js";
 import type * as lib_export_numberFormats from "../lib/export/numberFormats.js";
 import type * as lib_export_recalc from "../lib/export/recalc.js";
+import type * as lib_export_templateAuthoring from "../lib/export/templateAuthoring.js";
 import type * as lib_export_templateData from "../lib/export/templateData.js";
 import type * as lib_export_templateEngine from "../lib/export/templateEngine.js";
 import type * as lib_export_templateSample from "../lib/export/templateSample.js";
@@ -123,6 +124,7 @@ declare const fullApi: ApiFromModules<{
   "lib/export/logoImage": typeof lib_export_logoImage;
   "lib/export/numberFormats": typeof lib_export_numberFormats;
   "lib/export/recalc": typeof lib_export_recalc;
+  "lib/export/templateAuthoring": typeof lib_export_templateAuthoring;
   "lib/export/templateData": typeof lib_export_templateData;
   "lib/export/templateEngine": typeof lib_export_templateEngine;
   "lib/export/templateSample": typeof lib_export_templateSample;

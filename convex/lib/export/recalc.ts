@@ -250,6 +250,9 @@ export function recalculateWorkbook(workbook: ExcelJS.Workbook): void {
           const formula = (raw as { formula: string }).formula;
           if (result instanceof FormulaError) {
             cell.value = { formula, result: { error: (result as { error: string }).error } } as ExcelJS.CellFormulaValue;
+          } else if (result === null) {
+            // formule qui ne renvoie qu'une cellule vide : Excel affiche 0
+            cell.value = { formula, result: 0 } as ExcelJS.CellFormulaValue;
           } else if (typeof result === "number" || typeof result === "string" || typeof result === "boolean") {
             // arrondi à 9 décimales : évite les « 33483.049999999996 » dus aux flottants
             const clean = typeof result === "number" ? Math.round(result * 1e9) / 1e9 : result;
