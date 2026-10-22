@@ -1,5 +1,7 @@
 import React from 'react';
+import { useQuery } from 'convex/react';
 import { Download, Mail } from 'lucide-react';
+import { api } from '../lib/convex';
 import { Modal } from './ui';
 import { useToast } from './Toast';
 import { useBranding } from '../lib/branding';
@@ -41,7 +43,7 @@ export function ExportModal({
   /** Valeurs de la quotation proposées pour l'en-tête du fichier fournisseur (modifiables avant l'export). */
   headerDefaults: ExportHeader;
   /** Génère le fichier côté serveur (avec l'ETA et l'en-tête saisis, si fournisseur) ; renvoie null (et affiche l'erreur) en cas d'échec. */
-  fetchExport: (opts: { eta?: string; clientFormat?: boolean; header?: ExportHeader }) => Promise<{ fileName: string; base64: string; notice?: string; format: 'client' | 'standard' } | null>;
+  fetchExport: (opts: { eta?: string; clientFormat?: boolean; header?: ExportHeader; templateId?: string | null }) => Promise<{ fileName: string; base64: string; notice?: string; format: 'client' | 'standard' } | null>;
   onClose: () => void;
 }) {
   const toast = useToast();
@@ -65,6 +67,11 @@ export function ExportModal({
   // En-tête du fichier fournisseur : préremplie depuis la quotation, corrigeable ici (enregistrée sur la quotation à l'export).
   const [header, setHeader] = React.useState<ExportHeader>(headerDefaults);
   const setField = (key: keyof ExportHeader) => (value: string) => setHeader((prev) => ({ ...prev, [key]: value }));
+  // Modèle du fichier fournisseur : le modèle par défaut de l'entreprise, sauf choix contraire ici.
+  const templates = useQuery(api.exportTemplates.list);
+  const [templateChoice, setTemplateChoice] = React.useState<string | null>(null);
+  const defaultTemplate = templates?.find((t) => t.isDefault)?.id ?? 'builtin';
+  const chosenTemplate = templateChoice ?? defaultTemplate;
   const [mailer, setMailer] = React.useState<Mailer>(gmailApiConfigured ? 'gmailApi' : 'gmail');
   const [busy, setBusy] = React.useState(false);
 
@@ -90,6 +97,7 @@ export function ExportModal({
         eta: recipientType === 'supplier' && eta ? eta : undefined,
         clientFormat: recipientType === 'client',
         header: recipientType === 'supplier' ? header : undefined,
+        templateId: recipientType === 'supplier' && templates && templates.length > 0 ? (chosenTemplate === 'builtin' ? null : chosenTemplate) : undefined,
       });
       if (!file) return;
       if (file.notice) toast(file.notice, 'info', { duration: 10000 });
@@ -170,6 +178,15 @@ export function ExportModal({
           <div className="text-muted" style={{ fontSize: 12, margin: '4px 0 8px' }}>
             Informations de l'en-tête de la demande de cotation. Le fournisseur complète lui-même les conditions (paiement, délai, validité).
           </div>
+          {templates && templates.length > 0 && (
+            <div className="form-field">
+              <label>Modèle du fichier</label>
+              <select className="select" value={chosenTemplate} onChange={(e) => setTemplateChoice(e.target.value)}>
+                <option value="builtin">Modèle intégré{defaultTemplate === 'builtin' ? ' (par défaut)' : ''}</option>
+                {templates.map((t) => <option key={t.id} value={t.id}>{t.name}{t.isDefault ? ' (par défaut)' : ''}</option>)}
+              </select>
+            </div>
+          )}
           <div className="form-field">
             <label>Titre : REQUEST FOR…</label>
             <input className="input" value={header.requestFor} maxLength={60} placeholder="Quotation, Provisions, Material…" onChange={(e) => setField('requestFor')(e.target.value)} />

@@ -87,7 +87,8 @@ export type TenantTable =
   | "productAliases"
   | "productPrices"
   | "orders"
-  | "orderItems";
+  | "orderItems"
+  | "exportTemplates";
 
 /**
  * Charge un document par identifiant et le renvoie seulement s'il appartient à l'entreprise de `user` ;

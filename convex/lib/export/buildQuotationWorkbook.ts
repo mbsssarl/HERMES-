@@ -36,6 +36,8 @@ export interface ExportData {
   country?: string;
   deliveryPort?: string;
   vessel?: string;
+  /** N° IMO du navire. */
+  imo?: string;
   eta?: string;
   /** Référence de la demande (case « REF NO »). */
   refNo?: string;

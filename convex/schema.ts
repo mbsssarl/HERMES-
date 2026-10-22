@@ -527,6 +527,23 @@ const schema = defineSchema({
     .index("by_item", ["orderItemId"]),
 
   // ------------------------------------------------------------------
+  // MODÈLES D'EXPORT
+  // Fichiers Excel importés par l'admin pour servir de modèle aux fichiers envoyés aux fournisseurs (repères
+  // {{...}} à remplir, voir lib/export/templateEngine.ts). Un seul est « par défaut » ; l'utilisateur peut en choisir un autre
+  // à l'export. Le fichier est dans le stockage Convex.
+  // ------------------------------------------------------------------
+  exportTemplates: defineTable({
+    companyId: v.id("companies"),
+    name: v.string(),
+    fileName: v.string(),
+    storageId: v.id("_storage"),
+    size: v.number(),
+    isDefault: v.boolean(),
+    createdAt: v.number(),
+    createdBy: v.id("users"),
+  }).index("by_company", ["companyId"]),
+
+  // ------------------------------------------------------------------
   // FICHIERS UPLOADÉS
   // Tout fichier qui transite par l'app : import client/fournisseur,
   // mais aussi les fichiers qu'on génère nous-mêmes (template, PDF final).

@@ -11,6 +11,7 @@ import { CategoriesTab } from './CategoriesTab';
 import { BrandingTab } from './BrandingTab';
 import { CompanyInfoCard } from '../components/CompanyInfoCard';
 import { CompanyCurrencyCard } from '../components/CompanyCurrencyCard';
+import { ExportTemplatesTab } from '../components/ExportTemplatesTab';
 import { copyText } from '../lib/clipboard';
 import { SubscriptionCountdown } from '../components/SubscriptionCountdown';
 import type { Country, Currency, ProductCategory } from '../types';
@@ -94,7 +95,7 @@ export function Admin({
   loadingCountries: boolean;
   onOpen: (q: QuotationWithRelations) => void;
 }) {
-  const [tab, setTab] = React.useState<'users' | 'logs' | 'countries' | 'currencies' | 'categories' | 'branding'>('users');
+  const [tab, setTab] = React.useState<'users' | 'logs' | 'countries' | 'currencies' | 'categories' | 'branding' | 'templates'>('users');
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const users = useQuery(api.users.listUsers);
 
@@ -134,6 +135,7 @@ export function Admin({
             <button className={`btn btn-sm ${tab === 'currencies' ? 'btn-primary' : ''}`} onClick={() => setTab('currencies')}>Devises</button>
             <button className={`btn btn-sm ${tab === 'categories' ? 'btn-primary' : ''}`} onClick={() => setTab('categories')}>Catégories</button>
             <button className={`btn btn-sm ${tab === 'branding' ? 'btn-primary' : ''}`} onClick={() => setTab('branding')}>Personnalisation</button>
+            <button className={`btn btn-sm ${tab === 'templates' ? 'btn-primary' : ''}`} onClick={() => setTab('templates')}>Modèles d'export</button>
           </div>
         )}
       </div>
@@ -146,6 +148,7 @@ export function Admin({
           {tab === 'logs' && <LogsTab users={users} />}
           {tab === 'currencies' && <CurrenciesTab currencies={currencies} />}
           {tab === 'categories' && <CategoriesTab categories={categories} />}
+          {tab === 'templates' && <ExportTemplatesTab />}
           {tab === 'branding' && (
             <>
               <BrandingTab />

@@ -6,6 +6,7 @@ import { action } from "./_generated/server";
 import { buildQuotationWorkbook, type ExportCompany } from "./lib/export/buildQuotationWorkbook";
 import { fillClientWorkbook } from "./lib/export/fillClientWorkbook";
 import { fetchCompanyLogo } from "./lib/export/logoImage";
+import { renderTemplate } from "./lib/export/templateEngine";
 import * as XLSX from "xlsx";
 import { XLSX_MIME } from "./lib/extraction/fileKinds";
 
@@ -26,6 +27,9 @@ export const exportQuotationXlsx = action({
     // true = envoi au CLIENT : on renvoie son fichier Excel d'origine complété des prix, au lieu du gabarit MBSS
     // (réservé aux fournisseurs et aux téléchargements simples).
     clientFormat: v.optional(v.boolean()),
+    // Modèle d'export du fichier fournisseur : absent = modèle par défaut de l'entreprise (sinon le modèle intégré) ;
+    // null = modèle intégré.
+    templateId: v.optional(v.union(v.id("exportTemplates"), v.null())),
     // Informations de l'en-tête du gabarit, demandées à l'export : « REQUEST FOR … », pays, port de livraison, navire, réf.
     // Absentes = valeurs de la commande.
     header: v.optional(
@@ -38,7 +42,7 @@ export const exportQuotationXlsx = action({
       }),
     ),
   },
-  handler: async (ctx, { orderId, scope, eta, clientFormat, header }): Promise<{ fileName: string; base64: string; notice?: string; format: "client" | "standard" }> => {
+  handler: async (ctx, { orderId, scope, eta, clientFormat, header, templateId }): Promise<{ fileName: string; base64: string; notice?: string; format: "client" | "standard" }> => {
     const user = await ctx.runQuery(api.users.getBusinessUser, {});
     if (!user) throw new Error("Authentification requise.");
 
@@ -131,7 +135,7 @@ export const exportQuotationXlsx = action({
     // Logo de l'entreprise (Admin > Personnalisation), sinon logo neutre : jamais celui d'une autre entreprise.
     const logo = (await fetchCompanyLogo(brand.logoUrl)) ?? undefined;
 
-    const buffer = await buildQuotationWorkbook({
+    const exportData = {
       logo,
       reference: order.reference,
       currency,
@@ -139,6 +143,7 @@ export const exportQuotationXlsx = action({
       country: header?.country !== undefined ? header.country : country?.name,
       deliveryPort: header?.port !== undefined ? header.port : order.supplyPlace || country?.city,
       vessel: header?.vessel !== undefined ? header.vessel : order.vessel,
+      imo: order.documentInfo?.imoNo,
       eta: eta ?? order.eta,
       refNo: header?.refNo !== undefined ? header.refNo : order.documentInfo?.vendorRef ?? order.reference,
       company,
@@ -152,7 +157,24 @@ export const exportQuotationXlsx = action({
         unitPrice: item.priceAfterQuotation !== undefined ? item.priceAfterQuotation * rateFor(item.priceCurrency) : item.priceAfterQuotation,
         remarks: [item.reqNotes, item.enqNotes].filter(Boolean).join(" ") || undefined,
       })),
-    });
+    };
+
+    // Modèle importé par l'admin (celui choisi, sinon le modèle par défaut) ; à défaut, le modèle intégré.
+    let buffer: Buffer | undefined;
+    const template = await ctx.runQuery(internal.exportTemplates.resolve, { companyId: user.companyId!, templateId });
+    if (template) {
+      const blob = await ctx.storage.get(template.storageId);
+      if (blob) {
+        try {
+          buffer = await renderTemplate(Buffer.from(await blob.arrayBuffer()), exportData);
+        } catch (err) {
+          throw new Error(`Le modèle « ${template.name} » n'a pas pu être rempli (${err instanceof Error ? err.message : String(err)}).`);
+        }
+      } else {
+        notice = `Le fichier du modèle « ${template.name} » est introuvable : le modèle standard a été utilisé.`;
+      }
+    }
+    buffer ??= await buildQuotationWorkbook(exportData);
 
     // Le nom du client n'apparaît que pour un envoi au client : un fichier à destination d'un fournisseur ne
     // doit pas révéler l'identité du client final.

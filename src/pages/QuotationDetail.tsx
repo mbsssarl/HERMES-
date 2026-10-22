@@ -271,9 +271,9 @@ export function QuotationDetail({
     refNo: quotation.document_info.vendorRef ?? quotation.quotation_number,
   };
 
-  const fetchExport = async (scope: 'selected' | 'unknown', opts: { eta?: string; clientFormat?: boolean; header?: ExportHeader }): Promise<{ fileName: string; base64: string; notice?: string; format: 'client' | 'standard' } | null> => {
+  const fetchExport = async (scope: 'selected' | 'unknown', opts: { eta?: string; clientFormat?: boolean; header?: ExportHeader; templateId?: string | null }): Promise<{ fileName: string; base64: string; notice?: string; format: 'client' | 'standard' } | null> => {
     try {
-      const file = await exportXlsx({ orderId, scope, eta: opts.eta, clientFormat: opts.clientFormat, header: opts.header });
+      const file = await exportXlsx({ orderId, scope, eta: opts.eta, clientFormat: opts.clientFormat, header: opts.header, templateId: opts.templateId as Id<'exportTemplates'> | null | undefined });
       // Navire, port et référence corrigés sont gardés sur la quotation (mêmes informations que le bon de commande) ;
       // le titre et le pays ne sont que des textes de ce fichier : ils ne sont pas enregistrés.
       const h = opts.header;
