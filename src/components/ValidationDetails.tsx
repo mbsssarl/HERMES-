@@ -1,9 +1,10 @@
 import React from 'react';
-import { useMutation } from 'convex/react';
-import { Printer, Truck } from 'lucide-react';
+import { useAction, useMutation, useQuery } from 'convex/react';
+import { Download, Printer, Truck } from 'lucide-react';
 import type { OrderValidation, QuotationWithRelations, ValidationItem } from '../types';
 import { api, type Id } from '../lib/convex';
 import { formatAmount } from '../lib/format';
+import { saveBase64File } from '../lib/exportFile';
 import { printOrderDocument, type OrderDocumentInfo } from '../lib/printOrderDocument';
 import { useToast } from './Toast';
 
@@ -41,7 +42,22 @@ export function ValidationDetails({
 }) {
   const toast = useToast();
   const updateLogistics = useMutation(api.orders.updateLogistics);
+  const exportOrderDocument = useAction(api.exportOrderDocument.exportOrderDocumentXlsx);
   const orderId = quotation.id as Id<'orders'>;
+
+  // Modèle Excel importé (voir Admin > Modèles d'export) : s'il y en a un par défaut pour ce type de document, le
+  // bouton télécharge un fichier rempli au lieu d'imprimer. Sinon, l'impression du document actuel reste disponible
+  // uniquement si l'entreprise y est autorisée (voir convex/exportTemplates.ts::allowsBuiltin) ; à défaut, le
+  // bouton est désactivé tant qu'aucun modèle n'a été importé pour ce type.
+  const allowsBuiltin = useQuery(api.exportTemplates.myCompanyAllowsBuiltin);
+  const poTemplates = useQuery(api.exportTemplates.list, { kind: 'purchase_order' });
+  const dnTemplates = useQuery(api.exportTemplates.list, { kind: 'delivery_note' });
+  const hasDefaultTemplate = (templates: typeof poTemplates) => templates?.some((t) => t.isDefault) ?? false;
+  const canUseKind = (kind: 'purchase' | 'delivery') => {
+    const hasTemplate = hasDefaultTemplate(kind === 'purchase' ? poTemplates : dnTemplates);
+    return hasTemplate || allowsBuiltin === true;
+  };
+  const [downloading, setDownloading] = React.useState<'purchase' | 'delivery' | null>(null);
 
   // Informations de l'en-tête des documents : reprises de la commande, modifiables ; ce qui peut l'être est
   // enregistré sur la commande à la sortie du champ (l'agent n'est pas mémorisé : c'est le client par défaut).
@@ -99,6 +115,30 @@ export function ValidationDetails({
       })),
     });
     if (!ok) toast("Le navigateur a bloqué l'ouverture du document : autorisez les fenêtres pop-up pour ce site.", 'error');
+  };
+
+  const download = async (kind: 'purchase' | 'delivery') => {
+    setDownloading(kind);
+    try {
+      const file = await exportOrderDocument({
+        orderId,
+        kind: kind === 'purchase' ? 'purchase_order' : 'delivery_note',
+        itemIds: chosen.map((it) => it.id as Id<'orderValidatedItems'>),
+        discountPercent: kind === 'purchase' ? discountPercent : undefined,
+        info,
+      });
+      saveBase64File(file.fileName, file.base64);
+    } catch (err) {
+      toast('Erreur: ' + errMsg(err), 'error');
+    } finally {
+      setDownloading(null);
+    }
+  };
+
+  const trigger = (kind: 'purchase' | 'delivery') => {
+    const hasTemplate = hasDefaultTemplate(kind === 'purchase' ? poTemplates : dnTemplates);
+    if (hasTemplate) void download(kind);
+    else print(kind);
   };
 
   const field = (label: string, key: keyof OrderDocumentInfo, opts?: { persist?: Parameters<typeof persist>[0]; type?: string; wide?: boolean }) => (
@@ -228,13 +268,31 @@ export function ValidationDetails({
           {field('On behalf (nom puis adresse)', 'onBehalf', { persist: 'issuer', wide: true })}
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="btn btn-primary" disabled={chosen.length === 0} onClick={() => print('purchase')} title="Articles avec prix d'achat (prix du fichier client moins la marge de la cotation)">
-            <Printer size={16} /> Imprimer le Purchase Order
+          <button
+            className="btn btn-primary"
+            disabled={chosen.length === 0 || downloading !== null || !canUseKind('purchase')}
+            onClick={() => trigger('purchase')}
+            title="Articles avec prix d'achat (prix du fichier client moins la marge de la cotation)"
+          >
+            {hasDefaultTemplate(poTemplates) ? <Download size={16} /> : <Printer size={16} />}
+            {downloading === 'purchase' ? 'Génération…' : hasDefaultTemplate(poTemplates) ? 'Télécharger le Purchase Order' : 'Imprimer le Purchase Order'}
           </button>
-          <button className="btn" disabled={chosen.length === 0} onClick={() => print('delivery')} title="Le même document, sans prix">
-            <Truck size={16} /> Imprimer le Delivery Note
+          <button
+            className="btn"
+            disabled={chosen.length === 0 || downloading !== null || !canUseKind('delivery')}
+            onClick={() => trigger('delivery')}
+            title="Le même document, sans prix"
+          >
+            {hasDefaultTemplate(dnTemplates) ? <Download size={16} /> : <Truck size={16} />}
+            {downloading === 'delivery' ? 'Génération…' : hasDefaultTemplate(dnTemplates) ? 'Télécharger le Delivery Note' : 'Imprimer le Delivery Note'}
           </button>
         </div>
+        {(!canUseKind('purchase') || !canUseKind('delivery')) && (
+          <p className="text-muted" style={{ fontSize: 12, marginTop: 8, marginBottom: 0 }}>
+            Aucun modèle n'est configuré pour {!canUseKind('purchase') && !canUseKind('delivery') ? 'le Purchase Order ni le Delivery Note' : !canUseKind('purchase') ? 'le Purchase Order' : 'le Delivery Note'} :
+            importez-en un depuis Admin &gt; Modèles d'export pour pouvoir l'exporter.
+          </p>
+        )}
       </div>
     </div>
   );

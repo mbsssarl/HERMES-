@@ -148,6 +148,21 @@ export const createRoot = internalMutation({
   },
 });
 
+/**
+ * Autorise l'entreprise `code` à utiliser le document d'export générique intégré à l'app quand elle n'a importé
+ * aucun modèle (quotation/PO/DN) - réservé à l'entreprise historique. À lancer une fois :
+ *   npx convex run multiTenantMigration:allowBuiltinTemplates '{"code":"mbss"}'
+ */
+export const allowBuiltinTemplates = internalMutation({
+  args: { code: v.string() },
+  handler: async (ctx, { code }) => {
+    const company = await ctx.db.query("companies").withIndex("by_code", (q) => q.eq("code", code.trim().toLowerCase())).unique();
+    if (!company) throw new Error("Entreprise introuvable : " + code);
+    await ctx.db.patch(company._id, { allowBuiltinTemplates: true });
+    return { companyId: company._id, code: company.code };
+  },
+});
+
 /** Change l'identifiant (email) d'un compte et son compte de connexion par mot de passe. */
 export const renameAccount = internalMutation({
   args: { from: v.string(), to: v.string() },

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Plus, X } from 'lucide-react';
-import { ITEM_TOKENS, SCALAR_TOKENS } from '../../convex/lib/export/templateTokens';
+import { tokensFor, type TemplateKind } from '../../convex/lib/export/templateTokens';
 import type { TemplateAnalysis, TemplateMapping } from '../../convex/lib/export/templateAuthoring';
 import { Modal } from './ui';
 
@@ -12,16 +12,19 @@ let nextId = 1;
  * corrige l'association, puis l'application écrit elle-même les repères dans le fichier.
  */
 export function TemplateMappingModal({
+  kind,
   analysis,
   busy,
   onSubmit,
   onCancel,
 }: {
+  kind: TemplateKind;
   analysis: TemplateAnalysis;
   busy: boolean;
   onSubmit: (mapping: TemplateMapping) => void;
   onCancel: () => void;
 }) {
+  const { scalar: scalarTokens, item: itemTokens } = tokensFor(kind);
   const [columns, setColumns] = React.useState<Record<string, string>>(() => Object.fromEntries(analysis.columns.map((c) => [c.col, c.token])));
   const [modelRow, setModelRow] = React.useState(String(analysis.modelRow));
   const [endRow, setEndRow] = React.useState(String(analysis.endRow));
@@ -74,7 +77,7 @@ export function TemplateMappingModal({
                 <td>
                   <select className="select" value={columns[c.col] ?? ''} onChange={(e) => setColumns((prev) => ({ ...prev, [c.col]: e.target.value }))}>
                     <option value="">{c.formula ? 'Formule conservée' : '— Ignorée —'}</option>
-                    {Object.entries(ITEM_TOKENS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+                    {Object.entries(itemTokens).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
                   </select>
                 </td>
               </tr>
@@ -107,7 +110,7 @@ export function TemplateMappingModal({
           />
           <select className="select" style={{ minWidth: 220 }} value={f.token} onChange={(e) => setFields((prev) => prev.map((x) => (x.id === f.id ? { ...x, token: e.target.value } : x)))}>
             <option value="">— Ignorée —</option>
-            {Object.entries(SCALAR_TOKENS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+            {Object.entries(scalarTokens).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
           </select>
           <span className="text-muted" style={{ fontSize: 12, flex: 1, minWidth: 120 }}>{f.label ? `${f.label}${f.current ? ` : ${f.current}` : ''}` : ''}</span>
           <button className="btn btn-ghost btn-sm" title="Retirer" onClick={() => setFields((prev) => prev.filter((x) => x.id !== f.id))}><X size={14} /></button>

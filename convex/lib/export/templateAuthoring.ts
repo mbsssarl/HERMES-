@@ -1,6 +1,6 @@
 import ExcelJS from "exceljs";
 import { inspectTemplate, internals } from "./templateEngine";
-import { ITEM_TOKENS, SCALAR_TOKENS } from "./templateTokens";
+import { tokensFor, type TemplateKind } from "./templateTokens";
 
 // ---------------------------------------------------------------------------------------------------------
 // Préparation d'un fichier Excel QUELCONQUE comme modèle : l'application repère le tableau (ligne d'en-tête, colonnes,
@@ -46,37 +46,57 @@ const TINY_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 const norm = (s: string): string =>
   s.toUpperCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Z0-9#° ]/g, " ").replace(/\s+/g, " ").trim();
 
-/** Repère d'article suggéré par l'intitulé d'une colonne ("" = aucun). */
-function suggestColumn(header: string): string {
+/** Repère d'article suggéré par l'intitulé d'une colonne ("" = aucun), filtré aux repères valides pour `kind`. */
+function suggestColumn(header: string, kind: TemplateKind): string {
   const t = norm(header);
   if (!t) return "";
-  if (/\b(DISC|DISCOUNT|REMISE|CNV|CONV|LEAD|CREDIT|CURRENCY|DEVISE)\b/.test(t) && !/PRICE/.test(t)) return "";
-  if (/\bRATE\b/.test(t) && !/PRICE|UNIT/.test(t)) return "";
-  if (/\b(SUPPLIER|VENDOR|FOURNISSEUR|OFFER)\b/.test(t) && /\b(REMARK|REMARKS|NOTE|NOTES|COMMENT|COMMENTS)\b/.test(t)) return "";
-  if (/\b(UNIT PRICE|PRICE|PRIX|COST|PU)\b/.test(t)) return "item_unit_price";
-  if (/\b(AMOUNT|TOTAL|MONTANT|VALUE)\b/.test(t)) return "item_total";
-  if (/\b(QTY|QUANTITY|QUANTITE|QTE|QTITE)\b/.test(t)) return "item_quantity";
-  if (/\b(UNIT|UOM|UNITE|UN)\b/.test(t)) return "item_unit";
-  if (/\b(REMARK|REMARKS|NOTE|NOTES|COMMENT|COMMENTS|REMARQUE|REMARQUES|OBSERVATION|OBSERVATIONS)\b/.test(t)) return "item_remarks";
-  if (/\b(DESCRIPTION|DESIGNATION|ITEM NAME|PRODUCT|ARTICLE|LIBELLE|NAME)\b/.test(t)) return "item_description";
-  if (/\b(CODE|IMPA|REF|REFERENCE|PART)\b/.test(t)) return "item_code";
-  if (/^(NO|NR|NUM|N|#|SN|S N|SR NO|ITEM NO|ITEM|LINE|LN|N°)$/.test(t) || /\bNO\b/.test(t)) return "item_no";
-  return "";
+  let token = "";
+  if (/\b(DISC|DISCOUNT|REMISE|CNV|CONV|LEAD|CREDIT|CURRENCY|DEVISE)\b/.test(t) && !/PRICE/.test(t)) token = "";
+  else if (/\bRATE\b/.test(t) && !/PRICE|UNIT/.test(t)) token = "";
+  else if (/\b(SUPPLIER|VENDOR|FOURNISSEUR|OFFER)\b/.test(t) && /\b(REMARK|REMARKS|NOTE|NOTES|COMMENT|COMMENTS)\b/.test(t)) token = "";
+  else if (/\b(UNIT PRICE|PRICE|PRIX|COST|PU)\b/.test(t)) token = "item_unit_price";
+  else if (/\b(AMOUNT|TOTAL|MONTANT|VALUE)\b/.test(t)) token = "item_total";
+  else if (/\b(QTY|QUANTITY|QUANTITE|QTE|QTITE)\b/.test(t)) token = "item_quantity";
+  else if (/\b(UNIT|UOM|UNITE|UN)\b/.test(t)) token = "item_unit";
+  else if (/\b(REMARK|REMARKS|NOTE|NOTES|COMMENT|COMMENTS|REMARQUE|REMARQUES|OBSERVATION|OBSERVATIONS)\b/.test(t)) token = "item_remarks";
+  else if (/\b(DESCRIPTION|DESIGNATION|ITEM NAME|PRODUCT|ARTICLE|LIBELLE|NAME)\b/.test(t)) token = "item_description";
+  else if (/\b(CODE|IMPA|REF|REFERENCE|PART)\b/.test(t)) token = "item_code";
+  else if (/^(NO|NR|NUM|N|#|SN|S N|SR NO|ITEM NO|ITEM|LINE|LN|N°)$/.test(t) || /\bNO\b/.test(t)) token = "item_no";
+  return token in tokensFor(kind).item ? token : "";
 }
 
-const FIELD_LABELS: Record<string, string> = {
-  "VESSEL NAME": "vessel", VESSEL: "vessel", "SHIP NAME": "vessel", SHIP: "vessel", NAVIRE: "vessel",
-  "VESSEL IMO": "vessel_imo", IMO: "vessel_imo", "IMO NO": "vessel_imo", "IMO NUMBER": "vessel_imo",
-  "DELIVERY PORT": "port", PORT: "port", "SUPPLY AT": "port", "PORT OF DELIVERY": "port", "LIEU DE LIVRAISON": "port",
-  ETA: "eta",
-  "RFQ NO": "reference", "RFQ NUMBER": "reference", "REF NO": "reference", REFERENCE: "reference", "QUOTATION NO": "reference", "ENQUIRY NO": "reference", REF: "reference",
-  DATE: "date", "RFQ DATE": "date", "ENQUIRY DATE": "date",
-  COUNTRY: "country", PAYS: "country",
-  COMPANY: "company_name", "COMPANY NAME": "company_name", FROM: "company_name",
-  EMAIL: "company_email", "E MAIL": "company_email", MAIL: "company_email",
-  PHONE: "company_phones", TEL: "company_phones", TELEPHONE: "company_phones", MOBILE: "company_phones",
-  ADDRESS: "company_address", WEBSITE: "company_website", WEB: "company_website",
-};
+/** Intitulé (case d'information au-dessus du tableau) -> repère, selon le type de document. */
+function fieldLabelsFor(kind: TemplateKind): Record<string, string> {
+  const shared: Record<string, string> = {
+    COUNTRY: "country", PAYS: "country",
+    COMPANY: "company_name", "COMPANY NAME": "company_name", FROM: "company_name",
+    EMAIL: "company_email", "E MAIL": "company_email", MAIL: "company_email",
+    PHONE: "company_phones", TEL: "company_phones", TELEPHONE: "company_phones", MOBILE: "company_phones",
+    ADDRESS: "company_address", WEBSITE: "company_website", WEB: "company_website",
+  };
+  if (kind !== "quotation") {
+    return {
+      ...shared,
+      "VESSEL NAME": "vessel", VESSEL: "vessel", "SHIP NAME": "vessel", SHIP: "vessel", NAVIRE: "vessel",
+      "DELIVERY PORT": "port", PORT: "port", "SUPPLY AT": "port", "PORT OF DELIVERY": "port", "LIEU DE LIVRAISON": "port",
+      AGENT: "agent",
+      "ORDER NO": "order_no", "ORDER NUMBER": "order_no", "CLIENT ORDER NO": "order_no",
+      "RFQ NO": "rfq_no", "RFQ N°": "rfq_no", "RFQ NUMBER": "rfq_no", REFERENCE: "rfq_no", REF: "rfq_no",
+      "SUPPLY DATE": "supply_date", "DELIVERY DATE": "supply_date", ETA: "supply_date",
+      CATEGORY: "category", CATEGORIE: "category",
+      "ON BEHALF": "on_behalf_name",
+    };
+  }
+  return {
+    ...shared,
+    "VESSEL NAME": "vessel", VESSEL: "vessel", "SHIP NAME": "vessel", SHIP: "vessel", NAVIRE: "vessel",
+    "VESSEL IMO": "vessel_imo", IMO: "vessel_imo", "IMO NO": "vessel_imo", "IMO NUMBER": "vessel_imo",
+    "DELIVERY PORT": "port", PORT: "port", "SUPPLY AT": "port", "PORT OF DELIVERY": "port", "LIEU DE LIVRAISON": "port",
+    ETA: "eta",
+    "RFQ NO": "reference", "RFQ NUMBER": "reference", "REF NO": "reference", REFERENCE: "reference", "QUOTATION NO": "reference", "ENQUIRY NO": "reference", REF: "reference",
+    DATE: "date", "RFQ DATE": "date", "ENQUIRY DATE": "date",
+  };
+}
 
 function textOf(cell: ExcelJS.Cell): string {
   const v = cell.value as unknown;
@@ -140,12 +160,13 @@ function mergeMasterOf(ws: ExcelJS.Worksheet, cell: ExcelJS.Cell): ExcelJS.Cell 
 }
 
 /** Cherche le tableau et les cases d'information d'un fichier sans repères. */
-export async function analyzeTemplate(buffer: Buffer): Promise<TemplateAnalysis> {
+export async function analyzeTemplate(buffer: Buffer, kind: TemplateKind = "quotation"): Promise<TemplateAnalysis> {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
   const ws = workbook.worksheets.find((s) => s.state === "visible") ?? workbook.worksheets[0];
   if (!ws) throw new Error("Le classeur est vide.");
   const rowCount = ws.rowCount;
+  const fieldLabels = fieldLabelsFor(kind);
 
   // 1) ligne d'en-tête du tableau : celle qui a le plus d'intitulés de colonnes reconnus
   let headerRow = 0;
@@ -155,7 +176,7 @@ export async function analyzeTemplate(buffer: Buffer): Promise<TemplateAnalysis>
     let hasDescription = false;
     ws.getRow(r).eachCell({ includeEmpty: false }, (cell) => {
       if (cell.type === ExcelJS.ValueType.Merge) return;
-      const token = suggestColumn(textOf(cell));
+      const token = suggestColumn(textOf(cell), kind);
       if (token) hits++;
       if (token === "item_description") hasDescription = true;
     });
@@ -168,7 +189,7 @@ export async function analyzeTemplate(buffer: Buffer): Promise<TemplateAnalysis>
   ws.getRow(headerRow).eachCell({ includeEmpty: false }, (cell, col) => {
     if (cell.type === ExcelJS.ValueType.Merge) return;
     const header = textOf(cell).trim();
-    if (header) headers.push({ col, header, token: suggestColumn(header) });
+    if (header) headers.push({ col, header, token: suggestColumn(header, kind) });
   });
   const qtyCol = headers.find((h) => h.token === "item_quantity")?.col;
   const noCol = headers.find((h) => h.token === "item_no")?.col;
@@ -197,7 +218,7 @@ export async function analyzeTemplate(buffer: Buffer): Promise<TemplateAnalysis>
     ws.getRow(r).eachCell({ includeEmpty: false }, (cell, col) => {
       if (cell.type === ExcelJS.ValueType.Merge) return;
       const label = textOf(cell).trim();
-      const token = FIELD_LABELS[norm(label)];
+      const token = fieldLabels[norm(label)];
       if (!token) return;
       const box = boxes.find((b) => b.top === r && b.left === col);
       const valueCol = (box ? box.right : col) + 1;
@@ -219,8 +240,9 @@ export async function analyzeTemplate(buffer: Buffer): Promise<TemplateAnalysis>
 }
 
 /** Écrit les repères dans le fichier selon l'association validée par l'admin ; renvoie le nouveau fichier. */
-export async function applyMapping(buffer: Buffer, mapping: TemplateMapping): Promise<Buffer> {
-  const known = new Set([...Object.keys(ITEM_TOKENS), ...Object.keys(SCALAR_TOKENS)]);
+export async function applyMapping(buffer: Buffer, mapping: TemplateMapping, kind: TemplateKind = "quotation"): Promise<Buffer> {
+  const { scalar, item } = tokensFor(kind);
+  const known = new Set([...Object.keys(item), ...Object.keys(scalar)]);
   for (const token of [...Object.values(mapping.columns), ...mapping.fields.map((f) => f.token)]) {
     if (token && !known.has(token)) throw new Error(`Repère inconnu : ${token}.`);
   }
@@ -297,7 +319,7 @@ export async function applyMapping(buffer: Buffer, mapping: TemplateMapping): Pr
   }
 
   const out = Buffer.from(await workbook.xlsx.writeBuffer());
-  const report = await inspectTemplate(out);
+  const report = await inspectTemplate(out, kind);
   if (!report.ok) throw new Error(report.errors.join(" "));
   return out;
 }

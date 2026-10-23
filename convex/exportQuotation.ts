@@ -159,9 +159,10 @@ export const exportQuotationXlsx = action({
       })),
     };
 
-    // Modèle importé par l'admin (celui choisi, sinon le modèle par défaut) ; à défaut, le modèle intégré.
+    // Modèle importé par l'admin (celui choisi, sinon le modèle par défaut) ; à défaut, le modèle intégré
+    // (réservé à l'entreprise historique - les autres doivent importer le leur, voir exportTemplates.allowsBuiltin).
     let buffer: Buffer | undefined;
-    const template = await ctx.runQuery(internal.exportTemplates.resolve, { companyId: user.companyId!, templateId });
+    const template = await ctx.runQuery(internal.exportTemplates.resolve, { companyId: user.companyId!, kind: "quotation", templateId });
     if (template) {
       const blob = await ctx.storage.get(template.storageId);
       if (blob) {
@@ -174,7 +175,11 @@ export const exportQuotationXlsx = action({
         notice = `Le fichier du modèle « ${template.name} » est introuvable : le modèle standard a été utilisé.`;
       }
     }
-    buffer ??= await buildQuotationWorkbook(exportData);
+    if (!buffer) {
+      const allowsBuiltin = await ctx.runQuery(internal.exportTemplates.allowsBuiltin, { companyId: user.companyId! });
+      if (!allowsBuiltin) throw new Error("Aucun modèle d'export n'est configuré pour les quotations de cette entreprise. Importez-en un depuis Admin > Modèles d'export.");
+      buffer = await buildQuotationWorkbook(exportData);
+    }
 
     // Le nom du client n'apparaît que pour un envoi au client : un fichier à destination d'un fournisseur ne
     // doit pas révéler l'identité du client final.

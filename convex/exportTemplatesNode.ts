@@ -6,11 +6,12 @@ import type { Id } from "./_generated/dataModel";
 import { action, type ActionCtx } from "./_generated/server";
 import { fetchCompanyLogo } from "./lib/export/logoImage";
 import { analyzeTemplate, applyMapping, type TemplateAnalysis } from "./lib/export/templateAuthoring";
-import { inspectTemplate, renderTemplate } from "./lib/export/templateEngine";
-import { buildBaseTemplate, SAMPLE_EXPORT } from "./lib/export/templateSample";
+import { inspectTemplate, renderOrderTemplate, renderTemplate } from "./lib/export/templateEngine";
+import { buildBaseOrderTemplate, buildBaseTemplate, SAMPLE_EXPORT, SAMPLE_ORDER_DOCUMENT } from "./lib/export/templateSample";
 
 const MAX_TEMPLATE_BYTES = 5 * 1024 * 1024;
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const templateKind = v.union(v.literal("quotation"), v.literal("purchase_order"), v.literal("delivery_note"));
 
 async function requireAdminUser(ctx: ActionCtx): Promise<{ _id: Id<"users">; companyId: Id<"companies"> }> {
   const user = await ctx.runQuery(api.users.getBusinessUser, {});
@@ -25,6 +26,7 @@ async function requireAdminUser(ctx: ActionCtx): Promise<{ _id: Id<"users">; com
  */
 export const register = action({
   args: {
+    kind: templateKind,
     storageId: v.id("_storage"),
     name: v.string(),
     fileName: v.string(),
@@ -40,7 +42,7 @@ export const register = action({
       }),
     ),
   },
-  handler: async (ctx, { storageId, name, fileName, mapping }): Promise<{ warnings: string[] }> => {
+  handler: async (ctx, { kind, storageId, name, fileName, mapping }): Promise<{ warnings: string[] }> => {
     const reject = async (message: string): Promise<never> => {
       await ctx.storage.delete(storageId);
       throw new Error(message);
@@ -57,7 +59,7 @@ export const register = action({
     let source: Buffer = Buffer.from(await blob.arrayBuffer());
     if (mapping) {
       try {
-        source = await applyMapping(source, mapping);
+        source = await applyMapping(source, mapping, kind);
       } catch (err) {
         return reject(err instanceof Error ? err.message : String(err));
       }
@@ -66,7 +68,7 @@ export const register = action({
       await ctx.storage.delete(storageId);
       storageId = prepared;
     }
-    const report = await inspectTemplate(source);
+    const report = await inspectTemplate(source, kind);
     if (!report.ok) return reject(report.errors.join(" "));
 
     const cleanName = name.trim() || fileName.replace(/\.xlsx$/i, "");
@@ -77,6 +79,7 @@ export const register = action({
       fileName: fileName.slice(0, 200),
       storageId,
       size: source.length,
+      kind,
     });
     return { warnings: report.warnings };
   },
@@ -87,8 +90,8 @@ export const register = action({
  * propose une association (colonnes du tableau, cases d'information) à faire valider.
  */
 export const analyze = action({
-  args: { storageId: v.id("_storage"), fileName: v.string() },
-  handler: async (ctx, { storageId, fileName }): Promise<{ hasTokens: true } | { hasTokens: false; analysis: TemplateAnalysis }> => {
+  args: { kind: templateKind, storageId: v.id("_storage"), fileName: v.string() },
+  handler: async (ctx, { kind, storageId, fileName }): Promise<{ hasTokens: true } | { hasTokens: false; analysis: TemplateAnalysis }> => {
     const reject = async (message: string): Promise<never> => {
       await ctx.storage.delete(storageId);
       throw new Error(message);
@@ -101,10 +104,10 @@ export const analyze = action({
     if (blob.size > MAX_TEMPLATE_BYTES) return reject("Fichier trop volumineux (5 Mo maximum).");
     if (!/\.xlsx$/i.test(fileName)) return reject("Le modèle doit être un fichier Excel .xlsx.");
     const buffer = Buffer.from(await blob.arrayBuffer());
-    const report = await inspectTemplate(buffer);
+    const report = await inspectTemplate(buffer, kind);
     if (report.tokens.length > 0) return { hasTokens: true };
     try {
-      return { hasTokens: false, analysis: await analyzeTemplate(buffer) };
+      return { hasTokens: false, analysis: await analyzeTemplate(buffer, kind) };
     } catch (err) {
       return reject(err instanceof Error ? err.message : String(err));
     }
@@ -136,17 +139,18 @@ export const download = action({
 
 /** Modèle de départ, déjà balisé. */
 export const baseTemplate = action({
-  args: {},
-  handler: async (ctx): Promise<{ fileName: string; base64: string }> => {
+  args: { kind: templateKind },
+  handler: async (ctx, { kind }): Promise<{ fileName: string; base64: string }> => {
     await requireAdminUser(ctx);
-    return { fileName: "modele-export-base.xlsx", base64: (await buildBaseTemplate()).toString("base64") };
+    if (kind === "quotation") return { fileName: "modele-export-base.xlsx", base64: (await buildBaseTemplate()).toString("base64") };
+    return { fileName: `modele-${kind === "purchase_order" ? "purchase-order" : "delivery-note"}-base.xlsx`, base64: (await buildBaseOrderTemplate()).toString("base64") };
   },
 });
 
 /** Essai d'un modèle avec des données fictives (et le logo de l'entreprise) : l'admin voit le résultat avant de l'adopter. */
 export const test = action({
-  args: { templateId: v.id("exportTemplates") },
-  handler: async (ctx, { templateId }): Promise<{ fileName: string; base64: string; mime: string }> => {
+  args: { kind: templateKind, templateId: v.id("exportTemplates") },
+  handler: async (ctx, { kind, templateId }): Promise<{ fileName: string; base64: string; mime: string }> => {
     const user = await requireAdminUser(ctx);
     const template = await ctx.runQuery(internal.exportTemplates.getOwnedTemplate, { companyId: user.companyId, templateId });
     if (!template) throw new Error("Modèle introuvable.");
@@ -154,7 +158,11 @@ export const test = action({
     if (!blob) throw new Error("Fichier du modèle introuvable.");
     const brand = await ctx.runQuery(api.branding.get, {});
     const logo = (await fetchCompanyLogo(brand.logoUrl)) ?? undefined;
-    const buffer = await renderTemplate(Buffer.from(await blob.arrayBuffer()), { ...SAMPLE_EXPORT, logo, company: { ...SAMPLE_EXPORT.company, name: brand.name } });
+    const fileBuffer = Buffer.from(await blob.arrayBuffer());
+    const buffer =
+      kind === "quotation"
+        ? await renderTemplate(fileBuffer, { ...SAMPLE_EXPORT, logo, company: { ...SAMPLE_EXPORT.company, name: brand.name } })
+        : await renderOrderTemplate(fileBuffer, { ...SAMPLE_ORDER_DOCUMENT, logo, company: { ...SAMPLE_ORDER_DOCUMENT.company, name: brand.name } });
     return { fileName: `essai - ${template.name}.xlsx`, base64: buffer.toString("base64"), mime: XLSX_MIME };
   },
 });

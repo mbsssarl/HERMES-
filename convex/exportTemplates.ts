@@ -4,28 +4,36 @@ import { logActivity } from "./lib/audit";
 import { companyIdOf, requireAdmin, requireOwned, requireUser } from "./lib/permissions";
 
 const MAX_NAME_LENGTH = 80;
+const templateKind = v.union(v.literal("quotation"), v.literal("purchase_order"), v.literal("delivery_note"));
+// Absent côté stockage = "quotation" (modèles importés avant l'ajout de PO/DN) : ce helper le rend explicite partout.
+const kindOf = (t: { kind?: "quotation" | "purchase_order" | "delivery_note" }) => t.kind ?? "quotation";
 
-/** Modèles d'export de l'entreprise (le fichier lui-même n'est pas renvoyé). */
+/** Modèles d'export de l'entreprise pour un type de document donné (le fichier lui-même n'est pas renvoyé). */
 export const list = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { kind: templateKind },
+  handler: async (ctx, { kind }) => {
     const user = await requireUser(ctx);
     const rows = await ctx.db.query("exportTemplates").withIndex("by_company", (q) => q.eq("companyId", companyIdOf(user))).collect();
     return rows
+      .filter((t) => kindOf(t) === kind)
       .sort((a, b) => a.createdAt - b.createdAt)
       .map((t) => ({ id: t._id, name: t.name, fileName: t.fileName, size: t.size, isDefault: t.isDefault, createdAt: t.createdAt }));
   },
 });
 
-/** Définit le modèle par défaut (null = retour au modèle intégré). Un seul modèle est par défaut à la fois. */
+/** Définit le modèle par défaut pour `kind` (null = retour au modèle intégré). Un seul modèle par type à la fois. */
 export const setDefault = mutation({
-  args: { templateId: v.union(v.id("exportTemplates"), v.null()) },
-  handler: async (ctx, { templateId }) => {
+  args: { kind: templateKind, templateId: v.union(v.id("exportTemplates"), v.null()) },
+  handler: async (ctx, { kind, templateId }) => {
     const admin = await requireAdmin(ctx);
     const companyId = companyIdOf(admin);
-    if (templateId) await requireOwned(ctx, admin, "exportTemplates", templateId, "Modèle introuvable.");
+    if (templateId) {
+      const target = await requireOwned(ctx, admin, "exportTemplates", templateId, "Modèle introuvable.");
+      if (kindOf(target) !== kind) throw new Error("Ce modèle n'est pas du type de document attendu.");
+    }
     const rows = await ctx.db.query("exportTemplates").withIndex("by_company", (q) => q.eq("companyId", companyId)).collect();
     for (const row of rows) {
+      if (kindOf(row) !== kind) continue; // un autre type de document : son défaut n'est pas touché
       const next = row._id === templateId;
       if (row.isDefault !== next) await ctx.db.patch(row._id, { isDefault: next });
     }
@@ -61,25 +69,25 @@ export const remove = mutation({
 
 /** Internal : enregistre un modèle déjà contrôlé (voir exportTemplatesNode.register). */
 export const insert = internalMutation({
-  args: { companyId: v.id("companies"), userId: v.id("users"), name: v.string(), fileName: v.string(), storageId: v.id("_storage"), size: v.number() },
-  handler: async (ctx, { companyId, userId, name, fileName, storageId, size }) => {
-    const id = await ctx.db.insert("exportTemplates", { companyId, name, fileName, storageId, size, isDefault: false, createdAt: Date.now(), createdBy: userId });
+  args: { companyId: v.id("companies"), userId: v.id("users"), name: v.string(), fileName: v.string(), storageId: v.id("_storage"), size: v.number(), kind: templateKind },
+  handler: async (ctx, { companyId, userId, name, fileName, storageId, size, kind }) => {
+    const id = await ctx.db.insert("exportTemplates", { companyId, name, fileName, storageId, size, isDefault: false, kind, createdAt: Date.now(), createdBy: userId });
     await logActivity(ctx, { userId, action: "export_template.imported", entityType: "exportTemplate", entityId: id, metadata: { name } });
     return id;
   },
 });
 
-/** Internal : modèle à utiliser pour un export (celui demandé, sinon le modèle par défaut) ; null = modèle intégré. */
+/** Internal : modèle à utiliser pour un export (celui demandé, sinon le modèle par défaut pour ce type) ; null = modèle intégré. */
 export const resolve = internalQuery({
-  args: { companyId: v.id("companies"), templateId: v.optional(v.union(v.id("exportTemplates"), v.null())) },
-  handler: async (ctx, { companyId, templateId }) => {
+  args: { companyId: v.id("companies"), kind: templateKind, templateId: v.optional(v.union(v.id("exportTemplates"), v.null())) },
+  handler: async (ctx, { companyId, kind, templateId }) => {
     // null explicite = modèle intégré, même s'il existe un modèle par défaut.
     if (templateId === null) return null;
     let template = templateId ? await ctx.db.get(templateId) : null;
-    if (templateId && (!template || template.companyId !== companyId)) throw new Error("Modèle d'export introuvable.");
+    if (templateId && (!template || template.companyId !== companyId || kindOf(template) !== kind)) throw new Error("Modèle d'export introuvable.");
     if (!template) {
       const rows = await ctx.db.query("exportTemplates").withIndex("by_company", (q) => q.eq("companyId", companyId)).collect();
-      template = rows.find((t) => t.isDefault) ?? null;
+      template = rows.find((t) => t.isDefault && kindOf(t) === kind) ?? null;
     }
     return template ? { storageId: template.storageId, name: template.name } : null;
   },
@@ -92,5 +100,24 @@ export const getOwnedTemplate = internalQuery({
     const template = await ctx.db.get(templateId);
     if (!template || template.companyId !== companyId) return null;
     return { storageId: template.storageId, name: template.name, fileName: template.fileName };
+  },
+});
+
+/**
+ * Entreprise autorisée à utiliser le document générique intégré à l'app quand elle n'a importé aucun modèle pour
+ * un type de document (quotation/PO/DN) - vrai uniquement pour l'entreprise historique (MBSS). Toute autre
+ * entreprise doit importer son propre modèle pour chaque type avant de pouvoir exporter.
+ */
+export const allowsBuiltin = internalQuery({
+  args: { companyId: v.id("companies") },
+  handler: async (ctx, { companyId }) => Boolean((await ctx.db.get(companyId))?.allowBuiltinTemplates),
+});
+
+/** Même chose, pour l'entreprise de l'utilisateur connecté (affichage côté admin). */
+export const myCompanyAllowsBuiltin = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await requireUser(ctx);
+    return Boolean((await ctx.db.get(companyIdOf(user)))?.allowBuiltinTemplates);
   },
 });

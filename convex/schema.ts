@@ -51,6 +51,10 @@ const schema = defineSchema({
     // Fin de l'abonnement mensuel (30 jours, renouvelable par le super admin). À l'échéance, l'entreprise est
     // suspendue automatiquement. Absent = pas d'échéance (entreprise historique).
     subscriptionEndsAt: v.optional(v.number()),
+    // Autorise l'export (quotation/PO/delivery note) à retomber sur le document générique intégré à l'app
+    // quand l'entreprise n'a importé aucun modèle. Vrai uniquement pour l'entreprise historique (MBSS) :
+    // toute entreprise créée depuis doit importer son propre modèle Excel pour chaque type de document.
+    allowBuiltinTemplates: v.optional(v.boolean()),
   }).index("by_code", ["code"]),
 
   // ------------------------------------------------------------------
@@ -539,9 +543,13 @@ const schema = defineSchema({
     storageId: v.id("_storage"),
     size: v.number(),
     isDefault: v.boolean(),
+    // Type de document que ce modèle remplit. Absent = "quotation" (modèles importés avant l'ajout de PO/DN).
+    kind: v.optional(v.union(v.literal("quotation"), v.literal("purchase_order"), v.literal("delivery_note"))),
     createdAt: v.number(),
     createdBy: v.id("users"),
-  }).index("by_company", ["companyId"]),
+  })
+    .index("by_company", ["companyId"])
+    .index("by_company_and_kind", ["companyId", "kind"]),
 
   // ------------------------------------------------------------------
   // FICHIERS UPLOADÉS

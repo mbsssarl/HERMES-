@@ -96,6 +96,7 @@ export function Admin({
   onOpen: (q: QuotationWithRelations) => void;
 }) {
   const [tab, setTab] = React.useState<'users' | 'logs' | 'countries' | 'currencies' | 'categories' | 'branding' | 'templates'>('users');
+  const [templateKind, setTemplateKind] = React.useState<'quotation' | 'purchase_order' | 'delivery_note'>('quotation');
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const users = useQuery(api.users.listUsers);
 
@@ -148,7 +149,20 @@ export function Admin({
           {tab === 'logs' && <LogsTab users={users} />}
           {tab === 'currencies' && <CurrenciesTab currencies={currencies} />}
           {tab === 'categories' && <CategoriesTab categories={categories} />}
-          {tab === 'templates' && <ExportTemplatesTab />}
+          {tab === 'templates' && (
+            <>
+              <div className="admin-tabs" style={{ marginBottom: 12 }}>
+                <button className={`btn btn-sm ${templateKind === 'quotation' ? 'btn-primary' : ''}`} onClick={() => setTemplateKind('quotation')}>RFQ (devis)</button>
+                <button className={`btn btn-sm ${templateKind === 'purchase_order' ? 'btn-primary' : ''}`} onClick={() => setTemplateKind('purchase_order')}>Purchase Order</button>
+                <button className={`btn btn-sm ${templateKind === 'delivery_note' ? 'btn-primary' : ''}`} onClick={() => setTemplateKind('delivery_note')}>Delivery Note</button>
+              </div>
+              <ExportTemplatesTab
+                key={templateKind}
+                kind={templateKind}
+                title={templateKind === 'quotation' ? 'Modèles de RFQ' : templateKind === 'purchase_order' ? 'Modèles de Purchase Order' : 'Modèles de Delivery Note'}
+              />
+            </>
+          )}
           {tab === 'branding' && (
             <>
               <BrandingTab />

@@ -3,7 +3,7 @@ import { useAction, useMutation, useQuery } from 'convex/react';
 import { Download, FlaskConical, Plus, Trash2 } from 'lucide-react';
 import { api, type Id } from '../lib/convex';
 import { saveBase64File } from '../lib/exportFile';
-import { ITEM_TOKENS, SCALAR_TOKENS } from '../../convex/lib/export/templateTokens';
+import { tokensFor, type TemplateKind } from '../../convex/lib/export/templateTokens';
 import type { TemplateAnalysis, TemplateMapping } from '../../convex/lib/export/templateAuthoring';
 import { Modal, StateBox } from './ui';
 import { TemplateMappingModal } from './TemplateMappingModal';
@@ -13,12 +13,15 @@ const errMsg = (err: unknown) => (err instanceof Error ? err.message : String(er
 const formatSize = (bytes: number) => (bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} Ko` : `${(bytes / 1024 / 1024).toFixed(1)} Mo`);
 
 /**
- * Modèles d'export : fichiers Excel importés par l'admin, utilisés pour le fichier envoyé aux fournisseurs. Le modèle
- * par défaut sert à tout le monde ; l'utilisateur peut en choisir un autre au moment de l'export.
+ * Modèles d'export d'un type de document (quotation/Purchase Order/Delivery Note) : fichiers Excel importés par
+ * l'admin. Le modèle par défaut sert à tout le monde pour ce type ; l'utilisateur peut en choisir un autre au
+ * moment de l'export. Le « Modèle intégré » n'existe que pour l'entreprise historique (MBSS) : toute autre
+ * entreprise doit avoir importé au moins un modèle pour pouvoir exporter ce type de document.
  */
-export function ExportTemplatesTab() {
+export function ExportTemplatesTab({ kind, title }: { kind: TemplateKind; title: string }) {
   const toast = useToast();
-  const templates = useQuery(api.exportTemplates.list);
+  const templates = useQuery(api.exportTemplates.list, { kind });
+  const allowsBuiltin = useQuery(api.exportTemplates.myCompanyAllowsBuiltin);
   const setDefault = useMutation(api.exportTemplates.setDefault);
   const remove = useMutation(api.exportTemplates.remove);
   const generateUploadUrl = useMutation(api.files.generateUploadUrl);
@@ -39,8 +42,9 @@ export function ExportTemplatesTab() {
   // Fichier envoyé sans repères : en attente de l'association validée par l'admin.
   const [pending, setPending] = React.useState<{ storageId: Id<'_storage'>; fileName: string; analysis: TemplateAnalysis } | null>(null);
 
-  if (templates === undefined) return <StateBox loading variant="table" title="Chargement…" />;
-  const builtinIsDefault = !templates.some((t) => t.isDefault);
+  if (templates === undefined || allowsBuiltin === undefined) return <StateBox loading variant="table" title="Chargement…" />;
+  const builtinIsDefault = allowsBuiltin && !templates.some((t) => t.isDefault);
+  const { scalar: scalarTokens, item: itemTokens } = tokensFor(kind);
 
   const run = async (key: string, task: () => Promise<void>) => {
     setBusy(key);
@@ -56,14 +60,14 @@ export function ExportTemplatesTab() {
       const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
       if (!res.ok) throw new Error("Échec de l'envoi du fichier.");
       const { storageId } = (await res.json()) as { storageId: Id<'_storage'> };
-      const result = await analyze({ storageId, fileName: file.name });
+      const result = await analyze({ storageId, fileName: file.name, kind });
       if (!result.hasTokens) {
         // Pas de repères : l'application propose une association à valider.
         setPending({ storageId, fileName: file.name, analysis: result.analysis });
         setShowImport(false);
         return;
       }
-      const { warnings } = await register({ storageId, name: name.trim(), fileName: file.name });
+      const { warnings } = await register({ storageId, name: name.trim(), fileName: file.name, kind });
       toast('Modèle importé.', 'success');
       if (warnings.length > 0) toast(warnings.join(' '), 'info', { duration: 10000 });
       setShowImport(false); setFile(null); setName('');
@@ -72,7 +76,7 @@ export function ExportTemplatesTab() {
   const submitMapping = (mapping: TemplateMapping) =>
     run('import', async () => {
       if (!pending) return;
-      const { warnings } = await register({ storageId: pending.storageId, name: name.trim(), fileName: pending.fileName, mapping });
+      const { warnings } = await register({ storageId: pending.storageId, name: name.trim(), fileName: pending.fileName, mapping, kind });
       toast('Modèle créé.', 'success');
       if (warnings.length > 0) toast(warnings.join(' '), 'info', { duration: 10000 });
       setPending(null); setFile(null); setName('');
@@ -87,29 +91,36 @@ export function ExportTemplatesTab() {
     <>
       <div className="card">
         <div className="card-pad card-head">
-          <div><h3 style={{ fontSize: 16 }}>Modèles d'export · {templates.length + 1}</h3></div>
+          <div><h3 style={{ fontSize: 16 }}>{title} · {templates.length + (allowsBuiltin ? 1 : 0)}</h3></div>
           <div className="toolbar-actions">
             <button className="btn" onClick={() => setShowTokens(true)}>Repères</button>
-            <button className="btn" disabled={busy !== null} onClick={() => void run('base', async () => { const f = await baseTemplate({}); saveBase64File(f.fileName, f.base64); })}>
+            <button className="btn" disabled={busy !== null} onClick={() => void run('base', async () => { const f = await baseTemplate({ kind }); saveBase64File(f.fileName, f.base64); })}>
               <Download size={16} /> Modèle de base
             </button>
             <button className="btn btn-primary" onClick={() => setShowImport(true)}><Plus size={16} /> Importer un modèle</button>
           </div>
         </div>
+        {!allowsBuiltin && templates.length === 0 && (
+          <div className="card-pad text-muted" style={{ fontSize: 13, borderBottom: '1px solid var(--color-border)' }}>
+            Aucun modèle n'est configuré pour ce type de document : importez votre fichier Excel ci-dessus pour pouvoir l'exporter.
+          </div>
+        )}
         <div className="table-wrap">
           <table className="data cards">
             <thead><tr><th>Nom</th><th>Fichier</th><th>Statut</th><th></th></tr></thead>
             <tbody>
-              <tr>
-                <td className="c-main" style={{ fontWeight: 700 }}>Modèle intégré</td>
-                <td className="text-muted" data-label="Fichier">·</td>
-                <td data-label="Statut">{builtinIsDefault ? <span className="tag tag-new">Par défaut</span> : null}</td>
-                <td className="text-right c-actions">
-                  {!builtinIsDefault && (
-                    <button className="btn btn-ghost btn-sm" disabled={busy !== null} onClick={() => void run('builtin', async () => { await setDefault({ templateId: null }); })}>Définir par défaut</button>
-                  )}
-                </td>
-              </tr>
+              {allowsBuiltin && (
+                <tr>
+                  <td className="c-main" style={{ fontWeight: 700 }}>Modèle intégré</td>
+                  <td className="text-muted" data-label="Fichier">·</td>
+                  <td data-label="Statut">{builtinIsDefault ? <span className="tag tag-new">Par défaut</span> : null}</td>
+                  <td className="text-right c-actions">
+                    {!builtinIsDefault && (
+                      <button className="btn btn-ghost btn-sm" disabled={busy !== null} onClick={() => void run('builtin', async () => { await setDefault({ kind, templateId: null }); })}>Définir par défaut</button>
+                    )}
+                  </td>
+                </tr>
+              )}
               {templates.map((t) => (
                 <tr key={t.id}>
                   <td className="c-main" style={{ fontWeight: 700 }}>{t.name}</td>
@@ -117,10 +128,10 @@ export function ExportTemplatesTab() {
                   <td data-label="Statut">{t.isDefault ? <span className="tag tag-new">Par défaut</span> : null}</td>
                   <td className="text-right nowrap c-actions">
                     {!t.isDefault && (
-                      <button className="btn btn-ghost btn-sm" disabled={busy !== null} onClick={() => void run(t.id, async () => { await setDefault({ templateId: t.id as Id<'exportTemplates'> }); })}>Définir par défaut</button>
+                      <button className="btn btn-ghost btn-sm" disabled={busy !== null} onClick={() => void run(t.id, async () => { await setDefault({ kind, templateId: t.id as Id<'exportTemplates'> }); })}>Définir par défaut</button>
                     )}
                     <button className="btn btn-ghost btn-sm" disabled={busy !== null} title="Génère un fichier d'essai avec des données fictives"
-                      onClick={() => void run(t.id, async () => { const f = await test({ templateId: t.id as Id<'exportTemplates'> }); saveBase64File(f.fileName, f.base64, f.mime); })}>
+                      onClick={() => void run(t.id, async () => { const f = await test({ templateId: t.id as Id<'exportTemplates'>, kind }); saveBase64File(f.fileName, f.base64, f.mime); })}>
                       <FlaskConical size={14} /> {busy === t.id ? 'Génération…' : 'Tester'}
                     </button>
                     <button className="btn btn-ghost btn-sm" disabled={busy !== null} title="Télécharger le fichier du modèle"
@@ -167,7 +178,7 @@ export function ExportTemplatesTab() {
         </Modal>
       )}
 
-      {pending && <TemplateMappingModal analysis={pending.analysis} busy={busy === 'import'} onSubmit={(m) => void submitMapping(m)} onCancel={cancelMapping} />}
+      {pending && <TemplateMappingModal kind={kind} analysis={pending.analysis} busy={busy === 'import'} onSubmit={(m) => void submitMapping(m)} onCancel={cancelMapping} />}
 
       {showTokens && (
         <Modal title="Repères d'un modèle" onClose={() => setShowTokens(false)} wide footer={<button className="btn" onClick={() => setShowTokens(false)}>Fermer</button>}>
@@ -175,8 +186,8 @@ export function ExportTemplatesTab() {
             Écrivez un repère dans une cellule, par exemple {'{{vessel}}'} : il est remplacé à l'export. Les repères d'article se placent sur une seule ligne, répétée pour chaque article.
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
-            <TokenList title="Généraux" tokens={SCALAR_TOKENS} />
-            <TokenList title="Ligne d'article" tokens={ITEM_TOKENS} />
+            <TokenList title="Généraux" tokens={scalarTokens} />
+            <TokenList title="Ligne d'article" tokens={itemTokens} />
           </div>
         </Modal>
       )}

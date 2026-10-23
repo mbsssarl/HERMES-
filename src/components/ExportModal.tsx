@@ -67,10 +67,12 @@ export function ExportModal({
   // En-tête du fichier fournisseur : préremplie depuis la quotation, corrigeable ici (enregistrée sur la quotation à l'export).
   const [header, setHeader] = React.useState<ExportHeader>(headerDefaults);
   const setField = (key: keyof ExportHeader) => (value: string) => setHeader((prev) => ({ ...prev, [key]: value }));
-  // Modèle du fichier fournisseur : le modèle par défaut de l'entreprise, sauf choix contraire ici.
-  const templates = useQuery(api.exportTemplates.list);
+  // Modèle du fichier fournisseur : le modèle par défaut de l'entreprise, sauf choix contraire ici. Le « Modèle
+  // intégré » n'est proposé que pour l'entreprise historique (MBSS) : voir exportTemplates.ts::allowsBuiltin.
+  const templates = useQuery(api.exportTemplates.list, { kind: 'quotation' });
+  const allowsBuiltin = useQuery(api.exportTemplates.myCompanyAllowsBuiltin);
   const [templateChoice, setTemplateChoice] = React.useState<string | null>(null);
-  const defaultTemplate = templates?.find((t) => t.isDefault)?.id ?? 'builtin';
+  const defaultTemplate = templates?.find((t) => t.isDefault)?.id ?? (allowsBuiltin ? 'builtin' : templates?.[0]?.id ?? 'builtin');
   const chosenTemplate = templateChoice ?? defaultTemplate;
   const [mailer, setMailer] = React.useState<Mailer>(gmailApiConfigured ? 'gmailApi' : 'gmail');
   const [busy, setBusy] = React.useState(false);
@@ -182,7 +184,7 @@ export function ExportModal({
             <div className="form-field">
               <label>Modèle du fichier</label>
               <select className="select" value={chosenTemplate} onChange={(e) => setTemplateChoice(e.target.value)}>
-                <option value="builtin">Modèle intégré{defaultTemplate === 'builtin' ? ' (par défaut)' : ''}</option>
+                {allowsBuiltin && <option value="builtin">Modèle intégré{defaultTemplate === 'builtin' ? ' (par défaut)' : ''}</option>}
                 {templates.map((t) => <option key={t.id} value={t.id}>{t.name}{t.isDefault ? ' (par défaut)' : ''}</option>)}
               </select>
             </div>

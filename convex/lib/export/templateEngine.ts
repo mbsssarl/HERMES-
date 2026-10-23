@@ -1,8 +1,37 @@
 import ExcelJS from "exceljs";
 import { QUOTATION_LOGO_PNG_BASE64 } from "./logoData";
-import type { ExportData } from "./buildQuotationWorkbook";
+import type { ExportCompany, ExportData } from "./buildQuotationWorkbook";
+import type { ExportLogo } from "./logoImage";
 import { recalculateWorkbook } from "./recalc";
-import { ITEM_TOKENS, SCALAR_TOKENS } from "./templateTokens";
+import { ITEM_TOKENS, ORDER_ITEM_TOKENS, tokensFor, type TemplateKind } from "./templateTokens";
+
+// Données du Purchase Order / Delivery Note pour le remplissage d'un modèle importé (voir ORDER_SCALAR_TOKENS /
+// ORDER_ITEM_TOKENS dans templateTokens.ts) - mêmes données pour les deux documents ; sur un Delivery Note,
+// chaque article a simplement unitPrice absent (voir convex/exportOrderDocument.ts).
+export interface OrderExportItem {
+  code?: string;
+  description: string;
+  unit?: string;
+  quantity: number;
+  unitPrice?: number;
+}
+
+export interface OrderExportData {
+  vessel?: string;
+  agent?: string;
+  port?: string;
+  orderNo?: string;
+  rfqNo?: string;
+  supplyDate?: string; // ISO AAAA-MM-JJ
+  category?: string;
+  onBehalfName?: string;
+  onBehalfAddress?: string;
+  currency: string;
+  company: ExportCompany;
+  logo?: ExportLogo;
+  discountPercent: number;
+  items: OrderExportItem[];
+}
 
 // ---------------------------------------------------------------------------------------------------------
 // Modèles d'export importés par l'admin. Un modèle est un fichier Excel ordinaire où chaque endroit à remplir est
@@ -68,7 +97,7 @@ export interface TemplateReport {
 }
 
 /** Contrôle un fichier importé comme modèle : lisible, repères connus, une seule ligne d'articles. */
-export async function inspectTemplate(buffer: Buffer): Promise<TemplateReport> {
+export async function inspectTemplate(buffer: Buffer, kind: TemplateKind = "quotation"): Promise<TemplateReport> {
   const workbook = new ExcelJS.Workbook();
   try {
     await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
@@ -78,7 +107,8 @@ export async function inspectTemplate(buffer: Buffer): Promise<TemplateReport> {
   const { all, itemRows } = scan(workbook);
   const errors: string[] = [];
   const warnings: string[] = [];
-  const unknown = [...all].filter((t) => !(t in SCALAR_TOKENS) && !(t in ITEM_TOKENS));
+  const { scalar, item } = tokensFor(kind);
+  const unknown = [...all].filter((t) => !(t in scalar) && !(t in item));
   if (unknown.length > 0) errors.push(`Repère(s) inconnu(s) : ${unknown.map((t) => `{{${t}}}`).join(", ")}.`);
   if (itemRows.length === 0) errors.push("Aucune ligne d'articles : placez des repères {{item_description}}, {{item_quantity}}... sur une ligne du tableau.");
   if (itemRows.length > 1) errors.push(`Les repères d'articles doivent tenir sur une seule ligne (trouvés lignes ${itemRows.map((r) => r.row).join(", ")}).`);
@@ -373,7 +403,7 @@ function wrappedLines(text: string, width: number): number {
 }
 
 /** Pose le logo sur la cellule (ou la zone fusionnée) qui porte {{logo}}, en conservant ses proportions. */
-function placeLogos(workbook: ExcelJS.Workbook, ws: ExcelJS.Worksheet, data: ExportData): void {
+function placeLogos(workbook: ExcelJS.Workbook, ws: ExcelJS.Worksheet, logoData: ExportLogo | undefined): void {
   const spots: Cell[] = [];
   ws.eachRow({ includeEmpty: false }, (row) =>
     row.eachCell({ includeEmpty: false }, (cell) => {
@@ -381,7 +411,7 @@ function placeLogos(workbook: ExcelJS.Workbook, ws: ExcelJS.Worksheet, data: Exp
     }),
   );
   if (spots.length === 0) return;
-  const logo = data.logo ?? { base64: QUOTATION_LOGO_PNG_BASE64, extension: "png" as const, width: 1, height: 1 };
+  const logo = logoData ?? { base64: QUOTATION_LOGO_PNG_BASE64, extension: "png" as const, width: 1, height: 1 };
   const imageId = workbook.addImage({ base64: logo.base64, extension: logo.extension });
   const boxes = mergeBoxes(ws);
   for (const cell of spots) {
@@ -403,21 +433,15 @@ function placeLogos(workbook: ExcelJS.Workbook, ws: ExcelJS.Worksheet, data: Exp
   }
 }
 
-/** Remplit le modèle avec les données de la quotation et renvoie le fichier Excel. */
-export async function renderTemplate(buffer: Buffer, data: ExportData): Promise<Buffer> {
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
+/**
+ * Remplit un modèle déjà chargé : une ligne d'articles (répétée pour chaque entrée de `itemRows`, au moins
+ * une fois) puis les repères simples partout ailleurs, puis le logo. Commun à `renderTemplate` (quotation)
+ * et `renderOrderTemplate` (Purchase Order / Delivery Note) - seule la construction de `scalars`/`itemRows`
+ * diffère entre les deux, le mécanisme Excel (redimensionnement, formules, fusions...) est identique.
+ */
+async function fillWorkbook(workbook: ExcelJS.Workbook, scalars: Vars, itemRows: Vars[], itemTokenKeys: string[], logo: ExportLogo | undefined): Promise<Buffer> {
   normalizeSharedFormulas(workbook);
-
   const unknown = new Set<string>();
-  const items = data.items;
-  const count = items.length;
-  let gross = 0;
-  for (const it of items) if (it.unitPrice !== undefined) gross += round2(it.unitPrice * it.quantity);
-  gross = round2(gross);
-  const discountAmount = round2((gross * data.discountPercent) / 100);
-  const fee = data.transportFee && data.transportFee > 0 ? round2(data.transportFee) : 0;
-  const scalars = scalarVars(data, count, gross, discountAmount, fee);
 
   // 1) lignes d'articles
   const model = scan(workbook).itemRows[0];
@@ -430,28 +454,15 @@ export async function renderTemplate(buffer: Buffer, data: ExportData): Promise<
     modelRow.eachCell({ includeEmpty: true }, (cell, col) => snapshot.push({ col, value: cell.value, style: cell.style }));
     const baseHeight = modelRow.height;
     const hidden = modelRow.hidden;
-    const n = Math.max(count, 1);
+    const n = Math.max(itemRows.length, 1);
     if (n !== 1) resizeRows(workbook, ws, at, 1, n, boxes);
     else for (const b of boxes) ws.mergeCellsWithoutStyle(b.top, b.left, b.bottom, b.right);
 
     for (let i = 0; i < n; i++) {
-      const item = items[i];
+      const item = itemRows[i] as Vars | undefined;
       const vars: Vars = { ...scalars };
-      if (item) {
-        const unitPrice = item.unitPrice !== undefined ? round2(item.unitPrice) : null;
-        Object.assign(vars, {
-          item_no: i + 1,
-          item_code: item.code ?? null,
-          item_description: item.description,
-          item_unit: item.unit ?? null,
-          item_quantity: item.quantity,
-          item_unit_price: unitPrice,
-          item_total: item.unitPrice !== undefined ? round2(item.unitPrice * item.quantity) : null,
-          item_remarks: item.remarks ?? null,
-        });
-      } else {
-        for (const name of Object.keys(ITEM_TOKENS)) vars[name] = null;
-      }
+      if (item) Object.assign(vars, item);
+      else for (const name of itemTokenKeys) vars[name] = null;
       const row = ws.getRow(at + i);
       let lines = 1;
       for (const { col, value, style } of snapshot) {
@@ -484,11 +495,92 @@ export async function renderTemplate(buffer: Buffer, data: ExportData): Promise<
       }),
     );
   });
-  workbook.eachSheet((ws) => placeLogos(workbook, ws, data));
+  workbook.eachSheet((ws) => placeLogos(workbook, ws, logo));
 
   recalculateWorkbook(workbook);
   workbook.calcProperties.fullCalcOnLoad = true;
   return Buffer.from(await workbook.xlsx.writeBuffer());
+}
+
+/** Remplit le modèle avec les données de la quotation et renvoie le fichier Excel. */
+export async function renderTemplate(buffer: Buffer, data: ExportData): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
+
+  const items = data.items;
+  const count = items.length;
+  let gross = 0;
+  for (const it of items) if (it.unitPrice !== undefined) gross += round2(it.unitPrice * it.quantity);
+  gross = round2(gross);
+  const discountAmount = round2((gross * data.discountPercent) / 100);
+  const fee = data.transportFee && data.transportFee > 0 ? round2(data.transportFee) : 0;
+  const scalars = scalarVars(data, count, gross, discountAmount, fee);
+
+  const itemRows: Vars[] = items.map((item, i) => {
+    const unitPrice = item.unitPrice !== undefined ? round2(item.unitPrice) : null;
+    return {
+      item_no: i + 1,
+      item_code: item.code ?? null,
+      item_description: item.description,
+      item_unit: item.unit ?? null,
+      item_quantity: item.quantity,
+      item_unit_price: unitPrice,
+      item_total: item.unitPrice !== undefined ? round2(item.unitPrice * item.quantity) : null,
+      item_remarks: item.remarks ?? null,
+    };
+  });
+
+  return fillWorkbook(workbook, scalars, itemRows, Object.keys(ITEM_TOKENS), data.logo);
+}
+
+function orderScalarVars(data: OrderExportData, gross: number, discountAmount: number): Vars {
+  const c = data.company;
+  return {
+    vessel: data.vessel ?? null,
+    agent: data.agent ?? null,
+    port: data.port ?? null,
+    order_no: data.orderNo ?? null,
+    rfq_no: data.rfqNo ?? null,
+    supply_date: formatDmy(data.supplyDate),
+    category: data.category ?? null,
+    on_behalf_name: data.onBehalfName ?? null,
+    on_behalf_address: data.onBehalfAddress ?? null,
+    currency: data.currency,
+    company_name: c.name ?? null,
+    company_address: c.address ?? null,
+    company_postal: c.postal ?? null,
+    company_email: c.email ?? null,
+    company_phones: c.phones ?? null,
+    company_website: c.website ?? null,
+    subtotal: gross,
+    discount_percent: data.discountPercent,
+    discount_amount: discountAmount,
+    total: round2(gross - discountAmount),
+  };
+}
+
+/** Remplit le modèle de Purchase Order / Delivery Note (voir OrderExportData) et renvoie le fichier Excel. */
+export async function renderOrderTemplate(buffer: Buffer, data: OrderExportData): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
+
+  let gross = 0;
+  for (const it of data.items) if (it.unitPrice !== undefined) gross += round2(it.unitPrice * it.quantity);
+  gross = round2(gross);
+  const discountAmount = round2((gross * data.discountPercent) / 100);
+  const scalars = orderScalarVars(data, gross, discountAmount);
+
+  const itemRows: Vars[] = data.items.map((item, i) => ({
+    item_no: i + 1,
+    item_code: item.code ?? null,
+    item_description: item.description,
+    item_unit: item.unit ?? null,
+    item_quantity: item.quantity,
+    item_unit_price: item.unitPrice !== undefined ? round2(item.unitPrice) : null,
+    item_total: item.unitPrice !== undefined ? round2(item.unitPrice * item.quantity) : null,
+  }));
+
+  return fillWorkbook(workbook, scalars, itemRows, Object.keys(ORDER_ITEM_TOKENS), data.logo);
 }
 
 /** Pour les tests et la préparation de fichiers d'essai. */
